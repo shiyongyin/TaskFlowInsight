@@ -3,7 +3,7 @@
 [![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://www.oracle.com/java/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.5-green.svg)](https://spring.io/projects/spring-boot)
 [![Maven](https://img.shields.io/badge/Maven-3.9.11-blue.svg)](https://maven.apache.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 
 **业务流程任务执行流追踪与分析的Spring Boot可观测性组件**
@@ -473,7 +473,7 @@ git checkout -b feature/your-feature
 
 ## 📄 License
 
-本项目采用 MIT License - 详见 [LICENSE](LICENSE) 文件
+本项目采用 Apache License 2.0 - 详见 [LICENSE](LICENSE) 文件
 
 ## 🙏 致谢
 
