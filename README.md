@@ -175,28 +175,213 @@ java -jar target/TaskFlowInsight-0.0.1-SNAPSHOT.jar
 ### 核心API - TFI门面
 
 ```java
-// 追踪对象变更
+// 任务流追踪
+TFI.startSession("用户订单流程");
+TFI.run("处理订单", () -> {
+    TFI.message("订单验证通过", MessageType.PROCESS);
+    // 业务逻辑
+});
+TFI.stop();
+
+// 对象变更追踪
 TFI.track("user", userObject);
 TFI.track("order", orderObject, "status", "amount");
 
-// 批量追踪
-Map<String, Object> targets = Map.of(
-    "user1", user1,
-    "order1", order1
-);
-TFI.trackAll(targets);
+// 便捷API - 自动追踪变更
+TFI.withTracked("order", orderObject, order -> {
+    order.setStatus("PAID");
+    order.setAmount(299.99);
+});
 
 // 获取变更
 List<ChangeRecord> changes = TFI.getChanges();
 
-// 导出JSON
+// 导出结果
 String json = TFI.exportJson();
-
-// 清理
-TFI.clearTracking();
+TFI.exportConsole();
 ```
 
 详细API文档：[docs/API-REFERENCE.md](docs/API-REFERENCE.md)
+
+## 🎮 交互式演示程序
+
+### 运行完整演示
+
+项目包含一个功能完整的交互式演示程序，展示所有核心功能：
+
+```bash
+# 方式1：使用Maven运行演示
+./mvnw exec:java -Dexec.mainClass="com.syy.taskflowinsight.demo.TaskFlowInsightDemo"
+
+# 方式2：运行JAR后执行演示类
+java -cp target/TaskFlowInsight-0.0.1-SNAPSHOT.jar \
+     com.syy.taskflowinsight.demo.TaskFlowInsightDemo
+
+# 方式3：命令行参数直达
+./mvnw exec:java -Dexec.mainClass="com.syy.taskflowinsight.demo.TaskFlowInsightDemo" \
+     -Dexec.args="1"    # 运行第1章
+     -Dexec.args="all"  # 运行所有章节
+     -Dexec.args="help" # 显示帮助
+```
+
+### 演示效果预览
+
+#### 🚀 启动界面
+```
+================================================================================
+                    TaskFlow Insight 完整功能演示
+================================================================================
+版本: v2.0.0 | 作者: TaskFlow Insight Team
+本演示通过电商系统场景，帮助您快速掌握TaskFlow Insight的使用方法
+================================================================================
+用法: TaskFlowInsightDemo [1|2|3|4|5|6|all|help]
+  1: 快速入门
+  2: 实际业务场景
+  3: 高级特性
+  4: 最佳实践
+  5: 高级API功能
+  6: 变更追踪功能
+  all: 依次运行所有章节
+  help: 显示帮助
+```
+
+#### 📈 任务流追踪效果（第1章 - 快速入门）
+```
+▶ 1.1 Hello World - 最简单的任务追踪
+  执行任务中...
+✅ 恭喜！您已经完成了第一个任务追踪！
+
+📊 任务执行报告:
+==================================================
+TaskFlow Insight Report
+==================================================
+快速入门演示 (660ms, self 277ms, RUNNING)
+    我的第一个任务 (106ms, self 106ms, COMPLETED)
+        |- [业务流程 @2025-09-14T16:53:04.058Z] 任务执行中
+        |- [业务流程 @2025-09-14T16:53:04.164Z] 任务完成
+    父任务 (220ms, self 110ms, COMPLETED)
+        子任务1 (55ms, self 55ms, COMPLETED)
+        子任务2 (55ms, self 55ms, COMPLETED)
+    计算任务 (56ms, self 56ms, COMPLETED)
+        |- [核心指标 @2025-09-14T16:53:04.332Z] 计算结果: 6
+==================================================
+```
+
+#### 🏪 业务场景演示（第2章 - 电商订单流程）
+```
+▶ 2.1 用户下单流程 - 完整的电商订单处理
+📦 处理订单: ORD-1001
+   商品: {AirPods Pro=2, iPhone 15 Pro=1}
+
+电商订单处理 (1.9s, self 644ms, RUNNING)
+    处理订单-ORD-1001 (1.1s, self 543ms, COMPLETED)
+        |- [核心指标] 订单总金额: ¥10437.30
+        订单验证 (55ms, self 55ms, COMPLETED)
+        库存检查 (70ms, self 70ms, COMPLETED)
+        价格计算 (52ms, self 52ms, COMPLETED)
+            |- [✏️变更记录] 应用VIP折扣: -¥1159.700
+        支付处理 (206ms, self 206ms, COMPLETED)
+            |- [✏️变更记录] 支付成功，交易号: PAY-1757868810811
+        扣减库存 (51ms, self 51ms, COMPLETED)
+            |- [✏️变更记录] AirPods Pro 库存: 100 → 98
+            |- [✏️变更记录] iPhone 15 Pro 库存: 50 → 49
+```
+
+#### 🔄 对象变更追踪（第6章 - 变更检测）
+```
+============================================================
+场景1：显式API方式（手动管理追踪生命周期）
+============================================================
+初始订单状态：
+  订单ID: ORD-001
+  状态: PENDING
+  金额: 999.0
+
+执行支付处理...
+
+--- Console输出 ---
+order-payment (513ms, self 513ms, COMPLETED)
+    |- [✏️变更记录] - [UPDATE] order.amount: 999.0 → 1299.0
+    |- [✏️变更记录] - [UPDATE] order.status: PENDING → PAID
+
+--- JSON输出片段 ---
+{"messages":[
+  {"type":"CHANGE","content":"- [UPDATE] order.amount: 999.0 → 1299.0"},
+  {"type":"CHANGE","content":"- [UPDATE] order.status: PENDING → PAID"}
+]}
+```
+
+### 演示章节内容
+
+演示程序包含6个渐进式学习章节：
+
+#### 📚 第1章 - 快速入门 (QuickStartChapter)
+- Hello World - 最简单的任务追踪
+- 任务嵌套与层级展示
+- 消息类型使用（INFO/DEBUG/WARN/ERROR）
+
+#### 🏪 第2章 - 业务场景 (BusinessScenarioChapter)
+- 电商订单处理流程追踪
+- 支付、库存、物流集成示例
+- 真实业务场景模拟
+
+#### 🚀 第3章 - 高级特性 (AdvancedFeaturesChapter)
+- 并发任务追踪
+- 异常处理与错误追踪
+- 性能监控与统计
+
+#### 📋 第4章 - 最佳实践 (BestPracticesChapter)
+- 生产环境配置建议
+- 性能优化技巧
+- 常见问题解决方案
+
+#### 🔧 第5章 - 高级API (AdvancedApiChapter)
+- 自定义导出格式
+- 扩展点与插件机制
+- 与Spring AOP集成
+
+#### 🔄 第6章 - 变更追踪 (ChangeTrackingChapter)
+- 对象状态变更检测
+- 深度快照与对比
+- 审计日志生成
+
+### 演示代码位置
+
+```
+src/main/java/com/syy/taskflowinsight/demo/
+├── TaskFlowInsightDemo.java      # 主入口
+├── chapters/                      # 各章节实现
+│   ├── QuickStartChapter.java    # 快速入门
+│   ├── BusinessScenarioChapter.java # 业务场景
+│   ├── AdvancedFeaturesChapter.java # 高级特性
+│   ├── BestPracticesChapter.java    # 最佳实践
+│   ├── AdvancedApiChapter.java      # 高级API
+│   └── ChangeTrackingChapter.java   # 变更追踪
+├── core/                          # 演示框架
+│   ├── DemoChapter.java         # 章节接口
+│   └── DemoRegistry.java        # 章节注册
+├── model/                        # 演示模型
+│   ├── Order.java               # 订单模型
+│   └── UserOrderResult.java     # 结果模型
+├── service/                      # 演示服务
+│   └── EcommerceDemoService.java # 电商服务
+└── util/                         # 工具类
+    ├── DemoUI.java              # UI展示
+    └── DemoUtils.java           # 辅助工具
+```
+
+### 快速体验示例
+
+```java
+// 最简单的使用方式
+TFI.startSession("我的业务流程");
+TFI.run("处理用户请求", () -> {
+    // 你的业务代码
+    processUserRequest();
+    TFI.message("处理成功");
+});
+TFI.exportConsole(); // 控制台输出追踪结果
+```
 
 ## 📊 可观测性
 
