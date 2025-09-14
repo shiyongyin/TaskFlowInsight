@@ -1,0 +1,91 @@
+server:
+  port: 19090
+
+# Spring Boot Actuator监控配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: 
+          - health
+          - info
+          - taskflow
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+
+# Context Management配置 (MVP核心功能)
+# 高级监控功能已规划为可选增强功能，当前专注核心稳定性
+
+taskflow:
+  monitoring:
+    endpoint:
+      enabled: false   # 默认为false；开启后暴露 /actuator/taskflow 只读端点
+  context:
+    max-context-age-millis: 3600000
+    leak-detection:
+      enabled: false
+      interval-millis: 60000
+  threadlocal:
+    context-max-age-millis: 3600000
+    cleanup:
+      enabled: false
+      interval-millis: 60000
+
+# TaskFlowInsight 变更追踪配置 (VIP-007 MVP最小配置集)
+tfi:
+  change-tracking:
+    enabled: false                      # 主开关，需显式启用
+    value-repr-max-length: 8192        # 值表示最大长度
+    cleanup-interval-minutes: 5         # 清理间隔（0=禁用）
+    max-cached-classes: 1024           # 反射缓存大小
+    
+    # 快照配置
+    snapshot:
+      enable-deep: false                # 深度快照开关（默认禁用，保证兼容性）
+      max-depth: 3                      # 最大遍历深度
+      max-stack-depth: 1000            # 栈深度限制（防止栈溢出）
+      time-budget-ms: 50               # 单次快照时间预算（毫秒）
+      collection-summary-threshold: 100 # 集合摘要阈值
+      metrics-enabled: true            # 启用性能指标
+      include-patterns: []             # 包含路径模式（空=全部）
+      exclude-patterns:                # 排除路径模式
+        - "*.password"
+        - "*.secret"
+        - "*.token"
+        - "*.key"
+        - "*.credential"
+    
+    # 集合摘要
+    summary:
+      enabled: true                     # 默认启用
+      max-size: 100                    # 触发摘要的阈值
+      max-examples: 10                 # 示例数量
+    
+    # 差异检测
+    diff:
+      output-mode: compat              # compat/enhanced
+      include-null-changes: false      # 忽略null->null
+      max-changes-per-object: 1000    # 单对象最大变更数
+    
+    # 导出格式
+    export:
+      format: json                     # json/console/map
+      pretty-print: true               # 格式化输出
+      show-timestamp: false            # 显示时间戳
+      include-sensitive-info: false   # 包含敏感信息（默认脱敏）
+
+# 日志配置
+logging:
+  level:
+    # Core context lifecycle (SafeContextManager, ManagedThreadContext, etc.)
+    com.syy.taskflowinsight.context: INFO
+    # Change tracking internals (DiffDetector, ObjectSnapshot, ChangeTracker)
+    com.syy.taskflowinsight.tracking: INFO
+    # API facade logs (TFI facade)
+    com.syy.taskflowinsight.api: INFO
+    # Examples for development troubleshooting (uncomment as needed)
+    # com.syy.taskflowinsight.context.SafeContextManager: DEBUG
+    # com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager: DEBUG

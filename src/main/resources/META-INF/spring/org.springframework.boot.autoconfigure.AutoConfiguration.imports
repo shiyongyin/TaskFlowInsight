@@ -1,0 +1,2 @@
+com.syy.taskflowinsight.config.ContextMonitoringAutoConfiguration
+com.syy.taskflowinsight.config.ChangeTrackingAutoConfiguration
