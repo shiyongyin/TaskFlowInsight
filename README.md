@@ -34,6 +34,8 @@ cd TaskFlowInsight
 
 **恭喜！你已经看到了流程的灵魂** 👻
 
+**想要详细入门指导？** → [📖 完整入门指南](GETTING-STARTED.md)
+
 ---
 
 ## 🚀 快速体验（2分钟上手）
@@ -194,6 +196,8 @@ GET /actuator/tfi/context    // 上下文状态查看
 ### 🏦 **金融交易链路**
 合规审计留痕，交易过程全记录
 
+**想看实际案例？** → [💡 11个实战示例](EXAMPLES.md)
+
 ---
 
 ## 📈 性能数据（生产环境验证）
@@ -234,20 +238,41 @@ GET /actuator/tfi/context    // 上下文状态查看
 
 ---
 
-## 🤝 加入我们
+## 📚 文档导航
 
-### 👍 **提交 PR 流程**
-1. 🍴 Fork 项目
-2. 🌿 创建特性分支
-3. 📝 提交变更
-4. 🚀 推送到分支
-5. 🎯 创建 Pull Request
+### 👥 用户文档
+- 📖 [入门指南](GETTING-STARTED.md) - 5分钟从零到运行
+- 💡 [实战示例](EXAMPLES.md) - 11个真实业务场景  
+- 🚀 [部署指南](DEPLOYMENT.md) - 生产环境最佳实践
+
+### 🛠️ 支持文档
+- ❓ [常见问题](FAQ.md) - 40个常见问题解答
+- 🔧 [故障排除](TROUBLESHOOTING.md) - 详细问题诊断
+- 🔒 [安全配置](SECURITY.md) - 企业级安全指南
+
+### 🤝 开发者文档
+- 🤝 [贡献指南](CONTRIBUTING.md) - 如何参与开发
+
+---
+
+## 🆘 获取帮助
+
+遇到问题？按以下顺序查找答案：
+1. [FAQ](FAQ.md) - 快速找到常见问题答案
+2. [故障排除](TROUBLESHOOTING.md) - 详细的诊断步骤  
+3. [GitHub Issues](https://github.com/shiyongyin/TaskFlowInsight/issues) - 报告新问题
+
+---
+
+## 🤝 加入我们
 
 ### 🔧 **需要你的力量**
 - 真实场景反馈
 - 性能优化建议  
 - 文档完善
 - 新功能创意
+
+**如何贡献？** → [🤝 完整贡献指南](CONTRIBUTING.md)
 
 ---
 
