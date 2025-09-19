@@ -10,7 +10,51 @@ import java.io.StringWriter;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * JsonExporter单元测试
+ * JsonExporter 单元测试 - JSON导出功能完整性验证
+ * 
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>采用分层测试策略，从基础JSON格式到复杂业务场景逐步验证</li>
+ *   <li>使用@Order注解确保测试执行顺序，便于问题定位和调试</li>
+ *   <li>通过多种输出模式测试验证COMPAT和ENHANCED模式的差异性</li>
+ *   <li>结合性能测试确保大数据量场景下的可用性</li>
+ *   <li>使用边界值测试验证极端条件下的稳定性</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>JSON格式验证：</strong>有效JSON结构、null会话处理、基础格式校验</li>
+ *   <li><strong>数据完整性：</strong>Session所有字段序列化、TaskNode树递归、Message列表处理</li>
+ *   <li><strong>特殊字符处理：</strong>引号转义、反斜杠转义、换行符/制表符处理、Unicode字符支持</li>
+ *   <li><strong>导出模式：</strong>COMPAT模式（毫秒精度）vs ENHANCED模式（纳秒精度+统计信息）</li>
+ *   <li><strong>流式输出：</strong>Writer接口支持、大数据流式处理、内存效率验证</li>
+ *   <li><strong>性能基准：</strong>1000节点<20ms、5000节点流式输出、序列化效率</li>
+ *   <li><strong>边界条件：</strong>100层深度嵌套、null字段处理、极端数据量</li>
+ * </ul>
+ * 
+ * <h2>测试场景：</h2>
+ * <ul>
+ *   <li><strong>基础格式：</strong>JSON结构完整性、null输入安全处理</li>
+ *   <li><strong>数据序列化：</strong>Session+TaskNode+Message完整序列化</li>
+ *   <li><strong>字符转义：</strong>特殊字符、控制字符、Unicode字符处理</li>
+ *   <li><strong>模式切换：</strong>COMPAT模式 vs ENHANCED模式功能差异</li>
+ *   <li><strong>性能验证：</strong>1000节点序列化性能、流式输出效率</li>
+ *   <li><strong>极限测试：</strong>深度嵌套、大数据量、异常边界</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>格式正确：</strong>生成有效JSON，符合标准JSON语法规范</li>
+ *   <li><strong>数据完整：</strong>所有业务数据都正确序列化到JSON中</li>
+ *   <li><strong>字符安全：</strong>特殊字符正确转义，不破坏JSON结构</li>
+ *   <li><strong>模式准确：</strong>两种模式输出内容符合各自设计目标</li>
+ *   <li><strong>性能达标：</strong>1000节点<20ms，5000节点流式输出稳定</li>
+ *   <li><strong>边界稳定：</strong>极端条件下不抛异常，输出仍然有效</li>
+ * </ul>
+ * 
+ * @author TaskFlow Insight Team
+ * @version 1.0.0
+ * @since 2025-01-06
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class JsonExporterTest {

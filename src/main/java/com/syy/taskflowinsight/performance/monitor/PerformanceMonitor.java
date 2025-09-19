@@ -200,7 +200,7 @@ public class PerformanceMonitor {
         // 检查延迟
         if (current.getP95Micros() > sla.getMaxLatencyMs() * 1000) {
             raiseAlert(operation + ".latency", AlertLevel.WARNING,
-                String.format("%s P95 latency %.2fms exceeds SLA %dms",
+                String.format("%s P95 latency %.2fms exceeds SLA %.2fms",
                     operation, current.getP95Micros() / 1000.0, sla.getMaxLatencyMs()));
         }
         

@@ -6,8 +6,61 @@ import org.junit.jupiter.api.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * ManagedThreadContext单元测试
- * 专注于单个类的内部逻辑验证
+ * ManagedThreadContext 单元测试 - 托管线程上下文内部逻辑验证
+ * 
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>专注于单个ManagedThreadContext类的内部逻辑验证</li>
+ *   <li>使用try-with-resources模式验证AutoCloseable资源管理</li>
+ *   <li>通过任务栈操作测试验证层次化任务管理</li>
+ *   <li>采用状态转换测试确保生命周期管理的正确性</li>
+ *   <li>使用边界条件测试验证异常情况下的健壮性</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>基础属性：</strong>上下文ID、线程信息、时间戳、会话关联</li>
+ *   <li><strong>任务栈管理：</strong>startTask/endTask、任务深度、路径生成</li>
+ *   <li><strong>属性存储：</strong>setAttribute/getAttribute、多类型数据支持</li>
+ *   <li><strong>快照创建：</strong>createSnapshot、上下文状态保存</li>
+ *   <li><strong>会话生命周期：</strong>会话创建、结束、状态同步</li>
+ *   <li><strong>资源管理：</strong>close操作、资源清理、多次关闭安全性</li>
+ *   <li><strong>异常处理：</strong>无会话操作、空栈操作、关闭后操作</li>
+ *   <li><strong>状态验证：</strong>toString表示、closed状态检查</li>
+ * </ul>
+ * 
+ * <h2>任务栈管理机制：</h2>
+ * <ul>
+ *   <li><strong>层次结构：</strong>root → child1 → child2 形成任务调用栈</li>
+ *   <li><strong>路径生成：</strong>自动生成"root/child1/child2"格式的任务路径</li>
+ *   <li><strong>深度跟踪：</strong>实时维护任务栈深度计数</li>
+ *   <li><strong>栈操作：</strong>支持任务开始（压栈）和结束（出栈）</li>
+ * </ul>
+ * 
+ * <h2>测试场景：</h2>
+ * <ul>
+ *   <li><strong>创建验证：</strong>基础属性、会话关联、初始状态</li>
+ *   <li><strong>任务操作：</strong>3层嵌套任务的开始、结束、状态管理</li>
+ *   <li><strong>属性管理：</strong>字符串、整数、对象等不同类型数据存储</li>
+ *   <li><strong>快照功能：</strong>当前状态快照创建和信息验证</li>
+ *   <li><strong>生命周期：</strong>会话结束、上下文关闭、资源清理</li>
+ *   <li><strong>错误处理：</strong>无会话操作、空栈操作、重复关闭</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>属性正确：</strong>所有基础属性都准确设置和获取</li>
+ *   <li><strong>栈管理有效：</strong>任务栈操作正确，深度计算准确</li>
+ *   <li><strong>存储可靠：</strong>属性存储和检索功能完全正常</li>
+ *   <li><strong>快照完整：</strong>快照包含完整的上下文状态信息</li>
+ *   <li><strong>生命周期正确：</strong>会话和上下文状态转换符合预期</li>
+ *   <li><strong>资源安全：</strong>资源能够正确清理，关闭操作安全</li>
+ *   <li><strong>异常健壮：</strong>异常情况下正确抛出预期异常</li>
+ * </ul>
+ * 
+ * @author TaskFlow Insight Team
+ * @version 1.0.0
+ * @since 2025-01-06
  */
 class ManagedThreadContextTest {
     

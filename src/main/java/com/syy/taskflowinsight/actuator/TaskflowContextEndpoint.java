@@ -11,7 +11,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
-@Endpoint(id = "taskflow")
+@Endpoint(id = "taskflow-context")
 @ConditionalOnProperty(prefix = "taskflow.monitoring.endpoint", name = "enabled", havingValue = "true")
 public class TaskflowContextEndpoint {
 

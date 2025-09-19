@@ -11,8 +11,52 @@ import org.junit.jupiter.api.AfterEach;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Session类测试
- * 测试会话管理、生命周期和线程本地功能
+ * Session 类单元测试 - 会话管理与线程本地存储验证
+ * 
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>基于会话生命周期设计状态转换测试（RUNNING→COMPLETED/ERROR）</li>
+ *   <li>使用线程本地存储验证多线程环境下的会话隔离</li>
+ *   <li>通过激活/取消激活机制测试会话的线程绑定功能</li>
+ *   <li>采用清理机制测试验证资源管理和内存泄漏防护</li>
+ *   <li>结合实际业务场景测试会话与任务的完整集成</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>会话创建：</strong>创建、参数验证、初始状态设置</li>
+ *   <li><strong>激活管理：</strong>activate/deactivate、线程本地存储、当前会话获取</li>
+ *   <li><strong>状态转换：</strong>complete/error状态转换、重复操作异常处理</li>
+ *   <li><strong>线程隔离：</strong>多线程环境下会话独立性验证</li>
+ *   <li><strong>资源管理：</strong>活跃会话计数、非活跃会话清理</li>
+ *   <li><strong>时间戳管理：</strong>创建/完成时间、持续时间计算</li>
+ *   <li><strong>根任务集成：</strong>会话状态与根任务状态同步</li>
+ *   <li><strong>异常处理：</strong>无效状态转换的异常处理</li>
+ * </ul>
+ * 
+ * <h2>测试场景：</h2>
+ * <ul>
+ *   <li><strong>基础操作：</strong>会话创建、激活、状态查询</li>
+ *   <li><strong>生命周期：</strong>complete/error状态转换及异常场景</li>
+ *   <li><strong>多会话：</strong>同线程多会话切换、会话替换机制</li>
+ *   <li><strong>多线程：</strong>5线程并发会话管理、线程隔离验证</li>
+ *   <li><strong>集成测试：</strong>会话+任务树+消息的完整业务流程</li>
+ *   <li><strong>资源清理：</strong>活跃会话统计、清理机制验证</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>会话创建正确：</strong>ID唯一、线程信息准确、初始状态正确</li>
+ *   <li><strong>激活机制有效：</strong>线程本地存储正确、会话切换无误</li>
+ *   <li><strong>状态转换可靠：</strong>状态按预期转换、异常处理健壮</li>
+ *   <li><strong>线程隔离完全：</strong>多线程环境下会话完全独立</li>
+ *   <li><strong>资源管理良好：</strong>计数准确、清理机制有效</li>
+ *   <li><strong>集成功能完整：</strong>会话与根任务状态保持同步</li>
+ * </ul>
+ * 
+ * @author TaskFlow Insight Team
+ * @version 1.0.0
+ * @since 2025-01-06
  */
 class SessionTest {
     

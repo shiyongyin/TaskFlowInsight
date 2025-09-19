@@ -1,0 +1,316 @@
+{
+  "properties": [
+    {
+      "name": "tfi.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Master switch to enable TaskFlowInsight globally. Default false for security."
+    },
+    {
+      "name": "tfi.change-tracking.enabled", 
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable change tracking functionality for monitoring object state changes."
+    },
+    {
+      "name": "tfi.change-tracking.value-repr-max-length",
+      "type": "java.lang.Integer", 
+      "defaultValue": 8192,
+      "description": "Maximum length for value representation in change tracking."
+    },
+    {
+      "name": "tfi.context.max-age-millis",
+      "type": "java.lang.Long",
+      "defaultValue": 3600000,
+      "description": "Maximum age of context entries in milliseconds."
+    },
+    {
+      "name": "tfi.context.leak-detection-enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable leak detection for context entries."
+    },
+    {
+      "name": "tfi.context.leak-detection-interval-millis",
+      "type": "java.lang.Long",
+      "defaultValue": 60000,
+      "description": "Interval between leak detection checks in milliseconds."
+    },
+    {
+      "name": "tfi.context.cleanup-enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable automatic cleanup of expired context entries."
+    },
+    {
+      "name": "tfi.context.cleanup-interval-millis",
+      "type": "java.lang.Long",
+      "defaultValue": 60000,
+      "description": "Interval between cleanup operations in milliseconds."
+    },
+    {
+      "name": "tfi.metrics.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enable metrics collection and export."
+    },
+    {
+      "name": "tfi.security.enable-data-masking",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enable data masking for sensitive fields."
+    },
+    {
+      "name": "tfi.annotation.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable TFI annotation processing. Requires tfi.enabled=true."
+    },
+    {
+      "name": "tfi.change-tracking.cleanup-interval-minutes",
+      "type": "java.lang.Integer",
+      "defaultValue": 5,
+      "description": "Cleanup interval for change tracking cache in minutes."
+    },
+    {
+      "name": "tfi.change-tracking.max-cached-classes",
+      "type": "java.lang.Integer",
+      "defaultValue": 1024,
+      "description": "Maximum number of classes to cache for change tracking."
+    },
+    {
+      "name": "tfi.change-tracking.snapshot.max-depth",
+      "type": "java.lang.Integer",
+      "defaultValue": 3,
+      "description": "Maximum depth for object snapshot traversal."
+    },
+    {
+      "name": "tfi.change-tracking.snapshot.max-elements",
+      "type": "java.lang.Integer",
+      "defaultValue": 100,
+      "description": "Maximum number of elements to capture in collections."
+    },
+    {
+      "name": "tfi.change-tracking.snapshot.excludes",
+      "type": "java.util.Set<java.lang.String>",
+      "defaultValue": ["*.password", "*.secret", "*.token", "*.key"],
+      "description": "Field patterns to exclude from snapshots for security."
+    },
+    {
+      "name": "tfi.change-tracking.snapshot.max-stack-depth",
+      "type": "java.lang.Integer",
+      "defaultValue": 1000,
+      "description": "Maximum stack depth for snapshot capture."
+    },
+    {
+      "name": "tfi.change-tracking.snapshot.enable-deep",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable deep snapshot capturing for nested objects."
+    },
+    {
+      "name": "tfi.change-tracking.diff.include-null-changes",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Include null value changes in diff output."
+    },
+    {
+      "name": "tfi.change-tracking.diff.max-changes-per-object",
+      "type": "java.lang.Integer",
+      "defaultValue": 1000,
+      "description": "Maximum number of changes to track per object."
+    },
+    {
+      "name": "tfi.change-tracking.diff.normalize-values",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Normalize values before comparing for changes."
+    },
+    {
+      "name": "tfi.change-tracking.export.pretty-print",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enable pretty printing for exported change tracking data."
+    },
+    {
+      "name": "tfi.change-tracking.export.show-timestamp",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Include timestamps in exported change tracking data."
+    },
+    {
+      "name": "tfi.change-tracking.export.include-sensitive-info",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Include sensitive information in exported data (security risk)."
+    },
+    {
+      "name": "tfi.change-tracking.export.include-metadata",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Include metadata information in exported change tracking data."
+    },
+    {
+      "name": "tfi.change-tracking.summary.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enable change tracking summary generation."
+    },
+    {
+      "name": "tfi.change-tracking.summary.max-size",
+      "type": "java.lang.Integer",
+      "defaultValue": 100,
+      "description": "Maximum size of change tracking summary."
+    },
+    {
+      "name": "tfi.change-tracking.summary.max-examples",
+      "type": "java.lang.Integer",
+      "defaultValue": 10,
+      "description": "Maximum number of examples in change tracking summary."
+    },
+    {
+      "name": "tfi.change-tracking.summary.sensitive-words",
+      "type": "java.util.Set<java.lang.String>",
+      "defaultValue": ["password", "token", "secret", "key", "credential"],
+      "description": "Words to treat as sensitive in change tracking summary."
+    },
+    {
+      "name": "tfi.metrics.tags",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "defaultValue": {},
+      "description": "Additional tags to apply to metrics."
+    }
+  ],
+  "hints": [
+    {
+      "name": "tfi.change-tracking.export.format",
+      "values": [
+        {
+          "value": "json",
+          "description": "JSON format output"
+        },
+        {
+          "value": "console",
+          "description": "Console output format"
+        },
+        {
+          "value": "map",
+          "description": "Map format output"
+        }
+      ]
+    },
+    {
+      "name": "tfi.change-tracking.diff.output-mode",
+      "values": [
+        {
+          "value": "compat",
+          "description": "Compatible output mode"
+        },
+        {
+          "value": "enhanced",
+          "description": "Enhanced diff output mode"
+        }
+      ]
+    },
+    {
+      "name": "tfi.metrics.export-interval",
+      "values": [
+        {
+          "value": "PT1M",
+          "description": "1 minute - frequent exports"
+        },
+        {
+          "value": "PT5M",
+          "description": "5 minutes - balanced frequency"
+        },
+        {
+          "value": "PT10M", 
+          "description": "10 minutes - reduced overhead"
+        },
+        {
+          "value": "PT30M",
+          "description": "30 minutes - low frequency"
+        }
+      ]
+    },
+    {
+      "name": "tfi.security.sensitive-fields",
+      "values": [
+        {
+          "value": "password",
+          "description": "Password fields"
+        },
+        {
+          "value": "token",
+          "description": "Authentication tokens"
+        },
+        {
+          "value": "secret",
+          "description": "Secret values"
+        },
+        {
+          "value": "key",
+          "description": "Key fields"
+        },
+        {
+          "value": "credential",
+          "description": "Credential information"
+        }
+      ]
+    },
+    {
+      "name": "tfi.change-tracking.snapshot.excludes",
+      "values": [
+        {
+          "value": "*.password",
+          "description": "Exclude all password fields"
+        },
+        {
+          "value": "*.secret",
+          "description": "Exclude all secret fields"
+        },
+        {
+          "value": "*.token",
+          "description": "Exclude all token fields"
+        },
+        {
+          "value": "*.key",
+          "description": "Exclude all key fields"
+        },
+        {
+          "value": "*.credential",
+          "description": "Exclude all credential fields"
+        }
+      ]
+    },
+    {
+      "name": "tfi.change-tracking.summary.sensitive-words",
+      "values": [
+        {
+          "value": "password",
+          "description": "Password related content"
+        },
+        {
+          "value": "token",
+          "description": "Token related content"
+        },
+        {
+          "value": "secret",
+          "description": "Secret related content"
+        },
+        {
+          "value": "key",
+          "description": "Key related content"
+        },
+        {
+          "value": "credential",
+          "description": "Credential related content"
+        },
+        {
+          "value": "auth",
+          "description": "Authentication related content"
+        }
+      ]
+    }
+  ]
+}

@@ -6,6 +6,8 @@ import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -34,8 +36,8 @@ public class TrackingStatistics {
         this.totalChangesDetected = new AtomicInteger(0);
         this.totalTrackingTimeNanos = new AtomicLong(0);
         this.changesByType = new EnumMap<>(ChangeType.class);
-        this.objectStats = new HashMap<>();
-        this.performanceSnapshots = new ArrayList<>();
+        this.objectStats = new ConcurrentHashMap<>();
+        this.performanceSnapshots = new CopyOnWriteArrayList<>();
         
         // 初始化变更类型计数器
         for (ChangeType type : ChangeType.values()) {
@@ -48,7 +50,9 @@ public class TrackingStatistics {
      */
     public void recordObjectTracked(String objectName) {
         totalObjectsTracked.incrementAndGet();
-        objectStats.computeIfAbsent(objectName, k -> new ObjectStatistics(k));
+        // 处理null值和空字符串
+        String safeName = (objectName == null) ? "<null>" : objectName.trim().isEmpty() ? "<empty>" : objectName;
+        objectStats.computeIfAbsent(safeName, k -> new ObjectStatistics(k));
     }
     
     /**
@@ -64,12 +68,17 @@ public class TrackingStatistics {
         
         // 按类型统计
         for (ChangeRecord change : changes) {
-            changesByType.get(change.getChangeType()).incrementAndGet();
+            if (change.getChangeType() != null) {
+                changesByType.get(change.getChangeType()).incrementAndGet();
+            }
             
             // 更新对象统计
-            ObjectStatistics objStats = objectStats.get(change.getObjectName());
-            if (objStats != null) {
-                objStats.recordChange(change);
+            String objectName = change.getObjectName();
+            if (objectName != null) {
+                ObjectStatistics objStats = objectStats.get(objectName);
+                if (objStats != null) {
+                    objStats.recordChange(change);
+                }
             }
         }
         
@@ -221,7 +230,7 @@ public class TrackingStatistics {
         public ObjectStatistics(String objectName) {
             this.objectName = objectName;
             this.totalChanges = new AtomicInteger(0);
-            this.fieldChangeCounts = new HashMap<>();
+            this.fieldChangeCounts = new ConcurrentHashMap<>();
             this.changeTypeCounts = new EnumMap<>(ChangeType.class);
             
             for (ChangeType type : ChangeType.values()) {
@@ -239,7 +248,7 @@ public class TrackingStatistics {
         public String getObjectName() { return objectName; }
         public int getTotalChanges() { return totalChanges.get(); }
         public Map<String, Integer> getFieldChangeCounts() {
-            Map<String, Integer> result = new HashMap<>();
+            Map<String, Integer> result = new ConcurrentHashMap<>();
             fieldChangeCounts.forEach((k, v) -> result.put(k, v.get()));
             return result;
         }

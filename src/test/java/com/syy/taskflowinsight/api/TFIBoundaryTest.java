@@ -13,17 +13,59 @@ import java.util.concurrent.Callable;
 import static org.assertj.core.api.Assertions.*;
 
 /**
- * TFI API边界条件和异常场景测试
+ * TFI API边界条件和异常场景测试 - 极限情况健壮性验证套件
  * 
- * 测试场景：
- * 1. null参数处理
- * 2. 空字符串和空白字符串
- * 3. 极端长度字符串
- * 4. 异常状态操作
- * 5. 资源管理边界情况
- * 6. 格式化异常处理
- * 7. 深度嵌套边界
- * 8. 内存压力测试
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>采用破坏性测试策略，专门测试API在极端条件下的行为</li>
+ *   <li>使用边界值分析方法，测试输入参数的临界值</li>
+ *   <li>通过压力测试验证系统在资源受限时的稳定性</li>
+ *   <li>采用容错性验证，确保异常输入不会导致系统崩溃</li>
+ *   <li>使用超时控制防止测试陷入死循环或无限等待</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>参数边界：</strong>null值、空字符串、极长字符串、特殊字符</li>
+ *   <li><strong>状态边界：</strong>无上下文操作、重复操作、不一致状态</li>
+ *   <li><strong>资源边界：</strong>内存压力、深度嵌套、资源竞争</li>
+ *   <li><strong>格式化边界：</strong>无效格式串、参数不匹配、特殊转义</li>
+ *   <li><strong>并发边界：</strong>快速创建销毁、状态竞争、资源争用</li>
+ *   <li><strong>禁用状态：</strong>禁用模式下的所有操作验证</li>
+ *   <li><strong>异常回调：</strong>回调函数中的异常处理</li>
+ *   <li><strong>嵌套极限：</strong>万级深度嵌套的性能和稳定性</li>
+ * </ul>
+ * 
+ * <h2>性能场景：</h2>
+ * <ul>
+ *   <li><strong>极限嵌套：</strong>10,000层任务嵌套测试，30秒超时</li>
+ *   <li><strong>内存压力：</strong>1000个任务×100条消息×10个子任务</li>
+ *   <li><strong>字符串极限：</strong>1MB长度字符串处理性能</li>
+ *   <li><strong>资源竞争：</strong>1000次快速创建/销毁循环</li>
+ *   <li><strong>批量操作：</strong>大量边界条件输入的批处理性能</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>异常安全性：</strong>所有边界条件下都不抛出异常</li>
+ *   <li><strong>返回值正确性：</strong>边界输入返回合理的默认值或安全值</li>
+ *   <li><strong>内存稳定性：</strong>极限测试后内存能够正常回收</li>
+ *   <li><strong>状态一致性：</strong>异常情况下系统状态保持一致</li>
+ *   <li><strong>性能可控性：</strong>极限条件下性能降级但不崩溃</li>
+ *   <li><strong>资源清理：</strong>所有测试后资源都能正确释放</li>
+ * </ul>
+ * 
+ * <h3>具体测试场景：</h3>
+ * <ol>
+ *   <li><strong>null参数处理：</strong>所有API的null输入安全性</li>
+ *   <li><strong>空字符串和空白字符串：</strong>各种空值的处理策略</li>
+ *   <li><strong>极端长度字符串：</strong>1MB级别字符串的处理能力</li>
+ *   <li><strong>异常状态操作：</strong>无上下文、重复操作的容错性</li>
+ *   <li><strong>资源管理边界情况：</strong>极限嵌套和内存压力测试</li>
+ *   <li><strong>格式化异常处理：</strong>无效格式串的安全处理</li>
+ *   <li><strong>深度嵌套边界：</strong>万级嵌套的性能和稳定性</li>
+ *   <li><strong>内存压力测试：</strong>大量对象创建的内存管理</li>
+ * </ol>
  * 
  * @author TaskFlow Insight Team
  * @version 1.0.0

@@ -1,6 +1,8 @@
 package com.syy.taskflowinsight.api;
 
 import com.syy.taskflowinsight.context.ManagedThreadContext;
+import com.syy.taskflowinsight.core.TfiCore;
+import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
@@ -15,6 +17,10 @@ import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshot;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,10 +43,28 @@ import java.util.concurrent.Callable;
 public final class TFI {
     
     private static final Logger logger = LoggerFactory.getLogger(TFI.class);
-    private static volatile boolean globalEnabled = true;
     
-    /** 变更追踪功能开关（默认启用，由配置控制） */
-    private static volatile boolean changeTrackingEnabled = true;
+    // 核心服务引用（唯一的静态字段，通过ApplicationReadyEvent注入或懒加载兜底）
+    private static volatile TfiCore core;
+    
+    // 懒加载标记，确保兜底初始化只执行一次
+    private static volatile boolean fallbackInitialized = false;
+    
+    /**
+     * 内部注入器类
+     * 用于在Spring启动完成后注入TfiCore实例
+     */
+    @Component
+    static class CoreInjector implements ApplicationListener<ApplicationReadyEvent> {
+        @Autowired
+        private TfiCore tfiCore;
+        
+        @Override
+        public void onApplicationEvent(ApplicationReadyEvent event) {
+            TFI.core = tfiCore;
+            logger.info("TfiCore injected into TFI facade at application ready");
+        }
+    }
     
     /**
      * 私有构造函数，防止实例化
@@ -56,8 +80,10 @@ public final class TFI {
      */
     public static void enable() {
         try {
-            globalEnabled = true;
-            logger.debug("TaskFlow Insight enabled");
+            ensureCoreInitialized();
+            if (core != null) {
+                core.enable();
+            }
         } catch (Throwable t) {
             handleInternalError("Failed to enable TFI", t);
         }
@@ -68,8 +94,10 @@ public final class TFI {
      */
     public static void disable() {
         try {
-            globalEnabled = false;
-            logger.debug("TaskFlow Insight disabled");
+            ensureCoreInitialized();
+            if (core != null) {
+                core.disable();
+            }
         } catch (Throwable t) {
             handleInternalError("Failed to disable TFI", t);
         }
@@ -81,7 +109,8 @@ public final class TFI {
      * @return true 如果系统已启用
      */
     public static boolean isEnabled() {
-        return globalEnabled;
+        ensureCoreInitialized();
+        return core != null && core.isEnabled();
     }
     
     /**
@@ -159,7 +188,7 @@ public final class TFI {
             handleInternalError("Failed to end session", t);
         } finally {
             // 清理变更追踪数据（三处清理之一）
-            if (changeTrackingEnabled) {
+            if (isChangeTrackingEnabled()) {
                 try {
                     ChangeTracker.clearAllTracking();
                 } catch (Throwable t) {
@@ -170,6 +199,61 @@ public final class TFI {
     }
     
     // ==================== 任务管理方法 ====================
+    
+    /**
+     * 创建一个Stage（AutoCloseable任务块）
+     * 
+     * <p>这是一个简化的任务创建API，专为try-with-resources设计：
+     * <pre>{@code
+     * try (var stage = TFI.stage("数据处理")) {
+     *     stage.message("开始处理");
+     *     // 业务逻辑
+     *     stage.success();
+     * } // 自动调用close()结束任务
+     * }</pre>
+     * 
+     * @param stageName Stage名称
+     * @return TaskContext 支持AutoCloseable的任务上下文
+     * @since 3.0.0
+     */
+    public static TaskContext stage(String stageName) {
+        return start(stageName);  // 复用现有start()逻辑
+    }
+    
+    /**
+     * 在Stage中执行操作（函数式API）
+     * 
+     * <p>提供函数式编程风格的Stage API：
+     * <pre>{@code
+     * TFI.stage("数据处理", stage -> {
+     *     stage.message("开始处理");
+     *     // 业务逻辑
+     *     return "处理结果";
+     * });
+     * }</pre>
+     * 
+     * @param stageName Stage名称
+     * @param stageFunction 要在Stage中执行的函数
+     * @param <T> 返回值类型
+     * @return 执行结果，如果失败返回null
+     * @since 3.0.0
+     */
+    public static <T> T stage(String stageName, StageFunction<T> stageFunction) {
+        if (!isEnabled() || stageFunction == null) {
+            try {
+                return stageFunction != null ? stageFunction.apply(NullTaskContext.INSTANCE) : null;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        
+        try (TaskContext stage = start(stageName)) {
+            return stageFunction.apply(stage);
+        } catch (Throwable t) {
+            handleInternalError("Failed to execute stage: " + stageName, t);
+            return null;
+        }
+    }
     
     /**
      * 开始一个新任务
@@ -218,7 +302,7 @@ public final class TFI {
         
         try {
             // 先刷新变更记录（如果启用了变更追踪）
-            if (changeTrackingEnabled) {
+            if (isChangeTrackingEnabled()) {
                 flushChangesToCurrentTask();
             }
             
@@ -231,7 +315,7 @@ public final class TFI {
             handleInternalError("Failed to stop task", t);
         } finally {
             // 清理变更追踪数据
-            if (changeTrackingEnabled) {
+            if (isChangeTrackingEnabled()) {
                 try {
                     ChangeTracker.clearAllTracking();
                 } catch (Throwable t) {
@@ -624,7 +708,7 @@ public final class TFI {
      * @param changeType 变更类型
      */
     public static void recordChange(String objectName, String fieldName, Object oldValue, Object newValue, ChangeType changeType) {
-        if (!isEnabled() || !changeTrackingEnabled) {
+        if (!isChangeTrackingEnabled()) {
             return;
         }
         
@@ -680,7 +764,7 @@ public final class TFI {
      */
     public static void clearAllTracking() {
         // 状态检查（即使禁用也应该能清理）
-        if (!globalEnabled) {
+        if (!isEnabled()) {
             return;
         }
         
@@ -705,7 +789,7 @@ public final class TFI {
      * @param fields 要追踪的字段名列表
      */
     public static void withTracked(String name, Object target, Runnable action, String... fields) {
-        if (!isEnabled() || !changeTrackingEnabled) {
+        if (!isChangeTrackingEnabled()) {
             // 即使禁用追踪，也要执行业务逻辑
             if (action != null) {
                 action.run();
@@ -749,8 +833,10 @@ public final class TFI {
      * @param enabled true启用，false禁用
      */
     public static void setChangeTrackingEnabled(boolean enabled) {
-        changeTrackingEnabled = enabled;
-        logger.debug("Change tracking {}", enabled ? "enabled" : "disabled");
+        ensureCoreInitialized();
+        if (core != null) {
+            core.setChangeTrackingEnabled(enabled);
+        }
     }
     
     /**
@@ -759,7 +845,7 @@ public final class TFI {
      * @return true如果启用
      */
     public static boolean isChangeTrackingEnabled() {
-        return changeTrackingEnabled && isEnabled();
+        return core != null && core.isChangeTrackingEnabled();
     }
     
     // ==================== 导出方法 ====================
@@ -841,6 +927,49 @@ public final class TFI {
     }
     
     // ==================== 内部辅助方法 ====================
+    
+    /**
+     * 确保TfiCore已初始化（懒加载兜底机制）
+     * 
+     * 在非Spring环境下，如果core为null，则使用默认配置创建TfiCore实例
+     * 此方法是线程安全的，只会初始化一次
+     * 不会影响Spring正常的注入流程
+     */
+    private static void ensureCoreInitialized() {
+        // 快速检查（避免同步开销）
+        if (core != null) {
+            return;
+        }
+        
+        // 双重检查锁定模式
+        synchronized (TFI.class) {
+            if (core == null && !fallbackInitialized) {
+                try {
+                    // 创建默认配置（与TaskFlowInsightDemo中的保持一致）
+                    TfiConfig defaultConfig = new TfiConfig(
+                        true, // 启用TFI
+                        new TfiConfig.ChangeTracking(true, null, null, null, null, null, null, null), // 启用变更追踪
+                        new TfiConfig.Context(null, null, null, null, null),
+                        new TfiConfig.Metrics(null, null, null),
+                        new TfiConfig.Security(null, null)
+                    );
+                    
+                    // 创建TfiCore实例
+                    core = new TfiCore(defaultConfig);
+                    fallbackInitialized = true;
+                    
+                    logger.info("TFI fallback initialization completed - running in non-Spring mode with default configuration");
+                    
+                } catch (Exception e) {
+                    fallbackInitialized = true; // 避免重复尝试
+                    logger.error("TFI fallback initialization failed: {}", e.getMessage());
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Fallback initialization error details", e);
+                    }
+                }
+            }
+        }
+    }
     
     /**
      * 刷新变更记录到当前任务（增强版）
@@ -1061,7 +1190,7 @@ public final class TFI {
      * @return true如果应该继续执行，false如果应该直接返回
      */
     private static boolean checkEnabledQuick() {
-        return globalEnabled && changeTrackingEnabled;
+        return isChangeTrackingEnabled();
     }
     
     /**
@@ -1071,10 +1200,10 @@ public final class TFI {
      * @return true如果应该继续执行
      */
     private static boolean checkEnabled(boolean requireChangeTracking) {
-        if (!globalEnabled) {
+        if (!isEnabled()) {
             return false;
         }
-        if (requireChangeTracking && !changeTrackingEnabled) {
+        if (requireChangeTracking && !isChangeTrackingEnabled()) {
             return false;
         }
         return true;

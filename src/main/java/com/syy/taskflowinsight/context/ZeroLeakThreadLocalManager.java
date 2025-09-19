@@ -99,19 +99,8 @@ public final class ZeroLeakThreadLocalManager {
             return t;
         });
         
-        // 从系统属性读取监控配置
-        String enabledProp = System.getProperty("taskflow.threadlocal.cleanup.enabled");
-        if (enabledProp != null) {
-            this.cleanupEnabled = Boolean.parseBoolean(enabledProp);
-        }
-        String intervalProp = System.getProperty("taskflow.threadlocal.cleanup.intervalMillis");
-        if (intervalProp != null) {
-            try { this.cleanupIntervalMillis = Long.parseLong(intervalProp); } catch (NumberFormatException ignore) {}
-        }
-        // 懒启动：仅在启用时创建调度
-        if (this.cleanupEnabled) {
-            startPeriodicCleanup();
-        }
+        // 使用默认配置，完全由 TfiConfig/自动配置驱动，不再读取系统属性
+        // 清理任务将在 setCleanupEnabled(true) 或 setCleanupIntervalMillis(..) 时按需启动
         
         // 注册关闭钩子
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "TFI-ThreadLocalShutdown"));
@@ -213,6 +202,28 @@ public final class ZeroLeakThreadLocalManager {
         } else if (cleanupScheduler != null) {
             cleanupScheduler.shutdownNow();
             cleanupScheduler = null;
+        }
+    }
+
+    /**
+     * 设置上下文超时（毫秒）
+     */
+    public synchronized void setContextTimeoutMillis(long timeoutMillis) {
+        this.contextTimeoutMillis = timeoutMillis;
+    }
+
+    /**
+     * 设置清理调度间隔（毫秒）
+     * 若清理已启用，则重启调度器以应用新的间隔
+     */
+    public synchronized void setCleanupIntervalMillis(long intervalMillis) {
+        this.cleanupIntervalMillis = intervalMillis;
+        if (cleanupEnabled) {
+            if (cleanupScheduler != null) {
+                cleanupScheduler.shutdownNow();
+                cleanupScheduler = null;
+            }
+            startPeriodicCleanup();
         }
     }
     
@@ -365,16 +376,6 @@ public final class ZeroLeakThreadLocalManager {
         logger.info("Diagnostic mode enabled, reflection cleanup: {}", reflectionCleanupEnabled);
     }
 
-    /**
-     * 设置上下文最大存活时长（毫秒）
-     * 用于外部配置覆盖默认值
-     * @param timeoutMillis 超时时长（毫秒）
-     */
-    public void setContextTimeoutMillis(long timeoutMillis) {
-        if (timeoutMillis > 0) {
-            this.contextTimeoutMillis = timeoutMillis;
-        }
-    }
     
     /**
      * 禁用诊断模式
