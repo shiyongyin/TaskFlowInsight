@@ -1,10 +1,14 @@
 package com.syy.taskflowinsight.demo;
 
 import com.syy.taskflowinsight.api.TFI;
+import com.syy.taskflowinsight.core.TfiCore;
+import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.demo.chapters.*;
 import com.syy.taskflowinsight.demo.core.DemoChapter;
 import com.syy.taskflowinsight.demo.core.DemoRegistry;
 import com.syy.taskflowinsight.demo.util.DemoUI;
+
+import java.lang.reflect.Field;
 
 import java.util.Optional;
 import java.util.Scanner;
@@ -27,7 +31,8 @@ import java.util.Scanner;
  * - 模型定义：src/main/java/com/syy/taskflowinsight/demo/model/*.java
  * - 展示工具：src/main/java/com/syy/taskflowinsight/demo/util/*.java
  */
-public class TaskFlowInsightDemo {
+public class
+TaskFlowInsightDemo {
     public static void main(String[] args) {
         DemoUI.printHeader();
         DemoRegistry registry = new DemoRegistry()
@@ -36,9 +41,12 @@ public class TaskFlowInsightDemo {
                 .register(new AdvancedFeaturesChapter())
                 .register(new BestPracticesChapter())
                 .register(new AdvancedApiChapter())
-                .register(new ChangeTrackingChapter());
+                .register(new ChangeTrackingChapter())
+                .register(new AsyncPropagationChapter());
 
         try {
+            // 手动初始化TfiCore以支持独立运行
+            initializeTfiCore();
             TFI.enable();
 
             // 支持命令行直达：1..6 | all | help
@@ -124,5 +132,34 @@ public class TaskFlowInsightDemo {
         System.out.println("  help: 显示帮助");
         System.out.println();
         System.out.println("提示：在交互界面按 'h' 可查看代码路径与目录结构");
+    }
+    
+    /**
+     * 手动初始化TfiCore以支持独立运行Demo
+     */
+    private static void initializeTfiCore() {
+        try {
+            // 创建默认配置
+            TfiConfig config = new TfiConfig(
+                true, // 启用TFI
+                new TfiConfig.ChangeTracking(true, null, null, null, null, null, null, null), // 启用变更追踪
+                new TfiConfig.Context(null, null, null, null, null),
+                new TfiConfig.Metrics(null, null, null),
+                new TfiConfig.Security(null, null)
+            );
+            
+            // 创建TfiCore实例
+            TfiCore tfiCore = new TfiCore(config);
+            
+            // 使用反射注入到TFI的core字段
+            Field coreField = TFI.class.getDeclaredField("core");
+            coreField.setAccessible(true);
+            coreField.set(null, tfiCore);
+            
+            System.out.println("✅ TfiCore 手动初始化成功！现在可以看到完整的树形结构输出了。");
+        } catch (Exception e) {
+            System.err.println("❌ TfiCore 初始化失败: " + e.getMessage());
+            System.out.println("💡 提示：某些高级功能可能无法正常工作，但基本演示仍可继续。");
+        }
     }
 }
