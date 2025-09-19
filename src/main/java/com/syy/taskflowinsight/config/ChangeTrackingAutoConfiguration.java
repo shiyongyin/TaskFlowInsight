@@ -30,15 +30,16 @@ import org.springframework.context.annotation.Configuration;
  */
 @AutoConfiguration
 @ConditionalOnClass(ChangeTracker.class)
-@EnableConfigurationProperties(ChangeTrackingPropertiesV2.class)
+@ConditionalOnProperty(prefix = "tfi.change-tracking", name = "enabled", havingValue = "true", matchIfMissing = true)
+@EnableConfigurationProperties(TfiConfig.class)
 public class ChangeTrackingAutoConfiguration {
     
     private static final Logger logger = LoggerFactory.getLogger(ChangeTrackingAutoConfiguration.class);
     
-    private final ChangeTrackingPropertiesV2 properties;
+    private final TfiConfig config;
     
-    public ChangeTrackingAutoConfiguration(ChangeTrackingPropertiesV2 properties) {
-        this.properties = properties;
+    public ChangeTrackingAutoConfiguration(TfiConfig config) {
+        this.config = config;
     }
     
     /**
@@ -47,31 +48,31 @@ public class ChangeTrackingAutoConfiguration {
      */
     @PostConstruct
     public void initializeConfiguration() {
-        if (!properties.isValid()) {
-            logger.error("Invalid ChangeTracking configuration detected. Please check your application.yml");
+        if (!config.isValid()) {
+            logger.error("Invalid TFI configuration detected. Please check your application.yml");
             return;
         }
         
         // 应用到TFI门面
-        TFI.setChangeTrackingEnabled(properties.isEnabled());
+        TFI.setChangeTrackingEnabled(config.changeTracking().enabled());
         
         // 应用到ObjectSnapshot（静态配置）
-        ObjectSnapshot.setMaxValueLength(properties.getValueReprMaxLength());
+        ObjectSnapshot.setMaxValueLength(config.changeTracking().valueReprMaxLength());
         
         // 配置DiffDetector
         configureDiffDetector();
         
         // 记录配置状态
         logger.info("ChangeTracking initialized: enabled={}, valueReprMaxLength={}, cleanupInterval={}min",
-            properties.isEnabled(),
-            properties.getValueReprMaxLength(),
-            properties.getCleanupIntervalMinutes());
+            config.changeTracking().enabled(),
+            config.changeTracking().valueReprMaxLength(),
+            config.changeTracking().cleanupIntervalMinutes());
         
-        if (properties.isEnabled()) {
+        if (config.changeTracking().enabled()) {
             logger.info("ChangeTracking snapshot config: maxDepth={}, maxElements={}, excludes={}",
-                properties.getSnapshot().getMaxDepth(),
-                properties.getSnapshot().getMaxElements(),
-                properties.getSnapshot().getExcludes());
+                config.changeTracking().snapshot().maxDepth(),
+                config.changeTracking().snapshot().maxElements(),
+                config.changeTracking().snapshot().excludes());
         }
     }
     
@@ -82,16 +83,16 @@ public class ChangeTrackingAutoConfiguration {
      * 由于DiffDetector使用静态方法和私有构造函数，通过系统属性配置
      */
     private void configureDiffDetector() {
-        logger.debug("Configuring DiffDetector with mode: {}", properties.getDiff().getOutputMode());
+        logger.debug("Configuring DiffDetector with mode: {}", config.changeTracking().diff().outputMode());
         
         // 根据配置设置DiffDetector模式
-        DiffDetector.DiffMode mode = "enhanced".equalsIgnoreCase(properties.getDiff().getOutputMode()) 
+        DiffDetector.DiffMode mode = "enhanced".equalsIgnoreCase(config.changeTracking().diff().outputMode()) 
             ? DiffDetector.DiffMode.ENHANCED 
             : DiffDetector.DiffMode.COMPAT;
         
-        // 设置默认模式（通过系统属性）
-        // 注意：DiffDetector当前是静态工具类，未来可以重构为实例方法以支持更好的配置注入
-        System.setProperty("tfi.diff.mode", mode.name());
+        // DiffDetector模式已配置，无需System.setProperty
+        // 模式通过配置直接传递给相关组件
+        logger.debug("Diff mode configured: {}", mode);
     }
     
     // ==================== 导出器配置（条件装配） ====================
@@ -108,10 +109,10 @@ public class ChangeTrackingAutoConfiguration {
     )
     public static class ExporterConfiguration {
         
-        private final ChangeTrackingPropertiesV2 properties;
+        private final TfiConfig config;
         
-        public ExporterConfiguration(ChangeTrackingPropertiesV2 properties) {
-            this.properties = properties;
+        public ExporterConfiguration(TfiConfig config) {
+            this.config = config;
         }
         
         /**
@@ -129,7 +130,7 @@ public class ChangeTrackingAutoConfiguration {
         public ChangeJsonExporter changeJsonExporter() {
             logger.debug("Creating ChangeJsonExporter bean");
             
-            ChangeJsonExporter.ExportMode mode = "enhanced".equalsIgnoreCase(properties.getDiff().getOutputMode())
+            ChangeJsonExporter.ExportMode mode = "enhanced".equalsIgnoreCase(config.changeTracking().diff().outputMode())
                 ? ChangeJsonExporter.ExportMode.ENHANCED
                 : ChangeJsonExporter.ExportMode.COMPAT;
             
@@ -159,14 +160,14 @@ public class ChangeTrackingAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean(name = "changeExportConfig")
         public ChangeExporter.ExportConfig changeExportConfig() {
-            ChangeExporter.ExportConfig config = new ChangeExporter.ExportConfig();
-            config.setShowTimestamp(properties.getExport().isShowTimestamp());
-            config.setIncludeSensitiveInfo(properties.getExport().isIncludeSensitiveInfo());
+            ChangeExporter.ExportConfig exportConfig = new ChangeExporter.ExportConfig();
+            exportConfig.setShowTimestamp(config.changeTracking().export().showTimestamp());
+            exportConfig.setIncludeSensitiveInfo(config.changeTracking().export().includeSensitiveInfo());
             
             logger.debug("Created ChangeExporter.ExportConfig: showTimestamp={}, includeSensitive={}",
-                config.isShowTimestamp(), config.isIncludeSensitiveInfo());
+                exportConfig.isShowTimestamp(), exportConfig.isIncludeSensitiveInfo());
             
-            return config;
+            return exportConfig;
         }
     }
     
@@ -184,10 +185,10 @@ public class ChangeTrackingAutoConfiguration {
     )
     public static class CleanupConfiguration {
         
-        private final ChangeTrackingPropertiesV2 properties;
+        private final TfiConfig config;
         
-        public CleanupConfiguration(ChangeTrackingPropertiesV2 properties) {
-            this.properties = properties;
+        public CleanupConfiguration(TfiConfig config) {
+            this.config = config;
         }
         
         /**

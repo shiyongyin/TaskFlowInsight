@@ -9,59 +9,36 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 @AutoConfiguration
-@EnableConfigurationProperties({
-    ContextManagerProperties.class, 
-    ThreadLocalManagerProperties.class, 
-    MonitoringEndpointProperties.class,
-    ChangeTrackingProperties.class
-})
+@EnableConfigurationProperties(TfiConfig.class)
 public class ContextMonitoringAutoConfiguration {
 
-    private final ContextManagerProperties contextProps;
-    private final ThreadLocalManagerProperties threadLocalProps;
-    private final ChangeTrackingProperties changeTrackingProps;
+    private final TfiConfig config;
 
-    public ContextMonitoringAutoConfiguration(ContextManagerProperties contextProps,
-                                              ThreadLocalManagerProperties threadLocalProps,
-                                              ChangeTrackingProperties changeTrackingProps) {
-        this.contextProps = contextProps;
-        this.threadLocalProps = threadLocalProps;
-        this.changeTrackingProps = changeTrackingProps;
+    public ContextMonitoringAutoConfiguration(TfiConfig config) {
+        this.config = config;
     }
 
     @PostConstruct
     public void applyMonitoringProperties() {
         // 应用变更追踪配置
-        if (changeTrackingProps != null) {
-            TFI.setChangeTrackingEnabled(changeTrackingProps.isEnabled());
-            // 注入值表示最大长度配置
-            ObjectSnapshot.setMaxValueLength(changeTrackingProps.getValueReprMaxLength());
-        }
-        // 应用到 SafeContextManager
+        TFI.setChangeTrackingEnabled(config.changeTracking().enabled());
+        // 注入值表示最大长度配置
+        ObjectSnapshot.setMaxValueLength(config.changeTracking().valueReprMaxLength());
+        
+        // 应用到 SafeContextManager（使用TfiConfig驱动的配置）
         SafeContextManager mgr = SafeContextManager.getInstance();
-        if (contextProps.getMaxContextAgeMillis() != null) {
-            mgr.setContextTimeoutMillis(contextProps.getMaxContextAgeMillis());
-        }
-        if (contextProps.getLeakDetection() != null) {
-            var ld = contextProps.getLeakDetection();
-            if (ld.getIntervalMillis() != null) {
-                mgr.setLeakDetectionIntervalMillis(ld.getIntervalMillis());
-            }
-            mgr.setLeakDetectionEnabled(ld.isEnabled());
-        }
+        mgr.configureFromTfiConfig(config);
 
         // 应用到 ZeroLeakThreadLocalManager
         ZeroLeakThreadLocalManager zlm = ZeroLeakThreadLocalManager.getInstance();
-        if (threadLocalProps.getContextMaxAgeMillis() != null) {
-            zlm.setContextTimeoutMillis(threadLocalProps.getContextMaxAgeMillis());
+        // 注意：这里假设context.maxAgeMillis同时应用于两个管理器
+        if (config.context().maxAgeMillis() != null) {
+            zlm.setContextTimeoutMillis(config.context().maxAgeMillis());
         }
-        if (threadLocalProps.getCleanup() != null) {
-            var cu = threadLocalProps.getCleanup();
-            if (cu.getIntervalMillis() != null) {
-                System.setProperty("taskflow.threadlocal.cleanup.intervalMillis",
-                        String.valueOf(cu.getIntervalMillis()));
-            }
-            zlm.setCleanupEnabled(cu.isEnabled());
+        if (config.context().cleanupIntervalMillis() != null) {
+            // 删除 System.setProperty，直接设置到管理器
+            zlm.setCleanupIntervalMillis(config.context().cleanupIntervalMillis());
         }
+        zlm.setCleanupEnabled(config.context().cleanupEnabled());
     }
 }
