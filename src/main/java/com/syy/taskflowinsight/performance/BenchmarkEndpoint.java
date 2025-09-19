@@ -2,7 +2,6 @@ package com.syy.taskflowinsight.performance;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -29,14 +29,17 @@ public class BenchmarkEndpoint {
     
     private static final Logger logger = LoggerFactory.getLogger(BenchmarkEndpoint.class);
     
-    @Autowired(required = false)
-    private BenchmarkRunner runner;
+    private final Optional<BenchmarkRunner> runner;
     
     // 存储最近的报告
     private final Map<String, BenchmarkReport> reportCache = new ConcurrentHashMap<>();
     
     // 异步执行的任务
     private final Map<String, CompletableFuture<BenchmarkReport>> runningTasks = new ConcurrentHashMap<>();
+    
+    public BenchmarkEndpoint(Optional<BenchmarkRunner> runner) {
+        this.runner = runner;
+    }
     
     /**
      * 运行所有基准测试
@@ -46,7 +49,7 @@ public class BenchmarkEndpoint {
             @RequestParam(defaultValue = "false") boolean async,
             @RequestParam(defaultValue = "default") String tag) {
         
-        if (runner == null) {
+        if (runner.isEmpty()) {
             return ResponseEntity.status(503)
                 .body(Map.of("error", "Benchmark runner not available"));
         }
@@ -59,7 +62,7 @@ public class BenchmarkEndpoint {
             }
             
             CompletableFuture<BenchmarkReport> future = CompletableFuture.supplyAsync(() -> {
-                BenchmarkReport report = runner.runAll();
+                BenchmarkReport report = runner.get().runAll();
                 reportCache.put(tag, report);
                 return report;
             });
@@ -77,7 +80,7 @@ public class BenchmarkEndpoint {
                 ));
         } else {
             // 同步执行
-            BenchmarkReport report = runner.runAll();
+            BenchmarkReport report = runner.get().runAll();
             reportCache.put(tag, report);
             return ResponseEntity.ok(report.toJson());
         }
@@ -90,7 +93,7 @@ public class BenchmarkEndpoint {
     public ResponseEntity<Map<String, Object>> runSpecificBenchmark(
             @PathVariable String testName) {
         
-        if (runner == null) {
+        if (runner.isEmpty()) {
             return ResponseEntity.status(503)
                 .body(Map.of("error", "Benchmark runner not available"));
         }
@@ -99,19 +102,19 @@ public class BenchmarkEndpoint {
         
         switch (testName) {
             case "change_tracking":
-                result = runner.benchmarkChangeTracking();
+                result = runner.get().benchmarkChangeTracking();
                 break;
             case "object_snapshot":
-                result = runner.benchmarkObjectSnapshot();
+                result = runner.get().benchmarkObjectSnapshot();
                 break;
             case "path_matching":
-                result = runner.benchmarkPathMatching();
+                result = runner.get().benchmarkPathMatching();
                 break;
             case "collection_summary":
-                result = runner.benchmarkCollectionSummary();
+                result = runner.get().benchmarkCollectionSummary();
                 break;
             case "concurrent_tracking":
-                result = runner.benchmarkConcurrentTracking();
+                result = runner.get().benchmarkConcurrentTracking();
                 break;
             default:
                 return ResponseEntity.badRequest()

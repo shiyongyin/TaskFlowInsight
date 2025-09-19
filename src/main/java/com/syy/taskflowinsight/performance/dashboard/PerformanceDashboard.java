@@ -10,7 +10,6 @@ import com.syy.taskflowinsight.performance.monitor.Alert;
 import com.syy.taskflowinsight.performance.monitor.AlertLevel;
 import com.syy.taskflowinsight.performance.monitor.MetricSnapshot;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
@@ -41,11 +40,14 @@ import java.util.stream.Collectors;
 @ConditionalOnProperty(name = "tfi.performance.dashboard.enabled", havingValue = "true", matchIfMissing = true)
 public class PerformanceDashboard implements AlertListener {
     
-    @Autowired(required = false)
-    private PerformanceMonitor monitor;
+    private final Optional<PerformanceMonitor> monitor;
+    private final Optional<BenchmarkRunner> benchmarkRunner;
     
-    @Autowired(required = false)
-    private BenchmarkRunner benchmarkRunner;
+    public PerformanceDashboard(Optional<PerformanceMonitor> monitor, 
+                               Optional<BenchmarkRunner> benchmarkRunner) {
+        this.monitor = monitor;
+        this.benchmarkRunner = benchmarkRunner;
+    }
     
     // Dashboard状态
     private final Map<String, Object> dashboardData = new ConcurrentHashMap<>();
@@ -55,8 +57,8 @@ public class PerformanceDashboard implements AlertListener {
     
     @PostConstruct
     public void init() {
-        if (monitor != null) {
-            monitor.registerAlertListener(this);
+        if (monitor.isPresent()) {
+            monitor.get().registerAlertListener(this);
         }
         updateDashboard();
     }
@@ -99,11 +101,11 @@ public class PerformanceDashboard implements AlertListener {
      */
     @GetMapping("/history/{metric}")
     public Map<String, Object> history(@PathVariable String metric) {
-        if (monitor == null) {
+        if (monitor.isEmpty()) {
             return Collections.singletonMap("error", "Monitor not available");
         }
         
-        Map<String, List<MetricSnapshot>> history = monitor.getHistory();
+        Map<String, List<MetricSnapshot>> history = monitor.get().getHistory();
         
         if ("all".equals(metric)) {
             return new HashMap<>(history);
@@ -128,8 +130,8 @@ public class PerformanceDashboard implements AlertListener {
             .limit(20)
             .collect(Collectors.toList()));
         
-        if (monitor != null) {
-            PerformanceReport report = monitor.getReport();
+        if (monitor.isPresent()) {
+            PerformanceReport report = monitor.get().getReport();
             alertsInfo.put("active_alerts", report.getActiveAlerts());
             alertsInfo.put("alerts_by_level", report.getAlertsByLevel());
         }
@@ -142,7 +144,7 @@ public class PerformanceDashboard implements AlertListener {
      */
     @PostMapping("/benchmark/{type}")
     public Map<String, Object> benchmark(@PathVariable String type) {
-        if (benchmarkRunner == null) {
+        if (benchmarkRunner.isEmpty()) {
             return Collections.singletonMap("error", "Benchmark runner not available");
         }
         
@@ -152,17 +154,17 @@ public class PerformanceDashboard implements AlertListener {
         
         try {
             if ("all".equals(type)) {
-                lastBenchmarkReport = benchmarkRunner.runAll();
+                lastBenchmarkReport = benchmarkRunner.get().runAll();
                 result.put("status", "completed");
                 result.put("report", lastBenchmarkReport.toMap());
             } else {
                 // 运行特定测试
                 var benchmarkResult = switch (type) {
-                    case "snapshot" -> benchmarkRunner.benchmarkObjectSnapshot();
-                    case "tracking" -> benchmarkRunner.benchmarkChangeTracking();
-                    case "path" -> benchmarkRunner.benchmarkPathMatching();
-                    case "collection" -> benchmarkRunner.benchmarkCollectionSummary();
-                    case "concurrent" -> benchmarkRunner.benchmarkConcurrentTracking();
+                    case "snapshot" -> benchmarkRunner.get().benchmarkObjectSnapshot();
+                    case "tracking" -> benchmarkRunner.get().benchmarkChangeTracking();
+                    case "path" -> benchmarkRunner.get().benchmarkPathMatching();
+                    case "collection" -> benchmarkRunner.get().benchmarkCollectionSummary();
+                    case "concurrent" -> benchmarkRunner.get().benchmarkConcurrentTracking();
                     default -> null;
                 };
                 
@@ -193,7 +195,7 @@ public class PerformanceDashboard implements AlertListener {
             @RequestParam(required = false) Double minThroughput,
             @RequestParam(required = false) Double maxErrorRate) {
         
-        if (monitor == null) {
+        if (monitor.isEmpty()) {
             return Collections.singletonMap("error", "Monitor not available");
         }
         
@@ -204,7 +206,7 @@ public class PerformanceDashboard implements AlertListener {
             .maxErrorRate(maxErrorRate != null ? maxErrorRate : 0.01)
             .build();
         
-        monitor.configureSLA(operation, config);
+        monitor.get().configureSLA(operation, config);
         
         Map<String, Object> result = new HashMap<>();
         result.put("status", "configured");
@@ -218,16 +220,16 @@ public class PerformanceDashboard implements AlertListener {
      */
     @DeleteMapping("/alerts/{key}")
     public Map<String, Object> clearAlerts(@PathVariable String key) {
-        if (monitor == null) {
+        if (monitor.isEmpty()) {
             return Collections.singletonMap("error", "Monitor not available");
         }
         
         if ("all".equals(key)) {
-            monitor.clearAllAlerts();
+            monitor.get().clearAllAlerts();
             recentAlerts.clear();
             return Collections.singletonMap("status", "all alerts cleared");
         } else {
-            monitor.clearAlert(key);
+            monitor.get().clearAlert(key);
             return Collections.singletonMap("status", "alert cleared: " + key);
         }
     }
@@ -238,8 +240,8 @@ public class PerformanceDashboard implements AlertListener {
      * 更新Dashboard数据
      */
     private void updateDashboard() {
-        if (monitor != null) {
-            PerformanceReport report = monitor.getReport();
+        if (monitor.isPresent()) {
+            PerformanceReport report = monitor.get().getReport();
             dashboardData.put("current_report", report.toMap());
             dashboardData.put("last_update", System.currentTimeMillis());
         }
@@ -249,9 +251,9 @@ public class PerformanceDashboard implements AlertListener {
      * 获取系统状态
      */
     private String getSystemStatus() {
-        if (monitor == null) return "UNKNOWN";
+        if (monitor.isEmpty()) return "UNKNOWN";
         
-        PerformanceReport report = monitor.getReport();
+        PerformanceReport report = monitor.get().getReport();
         if (report.hasCriticalAlerts()) {
             return "CRITICAL";
         } else if (report.getAlertCount() > 0) {
@@ -265,9 +267,9 @@ public class PerformanceDashboard implements AlertListener {
      * 获取指标摘要
      */
     private Map<String, Object> getMetricsSummary() {
-        if (monitor == null) return Collections.emptyMap();
+        if (monitor.isEmpty()) return Collections.emptyMap();
         
-        PerformanceReport report = monitor.getReport();
+        PerformanceReport report = monitor.get().getReport();
         Map<String, Object> summary = new HashMap<>();
         
         report.getMetrics().forEach((name, snapshot) -> {
@@ -288,8 +290,8 @@ public class PerformanceDashboard implements AlertListener {
         Map<String, Object> summary = new HashMap<>();
         summary.put("total", totalAlerts.get());
         
-        if (monitor != null) {
-            PerformanceReport report = monitor.getReport();
+        if (monitor.isPresent()) {
+            PerformanceReport report = monitor.get().getReport();
             summary.put("active", report.getAlertCount());
             
             Map<String, Long> byLevel = new HashMap<>();
@@ -308,8 +310,8 @@ public class PerformanceDashboard implements AlertListener {
     private Map<String, Object> getSystemHealth() {
         Map<String, Object> health = new HashMap<>();
         
-        if (monitor != null) {
-            PerformanceReport report = monitor.getReport();
+        if (monitor.isPresent()) {
+            PerformanceReport report = monitor.get().getReport();
             health.put("heap_usage", String.format("%.1f%%", report.getHeapUsagePercent()));
             health.put("thread_count", report.getThreadCount());
             
@@ -358,11 +360,11 @@ public class PerformanceDashboard implements AlertListener {
      * 获取实时报告
      */
     private Map<String, Object> getRealtimeReport() {
-        if (monitor == null) {
+        if (monitor.isEmpty()) {
             return Collections.singletonMap("error", "Monitor not available");
         }
         
-        return monitor.getReport().toMap();
+        return monitor.get().getReport().toMap();
     }
     
     /**

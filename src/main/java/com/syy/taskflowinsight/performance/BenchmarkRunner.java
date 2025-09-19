@@ -2,7 +2,6 @@ package com.syy.taskflowinsight.performance;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -11,7 +10,7 @@ import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import com.syy.taskflowinsight.tracking.ChangeTracker;
 import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshot;
 import com.syy.taskflowinsight.context.ThreadContext;
-import com.syy.taskflowinsight.tracking.path.PathMatcherCache;
+import com.syy.taskflowinsight.tracking.path.PathMatcherCacheInterface;
 import com.syy.taskflowinsight.tracking.summary.CollectionSummary;
 
 import java.util.*;
@@ -40,14 +39,9 @@ public class BenchmarkRunner {
     
     private static final Logger logger = LoggerFactory.getLogger(BenchmarkRunner.class);
     
-    @Autowired(required = false)
-    private ChangeTracker changeTracker;
-    
-    @Autowired(required = false)
-    private PathMatcherCache pathMatcher;
-    
-    @Autowired(required = false)
-    private CollectionSummary collectionSummary;
+    private final Optional<ChangeTracker> changeTracker;
+    private final Optional<PathMatcherCacheInterface> pathMatcher;
+    private final Optional<CollectionSummary> collectionSummary;
     
     @Value("${tfi.performance.warmup-iterations:1000}")
     private int warmupIterations = 1000;
@@ -57,6 +51,14 @@ public class BenchmarkRunner {
     
     @Value("${tfi.performance.thread-count:4}")
     private int threadCount = 4;
+    
+    public BenchmarkRunner(Optional<ChangeTracker> changeTracker, 
+                          Optional<PathMatcherCacheInterface> pathMatcher,
+                          Optional<CollectionSummary> collectionSummary) {
+        this.changeTracker = changeTracker;
+        this.pathMatcher = pathMatcher;
+        this.collectionSummary = collectionSummary;
+    }
     
     /**
      * 运行所有基准测试
@@ -174,7 +176,8 @@ public class BenchmarkRunner {
      */
     public BenchmarkResult benchmarkPathMatching() {
         if (pathMatcher == null) {
-            pathMatcher = new PathMatcherCache();
+            logger.warn("PathMatcherCacheInterface not injected, skipping path matching benchmark");
+            return BenchmarkResult.error("path_matching", "PathMatcherCacheInterface not available");
         }
         
         logger.debug("Benchmarking path matching...");
@@ -195,7 +198,7 @@ public class BenchmarkRunner {
         for (int i = 0; i < warmupIterations; i++) {
             String path = paths.get(i % paths.size());
             String pattern = patterns.get(i % patterns.size());
-            pathMatcher.matches(path, pattern);
+            if (pathMatcher.isPresent()) pathMatcher.get().matches(path, pattern);
         }
         
         // 测试
@@ -207,7 +210,7 @@ public class BenchmarkRunner {
             String pattern = patterns.get(random.nextInt(patterns.size()));
             
             long start = System.nanoTime();
-            pathMatcher.matches(path, pattern);
+            if (pathMatcher.isPresent()) pathMatcher.get().matches(path, pattern);
             long duration = System.nanoTime() - start;
             durations.add(duration);
         }
@@ -219,8 +222,8 @@ public class BenchmarkRunner {
      * 集合摘要性能测试
      */
     public BenchmarkResult benchmarkCollectionSummary() {
-        if (collectionSummary == null) {
-            collectionSummary = new CollectionSummary();
+        if (collectionSummary.isEmpty()) {
+            return BenchmarkResult.fromDurations("collection_summary", List.of());
         }
         
         logger.debug("Benchmarking collection summary...");
@@ -232,14 +235,14 @@ public class BenchmarkRunner {
         
         // 预热
         for (int i = 0; i < 100; i++) {
-            collectionSummary.summarize(largeList);
+            if (collectionSummary.isPresent()) collectionSummary.get().summarize(largeList);
         }
         
         // 测试
         List<Long> durations = new ArrayList<>();
         for (int i = 0; i < 1000; i++) {
             long start = System.nanoTime();
-            collectionSummary.summarize(largeList);
+            if (collectionSummary.isPresent()) collectionSummary.get().summarize(largeList);
             long duration = System.nanoTime() - start;
             durations.add(duration);
         }
