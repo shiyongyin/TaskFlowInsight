@@ -20,15 +20,58 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 /**
- * TFI API并发安全增强测试
+ * TFI API并发安全增强测试 - 多线程环境稳定性验证套件
  * 
- * 测试场景：
- * 1. 多线程同时创建/结束任务
- * 2. 并发消息记录安全性
- * 3. 会话并发管理
- * 4. 混合操作并发测试
- * 5. 压力测试场景
- * 6. 异常场景并发处理
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>采用高并发压力测试策略，模拟真实生产环境负载</li>
+ *   <li>使用CountDownLatch确保线程同步启动，获得准确的并发测试结果</li>
+ *   <li>通过原子计数器和线程安全集合监控测试执行状态</li>
+ *   <li>结合正常操作与异常操作，验证异常安全性</li>
+ *   <li>使用超时机制防止测试无限阻塞</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>任务并发：</strong>50线程×200任务的并发创建/销毁，验证任务生命周期管理</li>
+ *   <li><strong>消息并发：</strong>30线程×500消息的并发写入，验证消息记录线程安全性</li>
+ *   <li><strong>嵌套并发：</strong>15线程×5层×50次的嵌套任务并发，验证复杂结构稳定性</li>
+ *   <li><strong>会话并发：</strong>10线程×20会话的并发会话管理，验证会话ID唯一性</li>
+ *   <li><strong>混合操作：</strong>25线程×200操作的随机API调用，验证整体系统稳定性</li>
+ *   <li><strong>异常并发：</strong>20线程×100操作的异常场景处理，验证异常安全性</li>
+ *   <li><strong>状态切换：</strong>并发启用/禁用状态切换，验证状态管理线程安全性</li>
+ * </ul>
+ * 
+ * <h2>性能场景：</h2>
+ * <ul>
+ *   <li><strong>高并发负载：</strong>最高50线程并发，10,000次操作总量</li>
+ *   <li><strong>深度嵌套：</strong>5层任务嵌套×15线程×50迭代，验证嵌套性能</li>
+ *   <li><strong>消息吞吐：</strong>15,000条消息并发写入，验证消息处理性能</li>
+ *   <li><strong>会话管理：</strong>200个会话并发创建，验证会话管理性能</li>
+ *   <li><strong>混合压力：</strong>5,000次随机API调用，验证综合性能</li>
+ *   <li><strong>异常处理：</strong>2,000次异常操作，验证异常处理性能开销</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>数据一致性：</strong>所有操作计数准确，无数据丢失或重复</li>
+ *   <li><strong>异常安全性：</strong>所有并发测试零异常，系统稳定运行</li>
+ *   <li><strong>资源清理：</strong>所有测试后任务栈清空，无资源泄漏</li>
+ *   <li><strong>性能表现：</strong>所有测试在超时时间内完成（25-60秒）</li>
+ *   <li><strong>唯一性保证：</strong>会话ID、任务ID等标识符保持唯一性</li>
+ *   <li><strong>状态一致：</strong>并发状态切换后系统状态正确</li>
+ * </ul>
+ * 
+ * <h3>具体测试场景：</h3>
+ * <ol>
+ *   <li><strong>任务生命周期并发：</strong>验证任务创建、消息添加、任务关闭的线程安全性</li>
+ *   <li><strong>消息记录并发：</strong>验证多线程同时向共享任务写入消息的安全性</li>
+ *   <li><strong>嵌套结构并发：</strong>验证复杂嵌套任务在并发环境下的结构完整性</li>
+ *   <li><strong>会话管理并发：</strong>验证会话创建、使用、销毁的并发安全性和ID唯一性</li>
+ *   <li><strong>混合操作压力：</strong>验证所有API在高频随机调用下的稳定性</li>
+ *   <li><strong>异常场景处理：</strong>验证异常输入在并发环境下的安全处理</li>
+ *   <li><strong>系统状态并发：</strong>验证启用/禁用状态在并发操作中的正确性</li>
+ * </ol>
  * 
  * @author TaskFlow Insight Team
  * @version 1.0.0

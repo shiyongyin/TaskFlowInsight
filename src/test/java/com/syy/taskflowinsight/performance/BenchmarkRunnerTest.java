@@ -1,17 +1,68 @@
 package com.syy.taskflowinsight.performance;
 
 import com.syy.taskflowinsight.tracking.ChangeTracker;
-import com.syy.taskflowinsight.tracking.path.PathMatcherCache;
+import com.syy.taskflowinsight.tracking.path.CaffeinePathMatcherCache;
+import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.tracking.summary.CollectionSummary;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * BenchmarkRunner单元测试
+ * BenchmarkRunner 单元测试 - 性能基准测试执行器验证
+ * 
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>基于基准测试方法学设计测试，验证各项性能指标测量</li>
+ *   <li>使用反射机制调整测试参数，减少测试执行时间</li>
+ *   <li>通过Optional依赖注入模式处理组件缺失情况</li>
+ *   <li>采用多维度性能验证确保测试结果的准确性</li>
+ *   <li>使用格式化输出测试验证报告生成功能</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>基准测试套件：</strong>runAll方法执行所有5项基准测试</li>
+ *   <li><strong>变更追踪基准：</strong>benchmarkChangeTracking性能测量</li>
+ *   <li><strong>对象快照基准：</strong>benchmarkObjectSnapshot执行效率</li>
+ *   <li><strong>路径匹配基准：</strong>benchmarkPathMatching缓存性能</li>
+ *   <li><strong>集合摘要基准：</strong>benchmarkCollectionSummary处理效率</li>
+ *   <li><strong>并发追踪基准：</strong>benchmarkConcurrentTracking多线程性能</li>
+ *   <li><strong>异常处理：</strong>组件缺失时的优雅降级</li>
+ *   <li><strong>结果格式化：</strong>format和toMicros输出格式验证</li>
+ * </ul>
+ * 
+ * <h2>性能测试配置：</h2>
+ * <ul>
+ *   <li><strong>预热迭代：</strong>10次（减少JIT编译影响）</li>
+ *   <li><strong>测量迭代：</strong>100次（获得稳定统计数据）</li>
+ *   <li><strong>线程数：</strong>2个（并发测试配置）</li>
+ *   <li><strong>特殊配置：</strong>集合摘要测试使用1000次迭代</li>
+ * </ul>
+ * 
+ * <h2>测试场景：</h2>
+ * <ul>
+ *   <li><strong>完整测试：</strong>运行所有基准测试，验证报告完整性</li>
+ *   <li><strong>单项测试：</strong>分别验证5个独立基准测试的执行</li>
+ *   <li><strong>容错测试：</strong>ChangeTracker为null时的处理</li>
+ *   <li><strong>格式测试：</strong>结果格式化和单位转换功能</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>执行成功：</strong>所有基准测试都能成功执行并返回结果</li>
+ *   <li><strong>数据完整：</strong>测试结果包含完整的性能统计数据</li>
+ *   <li><strong>性能合理：</strong>路径匹配P95延迟<10ms（缓存优化效果）</li>
+ *   <li><strong>容错健壮：</strong>组件缺失时仍能优雅处理</li>
+ *   <li><strong>格式正确：</strong>输出格式包含所有必要的性能指标</li>
+ *   <li><strong>统计准确：</strong>样本数、吞吐量、延迟统计都正确</li>
+ * </ul>
  * 
  * @author TaskFlow Insight Team
  * @version 2.1.0
@@ -24,17 +75,23 @@ public class BenchmarkRunnerTest {
     
     @BeforeEach
     void setUp() {
-        runner = new BenchmarkRunner();
+        // 创建依赖实例
+        TfiConfig mockConfig = createMockTfiConfig();
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        CaffeinePathMatcherCache pathMatcher = new CaffeinePathMatcherCache(mockConfig, registry);
+        CollectionSummary collectionSummary = new CollectionSummary();
+        
+        // 使用新的构造函数
+        runner = new BenchmarkRunner(
+            Optional.empty(), // ChangeTracker
+            Optional.of(pathMatcher),
+            Optional.of(collectionSummary)
+        );
         
         // 设置较小的迭代次数以加快测试
         ReflectionTestUtils.setField(runner, "warmupIterations", 10);
         ReflectionTestUtils.setField(runner, "measurementIterations", 100);
         ReflectionTestUtils.setField(runner, "threadCount", 2);
-        
-        // 注入依赖（ChangeTracker是静态类，不需要实例）
-        // 由于ChangeTracker使用静态方法，我们不能注入实例，测试时会被跳过
-        ReflectionTestUtils.setField(runner, "pathMatcher", new PathMatcherCache());
-        ReflectionTestUtils.setField(runner, "collectionSummary", new CollectionSummary());
     }
     
     @Test
@@ -163,5 +220,9 @@ public class BenchmarkRunnerTest {
         assertThat(micros.getCount()).isEqualTo(result.getCount());
         assertThat(micros.getMean()).isEqualTo(result.getMeanNanos() / 1000);
         assertThat(micros.getP95()).isEqualTo(result.getP95Nanos() / 1000);
+    }
+    
+    private TfiConfig createMockTfiConfig() {
+        return new TfiConfig(true, null, null, null, null);
     }
 }

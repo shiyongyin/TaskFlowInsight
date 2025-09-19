@@ -15,13 +15,58 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * TFI API性能基准测试
+ * TFI API性能基准测试 - 生产环境性能指标验证套件
  * 
- * 测试目标：
- * 1. 验证API调用性能满足<5%CPU开销要求
- * 2. 基本操作性能基准：start/message/stop < 100微秒
- * 3. 高频调用测试：>= 1万次/秒吞吐量（CI 友好）
- * 4. 内存使用测试：无明显内存泄漏
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>采用微基准测试方法，使用JVM预热消除JIT编译影响</li>
+ *   <li>建立性能基线对比，量化TFI框架的实际性能开销</li>
+ *   <li>使用系统属性控制测试启用，避免影响常规CI流程</li>
+ *   <li>通过多维度性能指标全面评估系统性能表现</li>
+ *   <li>结合内存监控确保无内存泄漏和资源浪费</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>基础操作性能：</strong>单次API调用时间 < 100微秒，10万次操作基准测试</li>
+ *   <li><strong>高频调用吞吐：</strong>持续3秒测试，目标吞吐量 ≥ 1万次/秒</li>
+ *   <li><strong>内存稳定性：</strong>5万次操作，内存增长 < 100MB，无明显泄漏</li>
+ *   <li><strong>禁用状态性能：</strong>10万次操作，性能提升 > 2倍验证</li>
+ *   <li><strong>深度嵌套性能：</strong>1000层嵌套，每层平均时间 < 5微秒</li>
+ *   <li><strong>并发性能：</strong>10线程×1万操作，30秒内完成验证</li>
+ * </ul>
+ * 
+ * <h2>性能场景：</h2>
+ * <ul>
+ *   <li><strong>微操作基准：</strong>100,000次基础操作（start/message/stop）性能测试</li>
+ *   <li><strong>持续负载：</strong>3秒持续高频调用，测试系统稳定吞吐能力</li>
+ *   <li><strong>内存压力：</strong>50,000任务×2消息×1子任务，内存使用监控</li>
+ *   <li><strong>极限嵌套：</strong>1000层任务嵌套创建/销毁性能测试</li>
+ *   <li><strong>并发负载：</strong>10线程并发执行总计100,000次操作</li>
+ *   <li><strong>状态切换：</strong>禁用与启用状态性能对比分析</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>单次操作性能：</strong>平均响应时间 < 100微秒（考虑Spring Boot框架开销）</li>
+ *   <li><strong>系统吞吐能力：</strong>持续吞吐量 ≥ 10,000 operations/second</li>
+ *   <li><strong>内存使用稳定：</strong>大量操作后内存增长控制在合理范围</li>
+ *   <li><strong>禁用状态优化：</strong>禁用状态性能提升 > 2倍，验证快速路径有效</li>
+ *   <li><strong>嵌套性能线性：</strong>深度嵌套性能保持线性增长，无指数级退化</li>
+ *   <li><strong>并发扩展性：</strong>并发环境下性能表现良好，无显著性能退化</li>
+ * </ul>
+ * 
+ * <h3>性能要求与验证标准：</h3>
+ * <ol>
+ *   <li><strong>响应时间要求：</strong>单次完整操作 < 100微秒（包含框架开销）</li>
+ *   <li><strong>吞吐量要求：</strong>生产级吞吐量 ≥ 10,000 ops/s（适合CI环境）</li>
+ *   <li><strong>内存效率要求：</strong>大规模操作内存增长 < 100MB</li>
+ *   <li><strong>状态切换要求：</strong>禁用状态性能提升 > 2倍</li>
+ *   <li><strong>嵌套深度要求：</strong>1000层嵌套每层处理 < 5微秒</li>
+ *   <li><strong>并发性能要求：</strong>多线程环境无显著性能退化</li>
+ * </ol>
+ * 
+ * <p><strong>注意：</strong>此测试需要设置系统属性 -Dtfi.perf.enabled=true 才会执行</p>
  * 
  * @author TaskFlow Insight Team
  * @version 1.0.0

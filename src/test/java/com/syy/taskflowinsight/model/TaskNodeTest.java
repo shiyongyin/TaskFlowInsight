@@ -9,8 +9,52 @@ import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * TaskNode类测试
- * 测试任务节点的树形结构、状态管理和消息功能
+ * TaskNode 类单元测试 - 任务节点核心功能验证
+ * 
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>基于任务节点的树形结构特性设计层次化测试</li>
+ *   <li>使用状态机验证方法测试任务生命周期状态转换</li>
+ *   <li>通过边界值测试验证输入参数的合法性检查</li>
+ *   <li>采用并发测试验证多线程环境下的线程安全性</li>
+ *   <li>使用不变性测试确保对象状态的一致性和完整性</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>节点创建：</strong>根节点创建、子节点创建、节点ID唯一性</li>
+ *   <li><strong>树形结构：</strong>父子关系、路径生成、深度计算、根节点定位</li>
+ *   <li><strong>状态管理：</strong>RUNNING→COMPLETED/FAILED状态转换、重复操作异常</li>
+ *   <li><strong>消息功能：</strong>info/error消息添加、异常消息处理、消息列表管理</li>
+ *   <li><strong>输入验证：</strong>null/empty/whitespace参数的异常处理</li>
+ *   <li><strong>时间戳管理：</strong>创建时间、完成时间、持续时间计算</li>
+ *   <li><strong>并发安全：</strong>多线程消息添加的线程安全性验证</li>
+ *   <li><strong>对象行为：</strong>equals/hashCode/toString方法的正确实现</li>
+ * </ul>
+ * 
+ * <h2>测试场景：</h2>
+ * <ul>
+ *   <li><strong>基础功能：</strong>节点创建、属性设置、状态初始化</li>
+ *   <li><strong>树形操作：</strong>3层嵌套结构（root→child→grandchild）</li>
+ *   <li><strong>状态转换：</strong>完成/失败状态及重复操作异常处理</li>
+ *   <li><strong>消息处理：</strong>多条消息添加、异常消息提取</li>
+ *   <li><strong>并发测试：</strong>10线程×100消息的并发写入</li>
+ *   <li><strong>复杂树结构：</strong>多分支多层级树形结构验证</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>节点属性正确：</strong>ID唯一、名称正确、路径准确、深度计算无误</li>
+ *   <li><strong>状态转换有效：</strong>状态按预期转换，重复操作正确抛出异常</li>
+ *   <li><strong>树结构完整：</strong>父子关系正确、根节点定位准确、叶子节点识别无误</li>
+ *   <li><strong>消息记录准确：</strong>消息类型、内容、时间戳都正确记录</li>
+ *   <li><strong>并发安全可靠：</strong>多线程环境下消息不丢失、计数准确</li>
+ *   <li><strong>异常处理健壮：</strong>无效输入正确抛出异常并包含明确错误信息</li>
+ * </ul>
+ * 
+ * @author TaskFlow Insight Team
+ * @version 1.0.0
+ * @since 2025-01-06
  */
 class TaskNodeTest {
     

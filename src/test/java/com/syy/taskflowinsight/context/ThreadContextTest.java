@@ -15,14 +15,58 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * ThreadContext 单元测试
+ * ThreadContext 单元测试 - 线程上下文管理与传播验证
  * 
- * 测试场景：
- * 1. 基础上下文管理
- * 2. 线程隔离验证
- * 3. 上下文传播
- * 4. 自动清理机制
- * 5. 性能测试
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>基于线程本地存储特性设计多线程隔离测试</li>
+ *   <li>使用上下文传播机制验证ExecutorService集成</li>
+ *   <li>通过自动清理测试确保资源管理的可靠性</li>
+ *   <li>采用性能基准测试验证上下文切换开销</li>
+ *   <li>使用泄漏检测测试验证内存管理安全性</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>基础管理：</strong>create/current/clear操作，execute/run便捷方法</li>
+ *   <li><strong>线程隔离：</strong>多线程环境下上下文独立性验证</li>
+ *   <li><strong>上下文传播：</strong>ContextPropagatingExecutor传播机制验证</li>
+ *   <li><strong>并发传播：</strong>多任务并发执行时的上下文传播稳定性</li>
+ *   <li><strong>自动清理：</strong>正常结束和异常情况下的资源清理</li>
+ *   <li><strong>统计监控：</strong>活跃上下文计数、创建总数统计</li>
+ *   <li><strong>性能验证：</strong>1000次上下文切换<100μs性能基准</li>
+ *   <li><strong>内存泄漏：</strong>未清理上下文的检测和统计</li>
+ * </ul>
+ * 
+ * <h2>上下文传播机制：</h2>
+ * <ul>
+ *   <li><strong>主线程上下文：</strong>创建和管理当前线程的上下文信息</li>
+ *   <li><strong>跨线程传播：</strong>通过ContextPropagatingExecutor自动传播</li>
+ *   <li><strong>恢复策略：</strong>子线程中恢复父上下文的快照信息</li>
+ *   <li><strong>隔离保证：</strong>不同线程的上下文完全独立</li>
+ * </ul>
+ * 
+ * <h2>测试场景：</h2>
+ * <ul>
+ *   <li><strong>基础功能：</strong>创建、获取、清理上下文，便捷执行方法</li>
+ *   <li><strong>线程隔离：</strong>主线程与子线程的上下文独立性</li>
+ *   <li><strong>传播机制：</strong>ExecutorService + 3线程并发传播</li>
+ *   <li><strong>异常安全：</strong>执行异常时的自动清理机制</li>
+ *   <li><strong>统计验证：</strong>活跃数量和创建总数的准确统计</li>
+ *   <li><strong>性能基准：</strong>1000次上下文切换时间测试</li>
+ *   <li><strong>泄漏检测：</strong>10个线程创建上下文不清理的检测</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>操作正确：</strong>所有基础操作按预期工作，状态管理准确</li>
+ *   <li><strong>线程安全：</strong>多线程环境下上下文完全隔离</li>
+ *   <li><strong>传播有效：</strong>子线程能够获得父上下文的传播信息</li>
+ *   <li><strong>清理完整：</strong>正常和异常情况下资源都能正确清理</li>
+ *   <li><strong>统计准确：</strong>上下文计数和统计信息完全正确</li>
+ *   <li><strong>性能达标：</strong>平均上下文切换时间<100微秒</li>
+ *   <li><strong>泄漏检测：</strong>能够准确检测到未清理的上下文</li>
+ * </ul>
  * 
  * @author TaskFlow Insight Team
  * @version 2.1.0

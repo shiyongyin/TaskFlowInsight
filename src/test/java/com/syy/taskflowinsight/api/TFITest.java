@@ -20,7 +20,47 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 /**
- * TFI主API单元测试
+ * TFI主API单元测试 - 核心功能全面测试套件
+ * 
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>采用分层测试策略，从基础API到复杂场景逐步验证</li>
+ *   <li>使用模块化测试结构，按功能分组组织测试用例</li>
+ *   <li>结合正向测试与异常测试，确保API的健壮性</li>
+ *   <li>通过并发测试验证多线程环境下的安全性</li>
+ *   <li>使用try-with-resources确保资源正确释放</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>系统控制：</strong>启用/禁用状态管理，状态切换影响</li>
+ *   <li><strong>会话管理：</strong>会话创建、获取、结束，会话生命周期</li>
+ *   <li><strong>任务管理：</strong>任务启动、嵌套、堆栈管理、状态标记</li>
+ *   <li><strong>消息记录：</strong>多类型消息记录，消息格式化，错误处理</li>
+ *   <li><strong>便捷方法：</strong>run/call包装方法，异常处理机制</li>
+ *   <li><strong>导出功能：</strong>JSON/Map/Console导出，数据完整性</li>
+ *   <li><strong>并发安全：</strong>多线程环境下的数据隔离和一致性</li>
+ *   <li><strong>异常安全：</strong>异常情况下的API稳定性和容错能力</li>
+ * </ul>
+ * 
+ * <h2>性能场景：</h2>
+ * <ul>
+ *   <li><strong>基础性能：</strong>单次API调用响应时间 < 1ms</li>
+ *   <li><strong>并发性能：</strong>10个线程并发执行，无数据竞争</li>
+ *   <li><strong>内存效率：</strong>任务创建/销毁的内存占用控制</li>
+ *   <li><strong>嵌套深度：</strong>支持合理深度的任务嵌套而不影响性能</li>
+ *   <li><strong>消息记录：</strong>大量消息记录时的内存管理</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>功能正确性：</strong>所有API按预期工作，返回正确结果</li>
+ *   <li><strong>数据一致性：</strong>任务堆栈、会话状态、消息记录保持一致</li>
+ *   <li><strong>异常安全性：</strong>异常情况下不影响系统稳定性</li>
+ *   <li><strong>并发安全性：</strong>多线程环境下数据隔离正确</li>
+ *   <li><strong>资源管理：</strong>所有资源能够正确创建和释放</li>
+ *   <li><strong>导出完整性：</strong>导出的数据格式正确，信息完整</li>
+ * </ul>
  * 
  * @author TaskFlow Insight Team
  * @version 1.0.0

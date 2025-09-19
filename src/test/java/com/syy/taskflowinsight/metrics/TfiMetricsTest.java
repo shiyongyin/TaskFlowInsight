@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,7 +28,7 @@ public class TfiMetricsTest {
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        metrics = new TfiMetrics(registry);
+        metrics = new TfiMetrics(Optional.of(registry));
     }
     
     @Test
@@ -106,8 +107,8 @@ public class TfiMetricsTest {
         metrics.recordCustomMetric("test.size", 1024);
         
         // 验证指标被记录（通过registry）
-        assertThat(registry.find("tfi.custom.test.latency").summary()).isNotNull();
-        assertThat(registry.find("tfi.custom.test.size").summary()).isNotNull();
+        assertThat(registry.find("tfi.custom.test.latency.total").summary()).isNotNull();
+        assertThat(registry.find("tfi.custom.test.size.total").summary()).isNotNull();
     }
     
     @Test
@@ -119,9 +120,9 @@ public class TfiMetricsTest {
         metrics.incrementCustomCounter("failures");
         
         // 验证计数器值
-        assertThat(registry.find("tfi.custom.counter.requests").gauge()).isNotNull();
-        assertThat(registry.find("tfi.custom.counter.requests").gauge().value()).isEqualTo(3.0);
-        assertThat(registry.find("tfi.custom.counter.failures").gauge().value()).isEqualTo(1.0);
+        assertThat(registry.find("tfi.custom.counter.requests.total").gauge()).isNotNull();
+        assertThat(registry.find("tfi.custom.counter.requests.total").gauge().value()).isEqualTo(3.0);
+        assertThat(registry.find("tfi.custom.counter.failures.total").gauge().value()).isEqualTo(1.0);
     }
     
     @Test
@@ -138,7 +139,7 @@ public class TfiMetricsTest {
         });
         
         assertThat(result).isEqualTo("completed");
-        assertThat(registry.find("tfi.execution.test.operation").timer()).isNotNull();
+        assertThat(registry.find("tfi.execution.test.operation.seconds").timer()).isNotNull();
         
         // 测试无返回值的执行
         metrics.timeExecution("test.void.operation", () -> {
@@ -149,7 +150,7 @@ public class TfiMetricsTest {
             }
         });
         
-        assertThat(registry.find("tfi.execution.test.void.operation").timer()).isNotNull();
+        assertThat(registry.find("tfi.execution.test.void.operation.seconds").timer()).isNotNull();
     }
     
     @Test

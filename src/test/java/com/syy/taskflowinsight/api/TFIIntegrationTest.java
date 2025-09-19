@@ -20,8 +20,61 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * TFI API集成测试
- * 测试真实场景下的API使用
+ * TFI API集成测试 - 真实业务场景端到端验证套件
+ * 
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>采用端到端测试策略，模拟真实业务场景完整流程</li>
+ *   <li>使用场景驱动测试方法，覆盖典型的应用使用模式</li>
+ *   <li>结合同步与异步测试，验证不同执行模式下的表现</li>
+ *   <li>通过复杂嵌套结构测试验证系统的结构化能力</li>
+ *   <li>集成变更追踪功能，验证完整的对象状态监控能力</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>Web请求处理：</strong>认证→授权→业务逻辑→数据库→响应生成完整流程</li>
+ *   <li><strong>批处理任务：</strong>多项目批量处理，包含成功/失败混合场景</li>
+ *   <li><strong>异步任务处理：</strong>多线程异步执行，任务间隔离和协调</li>
+ *   <li><strong>错误处理恢复：</strong>重试机制、退避策略、失败恢复流程</li>
+ *   <li><strong>复杂嵌套结构：</strong>多阶段工作流，深层任务嵌套管理</li>
+ *   <li><strong>性能验证：</strong>大量任务处理性能，1000条消息处理验证</li>
+ *   <li><strong>导出功能完整性：</strong>JSON/Map/Console全格式导出验证</li>
+ *   <li><strong>变更追踪集成：</strong>单对象、批量、Lambda、嵌套、大规模变更追踪</li>
+ * </ul>
+ * 
+ * <h2>业务场景模拟：</h2>
+ * <ul>
+ *   <li><strong>HTTP请求链路：</strong>模拟Web服务请求完整处理链路，包含认证授权和数据库操作</li>
+ *   <li><strong>批量数据处理：</strong>模拟ETL批处理作业，包含数据验证和错误处理</li>
+ *   <li><strong>微服务异步调用：</strong>模拟分布式服务间异步通信和任务协调</li>
+ *   <li><strong>容错与重试：</strong>模拟网络异常和服务降级场景下的恢复机制</li>
+ *   <li><strong>工作流编排：</strong>模拟复杂业务工作流的阶段性执行和状态管理</li>
+ *   <li><strong>对象状态监控：</strong>模拟ORM场景下的对象变更追踪和审计</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>流程完整性：</strong>所有业务流程能够完整执行，状态转换正确</li>
+ *   <li><strong>数据一致性：</strong>任务层次结构完整，消息记录准确无误</li>
+ *   <li><strong>异常处理：</strong>异常场景下系统稳定，错误信息记录完整</li>
+ *   <li><strong>性能表现：</strong>大规模操作性能良好，1000次操作 < 1秒</li>
+ *   <li><strong>导出质量：</strong>导出数据格式正确，信息完整可读</li>
+ *   <li><strong>变更追踪准确性：</strong>对象变更检测准确，记录详细完整</li>
+ *   <li><strong>内存管理：</strong>大规模操作后内存稳定，无泄漏现象</li>
+ * </ul>
+ * 
+ * <h3>业务场景测试清单：</h3>
+ * <ol>
+ *   <li><strong>Web请求处理：</strong>GET /api/users 完整请求链路追踪</li>
+ *   <li><strong>批处理作业：</strong>5个项目批量处理，包含1个失败项目</li>
+ *   <li><strong>异步任务：</strong>3个并发异步任务执行和协调</li>
+ *   <li><strong>重试机制：</strong>3次重试策略，前2次失败后成功</li>
+ *   <li><strong>工作流程：</strong>3阶段工作流（初始化→处理→清理）</li>
+ *   <li><strong>性能测试：</strong>1000条消息 + 10个里程碑任务</li>
+ *   <li><strong>导出测试：</strong>多类型消息和属性的完整导出</li>
+ *   <li><strong>变更追踪：</strong>单对象、批量、嵌套、大规模变更场景</li>
+ * </ol>
  * 
  * @author TaskFlow Insight Team
  * @version 1.0.0

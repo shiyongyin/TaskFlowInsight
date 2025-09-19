@@ -10,7 +10,58 @@ import java.io.PrintStream;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * ConsoleExporter单元测试
+ * ConsoleExporter 单元测试 - 控制台文本导出功能验证
+ * 
+ * <h2>测试设计思路：</h2>
+ * <ul>
+ *   <li>基于树形结构可视化需求设计测试，验证层次缩进和连接线</li>
+ *   <li>使用@Order注解组织测试执行顺序，从基础到复杂逐步验证</li>
+ *   <li>通过输出流重定向技术验证标准输出和自定义输出流</li>
+ *   <li>结合性能测试确保大规模数据的文本渲染效率</li>
+ *   <li>使用边界条件测试验证极端情况下的输出稳定性</li>
+ * </ul>
+ * 
+ * <h2>覆盖范围：</h2>
+ * <ul>
+ *   <li><strong>基础导出：</strong>简单会话导出、null会话处理、报告头部格式</li>
+ *   <li><strong>树形结构：</strong>多层嵌套可视化、缩进层级、最后节点标记</li>
+ *   <li><strong>消息格式化：</strong>业务流程/异常提示消息的中文显示格式</li>
+ *   <li><strong>输出流支持：</strong>PrintStream输出、标准输出重定向、流式处理</li>
+ *   <li><strong>性能验证：</strong>1000节点<10ms渲染性能、大数据处理能力</li>
+ *   <li><strong>边界处理：</strong>超长任务名、深度嵌套、时间格式化</li>
+ * </ul>
+ * 
+ * <h2>文本格式特性：</h2>
+ * <ul>
+ *   <li><strong>报告头部：</strong>"TaskFlow Insight Report" 标题和会话信息</li>
+ *   <li><strong>树形可视化：</strong>使用缩进和连接符表示任务层次关系</li>
+ *   <li><strong>消息显示：</strong>中文类型标记（业务流程、异常提示）+ 消息内容</li>
+ *   <li><strong>时间格式：</strong>毫秒/秒单位的持续时间显示</li>
+ * </ul>
+ * 
+ * <h2>测试场景：</h2>
+ * <ul>
+ *   <li><strong>基本功能：</strong>简单会话导出、null输入处理</li>
+ *   <li><strong>结构渲染：</strong>多层嵌套树、节点标记、缩进计算</li>
+ *   <li><strong>消息展示：</strong>INFO/ERROR消息的中文格式化</li>
+ *   <li><strong>输出方式：</strong>字符串返回、PrintStream输出、标准输出</li>
+ *   <li><strong>性能测试：</strong>1000节点文本渲染性能基准</li>
+ *   <li><strong>边界验证：</strong>超长名称、深度嵌套、时间显示</li>
+ * </ul>
+ * 
+ * <h2>期望结果：</h2>
+ * <ul>
+ *   <li><strong>格式正确：</strong>输出包含标准报告头部和会话信息</li>
+ *   <li><strong>结构清晰：</strong>树形层次通过缩进正确表示</li>
+ *   <li><strong>消息可读：</strong>中文类型标记和消息内容正确显示</li>
+ *   <li><strong>输出一致：</strong>不同输出方式产生相同的文本内容</li>
+ *   <li><strong>性能达标：</strong>1000节点渲染<10ms，满足实时显示需求</li>
+ *   <li><strong>边界稳定：</strong>极端条件下不抛异常，输出仍然可读</li>
+ * </ul>
+ * 
+ * @author TaskFlow Insight Team
+ * @version 1.0.0
+ * @since 2025-01-06
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ConsoleExporterTest {
