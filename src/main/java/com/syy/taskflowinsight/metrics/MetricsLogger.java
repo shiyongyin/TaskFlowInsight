@@ -2,7 +2,6 @@ package com.syy.taskflowinsight.metrics;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -10,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -27,8 +27,7 @@ public class MetricsLogger {
     private static final Logger logger = LoggerFactory.getLogger(MetricsLogger.class);
     private static final Logger metricsLogger = LoggerFactory.getLogger("TFI_METRICS");
     
-    @Autowired(required = false)
-    private TfiMetrics metrics;
+    private final Optional<TfiMetrics> metrics;
     
     @Value("${tfi.metrics.logging.format:json}")
     private String loggingFormat = "json";
@@ -38,6 +37,10 @@ public class MetricsLogger {
     
     private final AtomicLong logCount = new AtomicLong(0);
     private long startTime;
+    
+    public MetricsLogger(Optional<TfiMetrics> metrics) {
+        this.metrics = metrics;
+    }
     
     @PostConstruct
     public void init() {
@@ -50,13 +53,13 @@ public class MetricsLogger {
      */
     @Scheduled(fixedDelayString = "${tfi.metrics.logging.interval:60000}")
     public void logMetrics() {
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             logger.debug("TfiMetrics not available, skipping metrics logging");
             return;
         }
         
         try {
-            MetricsSummary summary = metrics.getSummary();
+            MetricsSummary summary = metrics.get().getSummary();
             
             // 如果没有任何操作且不包含零指标，则跳过
             if (!includeZeroMetrics && isEmptySummary(summary)) {

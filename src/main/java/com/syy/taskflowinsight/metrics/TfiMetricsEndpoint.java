@@ -1,6 +1,5 @@
 package com.syy.taskflowinsight.metrics;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
 import org.springframework.boot.actuate.endpoint.annotation.WriteOperation;
@@ -10,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * TFI指标端点
@@ -22,25 +22,27 @@ import java.util.Map;
 @RestController
 @RequestMapping("/tfi/metrics")
 @ConditionalOnClass(name = "io.micrometer.core.instrument.MeterRegistry")
-public class MetricsEndpoint {
+public class TfiMetricsEndpoint {
     
-    @Autowired(required = false)
-    private TfiMetrics metrics;
+    private final Optional<TfiMetrics> metrics;
+    private final Optional<MetricsLogger> metricsLogger;
     
-    @Autowired(required = false)
-    private MetricsLogger metricsLogger;
+    public TfiMetricsEndpoint(Optional<TfiMetrics> metrics, Optional<MetricsLogger> metricsLogger) {
+        this.metrics = metrics;
+        this.metricsLogger = metricsLogger;
+    }
     
     /**
      * 获取指标摘要
      */
     @GetMapping("/summary")
     public ResponseEntity<Map<String, Object>> getMetricsSummary() {
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             return ResponseEntity.status(503)
                 .body(Map.of("error", "Metrics not available"));
         }
         
-        MetricsSummary summary = metrics.getSummary();
+        MetricsSummary summary = metrics.get().getSummary();
         return ResponseEntity.ok(summary.toMap());
     }
     
@@ -49,12 +51,12 @@ public class MetricsEndpoint {
      */
     @GetMapping(value = "/report", produces = "text/plain")
     public ResponseEntity<String> getMetricsReport() {
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             return ResponseEntity.status(503)
                 .body("Metrics not available");
         }
         
-        MetricsSummary summary = metrics.getSummary();
+        MetricsSummary summary = metrics.get().getSummary();
         return ResponseEntity.ok(summary.toTextReport());
     }
     
@@ -63,12 +65,12 @@ public class MetricsEndpoint {
      */
     @GetMapping("/metric/{name}")
     public ResponseEntity<Map<String, Object>> getSpecificMetric(@PathVariable String name) {
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             return ResponseEntity.status(503)
                 .body(Map.of("error", "Metrics not available"));
         }
         
-        MetricsSummary summary = metrics.getSummary();
+        MetricsSummary summary = metrics.get().getSummary();
         Map<String, Object> result = new HashMap<>();
         
         switch (name.toLowerCase()) {
@@ -114,12 +116,12 @@ public class MetricsEndpoint {
             @RequestParam String name,
             @RequestParam double value) {
         
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             return ResponseEntity.status(503)
                 .body(Map.of("error", "Metrics not available"));
         }
         
-        metrics.recordCustomMetric(name, value);
+        metrics.get().recordCustomMetric(name, value);
         
         return ResponseEntity.ok(Map.of(
             "status", "recorded",
@@ -133,12 +135,12 @@ public class MetricsEndpoint {
      */
     @PostMapping("/counter/{name}/increment")
     public ResponseEntity<Map<String, Object>> incrementCounter(@PathVariable String name) {
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             return ResponseEntity.status(503)
                 .body(Map.of("error", "Metrics not available"));
         }
         
-        metrics.incrementCustomCounter(name);
+        metrics.get().incrementCustomCounter(name);
         
         return ResponseEntity.ok(Map.of(
             "status", "incremented",
@@ -151,12 +153,12 @@ public class MetricsEndpoint {
      */
     @PostMapping("/log")
     public ResponseEntity<Map<String, Object>> triggerLogging() {
-        if (metricsLogger == null) {
+        if (metricsLogger.isEmpty()) {
             return ResponseEntity.status(503)
                 .body(Map.of("error", "Metrics logger not available"));
         }
         
-        metricsLogger.logMetricsNow();
+        metricsLogger.get().logMetricsNow();
         
         return ResponseEntity.ok(Map.of(
             "status", "logged",
@@ -169,12 +171,12 @@ public class MetricsEndpoint {
      */
     @DeleteMapping("/custom")
     public ResponseEntity<Map<String, Object>> resetCustomMetrics() {
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             return ResponseEntity.status(503)
                 .body(Map.of("error", "Metrics not available"));
         }
         
-        metrics.reset();
+        metrics.get().reset();
         
         return ResponseEntity.ok(Map.of(
             "status", "reset",
@@ -189,11 +191,11 @@ public class MetricsEndpoint {
     public ResponseEntity<Map<String, Object>> getConfiguration() {
         Map<String, Object> config = new HashMap<>();
         
-        config.put("metrics_available", metrics != null);
-        config.put("logger_available", metricsLogger != null);
+        config.put("metrics_available", metrics.isPresent());
+        config.put("logger_available", metricsLogger.isPresent());
         
-        if (metrics != null) {
-            config.put("health_score", metrics.getSummary().getHealthScore());
+        if (metrics.isPresent()) {
+            config.put("health_score", metrics.get().getSummary().getHealthScore());
         }
         
         return ResponseEntity.ok(config);
@@ -207,25 +209,28 @@ public class MetricsEndpoint {
 @ConditionalOnClass(name = "org.springframework.boot.actuate.endpoint.annotation.Endpoint")
 class TfiMetricsActuatorEndpoint {
     
-    @Autowired(required = false)
-    private TfiMetrics metrics;
+    private final Optional<TfiMetrics> metrics;
+    
+    public TfiMetricsActuatorEndpoint(Optional<TfiMetrics> metrics) {
+        this.metrics = metrics;
+    }
     
     @ReadOperation
     public Map<String, Object> metrics() {
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             return Map.of("status", "unavailable");
         }
         
-        return metrics.getSummary().toMap();
+        return metrics.get().getSummary().toMap();
     }
     
     @WriteOperation
     public Map<String, Object> reset() {
-        if (metrics == null) {
+        if (metrics.isEmpty()) {
             return Map.of("status", "unavailable");
         }
         
-        metrics.reset();
+        metrics.get().reset();
         return Map.of("status", "reset");
     }
 }
