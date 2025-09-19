@@ -75,19 +75,11 @@ public final class SafeContextManager {
             new ThreadPoolExecutor.CallerRunsPolicy() // 拒绝策略
         );
         
-        // 从系统属性读取监控配置（可由外部配置文件透传）
-        String enabledProp = System.getProperty("taskflow.context.leakDetection.enabled");
-        if (enabledProp != null) {
-            this.leakDetectionEnabled = Boolean.parseBoolean(enabledProp);
-        }
-        String intervalProp = System.getProperty("taskflow.context.leakDetection.intervalMillis");
-        if (intervalProp != null) {
-            try { this.leakDetectionIntervalMillis = Long.parseLong(intervalProp); } catch (NumberFormatException ignore) {}
-        }
-        // 懒启动：仅在启用时创建调度器
-        if (this.leakDetectionEnabled) {
-            startLeakDetection();
-        }
+        // 使用默认配置，通过configureFromTfiConfig()方法统一配置
+        // 已移除系统属性读取，完全由TfiConfig管理配置
+        logger.debug("SafeContextManager initialized with default configuration: " +
+            "contextTimeout={}ms, leakDetectionEnabled={}, leakDetectionInterval={}ms",
+            this.contextTimeoutMillis, this.leakDetectionEnabled, this.leakDetectionIntervalMillis);
         
         // 注册关闭钩子
         Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "TFI-Shutdown"));
@@ -100,6 +92,35 @@ public final class SafeContextManager {
      */
     public static SafeContextManager getInstance() {
         return INSTANCE;
+    }
+    
+    /**
+     * 从TfiConfig配置上下文管理器
+     * 该方法会覆盖系统属性配置，优先使用TfiConfig
+     * 
+     * @param config TFI配置对象
+     */
+    public void configureFromTfiConfig(com.syy.taskflowinsight.config.TfiConfig config) {
+        if (config == null || config.context() == null) {
+            logger.debug("No context configuration provided, using defaults");
+            return;
+        }
+        
+        // 更新配置
+        this.contextTimeoutMillis = config.context().maxAgeMillis();
+        this.leakDetectionEnabled = config.context().leakDetectionEnabled();
+        this.leakDetectionIntervalMillis = config.context().leakDetectionIntervalMillis();
+        
+        logger.info("SafeContextManager configured from TfiConfig: " +
+            "contextTimeout={}ms, leakDetectionEnabled={}, leakDetectionInterval={}ms",
+            this.contextTimeoutMillis, this.leakDetectionEnabled, this.leakDetectionIntervalMillis);
+        
+        // 根据新配置启动或停止泄漏检测
+        if (this.leakDetectionEnabled && this.leakDetector == null) {
+            startLeakDetection();
+        } else if (!this.leakDetectionEnabled && this.leakDetector != null) {
+            stopLeakDetection();
+        }
     }
     
     /**
@@ -282,6 +303,24 @@ public final class SafeContextManager {
     }
     
     /**
+     * 停止泄漏检测
+     */
+    private synchronized void stopLeakDetection() {
+        if (leakDetector != null && !leakDetector.isShutdown()) {
+            logger.info("Stopping leak detection");
+            leakDetector.shutdown();
+            try {
+                if (!leakDetector.awaitTermination(5, TimeUnit.SECONDS)) {
+                    leakDetector.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                leakDetector.shutdownNow();
+            }
+        }
+    }
+    
+    /**
      * 检测并清理泄漏的上下文
      */
     private void detectAndCleanLeaks() {
@@ -442,6 +481,20 @@ public final class SafeContextManager {
     }
     
     // 配置方法
+    
+    /**
+     * 从TfiConfig应用配置（首选路径）
+     * 系统属性读取作为兼容性保持，后续版本将移除
+     * 
+     * @param timeoutMillis 上下文超时时间
+     * @param leakDetectionEnabled 是否启用泄漏检测
+     * @param intervalMillis 泄漏检测间隔
+     */
+    public void applyTfiConfig(long timeoutMillis, boolean leakDetectionEnabled, long intervalMillis) {
+        setContextTimeoutMillis(timeoutMillis);
+        setLeakDetectionEnabled(leakDetectionEnabled);
+        setLeakDetectionIntervalMillis(intervalMillis);
+    }
     
     public void setContextTimeoutMillis(long timeoutMillis) {
         this.contextTimeoutMillis = timeoutMillis;

@@ -248,10 +248,14 @@ public class ManagedThreadContext implements AutoCloseable {
         // 创建新的上下文实例（不同线程）
         ManagedThreadContext context = new ManagedThreadContext();
         
-        // 记录快照信息但不共享对象
+        // 记录快照信息但不共享对象（处理null值）
         context.attributes.put("parent.contextId", snapshot.getContextId());
-        context.attributes.put("parent.sessionId", snapshot.getSessionId());
-        context.attributes.put("parent.taskPath", snapshot.getTaskPath());
+        if (snapshot.getSessionId() != null) {
+            context.attributes.put("parent.sessionId", snapshot.getSessionId());
+        }
+        if (snapshot.getTaskPath() != null) {
+            context.attributes.put("parent.taskPath", snapshot.getTaskPath());
+        }
         context.attributes.put("parent.timestamp", snapshot.getTimestamp());
         
         // 如果有会话信息，创建一个新的会话（避免跨线程共享）

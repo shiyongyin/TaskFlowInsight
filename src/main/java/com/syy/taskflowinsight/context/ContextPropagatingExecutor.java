@@ -48,7 +48,7 @@ public class ContextPropagatingExecutor implements ExecutorService {
      */
     private Runnable wrapTask(Runnable task) {
         // 捕获当前线程的上下文快照
-        ManagedThreadContext currentContext = ManagedThreadContext.current();
+        ManagedThreadContext currentContext = ThreadContext.current();
         ContextSnapshot snapshot = currentContext != null ? currentContext.createSnapshot() : null;
         
         return () -> {
@@ -74,7 +74,7 @@ public class ContextPropagatingExecutor implements ExecutorService {
      */
     private <T> Callable<T> wrapTask(Callable<T> task) {
         // 捕获当前线程的上下文快照
-        ManagedThreadContext currentContext = ManagedThreadContext.current();
+        ManagedThreadContext currentContext = ThreadContext.current();
         ContextSnapshot snapshot = currentContext != null ? currentContext.createSnapshot() : null;
         
         return () -> {
