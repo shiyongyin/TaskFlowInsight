@@ -1,0 +1,786 @@
+package com.syy.taskflowinsight.store;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import java.time.Duration;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+
+/**
+ * 综合测试Store包以达到80%覆盖率
+ * 
+ * 覆盖重点：
+ * - CaffeineStore基本操作和配置
+ * - TieredCaffeineStore分层存储
+ * - InstrumentedCaffeineStore监控功能
+ * - StoreAutoDegrader自动降级
+ * - StoreStats统计收集
+ * - StoreConfig配置管理
+ * - 并发访问和性能测试
+ */
+@SpringBootTest
+@DisplayName("Store Package Comprehensive Tests")
+class StorePackageComprehensiveTests {
+
+    @BeforeEach
+    void setUp() {
+        // 测试前清理
+    }
+
+    @AfterEach
+    void tearDown() {
+        // 测试后清理
+    }
+
+    @Nested
+    @DisplayName("CaffeineStore Tests")
+    class CaffeineStoreTests {
+
+        @Test
+        @DisplayName("Basic store operations")
+        void basicStoreOperations() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(100)
+                .expireAfterWrite(Duration.ofMinutes(5))
+                .build();
+            
+            CaffeineStore<String, String> store = new CaffeineStore<>(config);
+            
+            // 测试put和get
+            store.put("key1", "value1");
+            assertThat(store.get("key1")).isEqualTo("value1");
+            
+            // 测试不存在的key
+            assertThat(store.get("nonexistent")).isNull();
+            
+            // 测试containsKey
+            assertThat(store.containsKey("key1")).isTrue();
+            assertThat(store.containsKey("nonexistent")).isFalse();
+            
+            // 测试remove
+            store.remove("key1");
+            assertThat(store.get("key1")).isNull();
+            assertThat(store.containsKey("key1")).isFalse();
+        }
+
+        @Test
+        @DisplayName("Store capacity and eviction")
+        void storeCapacityAndEviction() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(3) // 小容量用于测试驱逐
+                .build();
+            
+            CaffeineStore<String, String> store = new CaffeineStore<>(config);
+            
+            // 填充超过容量
+            store.put("key1", "value1");
+            store.put("key2", "value2");
+            store.put("key3", "value3");
+            store.put("key4", "value4"); // 这应该触发驱逐
+            
+            // 验证容量限制
+            long estimatedSize = store.estimatedSize();
+            assertThat(estimatedSize).isLessThanOrEqualTo(3);
+            
+            // 验证至少有一些元素被保留
+            int existingCount = 0;
+            for (String key : new String[]{"key1", "key2", "key3", "key4"}) {
+                if (store.containsKey(key)) {
+                    existingCount++;
+                }
+            }
+            assertThat(existingCount).isGreaterThan(0);
+            assertThat(existingCount).isLessThanOrEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("Store expiration")
+        void storeExpiration() throws InterruptedException {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(100)
+                .expireAfterWrite(Duration.ofMillis(100)) // 100ms过期时间
+                .build();
+            
+            CaffeineStore<String, String> store = new CaffeineStore<>(config);
+            
+            // 存储数据
+            store.put("expiring_key", "expiring_value");
+            assertThat(store.get("expiring_key")).isEqualTo("expiring_value");
+            
+            // 等待过期
+            Thread.sleep(150);
+            
+            // 触发清理（通过访问来触发Caffeine的清理）
+            store.get("nonexistent");
+            
+            // 验证过期
+            assertThat(store.get("expiring_key")).isNull();
+        }
+
+        @Test
+        @DisplayName("Store clear and cleanup")
+        void storeClearAndCleanup() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(100)
+                .build();
+            
+            CaffeineStore<String, String> store = new CaffeineStore<>(config);
+            
+            // 添加数据
+            for (int i = 0; i < 10; i++) {
+                store.put("key" + i, "value" + i);
+            }
+            
+            assertThat(store.estimatedSize()).isEqualTo(10);
+            
+            // 清理
+            store.clear();
+            assertThat(store.estimatedSize()).isEqualTo(0);
+            
+            // 验证所有数据被清除
+            for (int i = 0; i < 10; i++) {
+                assertThat(store.get("key" + i)).isNull();
+            }
+        }
+
+        @Test
+        @DisplayName("Concurrent store access")
+        void concurrentStoreAccess() throws InterruptedException {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(1000)
+                .build();
+            
+            CaffeineStore<String, String> store = new CaffeineStore<>(config);
+            
+            ExecutorService executor = Executors.newFixedThreadPool(10);
+            CountDownLatch latch = new CountDownLatch(100);
+            AtomicInteger successCount = new AtomicInteger(0);
+            
+            // 并发写入
+            for (int i = 0; i < 100; i++) {
+                final int index = i;
+                executor.submit(() -> {
+                    try {
+                        store.put("concurrent_key_" + index, "concurrent_value_" + index);
+                        
+                        // 验证写入
+                        String value = store.get("concurrent_key_" + index);
+                        if (("concurrent_value_" + index).equals(value)) {
+                            successCount.incrementAndGet();
+                        }
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+            
+            assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(successCount.get()).isGreaterThan(90); // 大部分应该成功
+            
+            executor.shutdown();
+        }
+    }
+
+    @Nested
+    @DisplayName("TieredCaffeineStore Tests")
+    class TieredCaffeineStoreTests {
+
+        @Test
+        @DisplayName("Tiered storage with L1 and L2 cache")
+        void tieredStorageWithL1AndL2Cache() {
+            StoreConfig l1Config = StoreConfig.builder()
+                .maxSize(5) // 小的L1缓存
+                .expireAfterWrite(Duration.ofMinutes(1))
+                .build();
+            
+            StoreConfig l2Config = StoreConfig.builder()
+                .maxSize(20) // 较大的L2缓存
+                .expireAfterWrite(Duration.ofMinutes(5))
+                .build();
+            
+            TieredCaffeineStore<String, String> tieredStore = 
+                new TieredCaffeineStore<>(l1Config, l2Config);
+            
+            // 测试基本操作
+            tieredStore.put("key1", "value1");
+            assertThat(tieredStore.get("key1")).isEqualTo("value1");
+            
+            // 填充L1缓存使其溢出到L2
+            for (int i = 0; i < 10; i++) {
+                tieredStore.put("L1_key_" + i, "L1_value_" + i);
+            }
+            
+            // 验证数据仍然可访问（可能在L2中）
+            assertThat(tieredStore.get("L1_key_0")).isEqualTo("L1_value_0");
+            assertThat(tieredStore.get("L1_key_9")).isEqualTo("L1_value_9");
+            
+            // 测试包含检查
+            assertThat(tieredStore.containsKey("L1_key_5")).isTrue();
+            assertThat(tieredStore.containsKey("nonexistent")).isFalse();
+        }
+
+        @Test
+        @DisplayName("Tiered store eviction behavior")
+        void tieredStoreEvictionBehavior() {
+            StoreConfig l1Config = StoreConfig.builder()
+                .maxSize(2)
+                .build();
+            
+            StoreConfig l2Config = StoreConfig.builder()
+                .maxSize(5)
+                .build();
+            
+            TieredCaffeineStore<String, String> tieredStore = 
+                new TieredCaffeineStore<>(l1Config, l2Config);
+            
+            // 填充超过总容量
+            for (int i = 0; i < 10; i++) {
+                tieredStore.put("eviction_key_" + i, "eviction_value_" + i);
+            }
+            
+            // 验证总大小不超过配置
+            long totalSize = tieredStore.estimatedSize();
+            assertThat(totalSize).isLessThanOrEqualTo(7); // L1(2) + L2(5)
+            
+            // 验证仍有数据存在
+            assertThat(totalSize).isGreaterThan(0);
+        }
+
+        @Test
+        @DisplayName("Tiered store statistics")
+        void tieredStoreStatistics() {
+            StoreConfig l1Config = StoreConfig.builder()
+                .maxSize(3)
+                .build();
+            
+            StoreConfig l2Config = StoreConfig.builder()
+                .maxSize(7)
+                .build();
+            
+            TieredCaffeineStore<String, String> tieredStore = 
+                new TieredCaffeineStore<>(l1Config, l2Config);
+            
+            // 添加数据
+            for (int i = 0; i < 5; i++) {
+                tieredStore.put("stats_key_" + i, "stats_value_" + i);
+            }
+            
+            // 获取统计信息
+            StoreStats stats = tieredStore.getStats();
+            assertThat(stats).isNotNull();
+            assertThat(stats.getSize()).isGreaterThan(0);
+            assertThat(stats.getHitCount()).isGreaterThanOrEqualTo(0);
+            assertThat(stats.getMissCount()).isGreaterThanOrEqualTo(0);
+            
+            // 执行一些查询以产生统计
+            for (int i = 0; i < 5; i++) {
+                tieredStore.get("stats_key_" + i);
+            }
+            tieredStore.get("nonexistent_key"); // 产生miss
+            
+            StoreStats updatedStats = tieredStore.getStats();
+            assertThat(updatedStats.getHitCount()).isGreaterThan(stats.getHitCount());
+            assertThat(updatedStats.getMissCount()).isGreaterThan(stats.getMissCount());
+        }
+
+        @Test
+        @DisplayName("Tiered store clear operation")
+        void tieredStoreClearOperation() {
+            StoreConfig l1Config = StoreConfig.builder().maxSize(5).build();
+            StoreConfig l2Config = StoreConfig.builder().maxSize(10).build();
+            
+            TieredCaffeineStore<String, String> tieredStore = 
+                new TieredCaffeineStore<>(l1Config, l2Config);
+            
+            // 添加数据到两层
+            for (int i = 0; i < 8; i++) {
+                tieredStore.put("clear_key_" + i, "clear_value_" + i);
+            }
+            
+            assertThat(tieredStore.estimatedSize()).isGreaterThan(0);
+            
+            // 清除
+            tieredStore.clear();
+            assertThat(tieredStore.estimatedSize()).isEqualTo(0);
+            
+            // 验证数据被清除
+            for (int i = 0; i < 8; i++) {
+                assertThat(tieredStore.get("clear_key_" + i)).isNull();
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("InstrumentedCaffeineStore Tests")
+    class InstrumentedCaffeineStoreTests {
+
+        @Test
+        @DisplayName("Instrumented store metrics collection")
+        void instrumentedStoreMetricsCollection() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(100)
+                .build();
+            
+            InstrumentedCaffeineStore<String, String> instrumentedStore = 
+                new InstrumentedCaffeineStore<>(config, "test_store");
+            
+            // 执行操作以产生指标
+            instrumentedStore.put("metric_key_1", "metric_value_1");
+            instrumentedStore.put("metric_key_2", "metric_value_2");
+            
+            // 查询操作
+            instrumentedStore.get("metric_key_1"); // hit
+            instrumentedStore.get("metric_key_2"); // hit
+            instrumentedStore.get("nonexistent"); // miss
+            
+            // 获取统计
+            StoreStats stats = instrumentedStore.getStats();
+            assertThat(stats).isNotNull();
+            assertThat(stats.getSize()).isEqualTo(2);
+            assertThat(stats.getHitCount()).isGreaterThanOrEqualTo(2);
+            assertThat(stats.getMissCount()).isGreaterThanOrEqualTo(1);
+            
+            // 计算命中率
+            double hitRate = stats.getHitRate();
+            assertThat(hitRate).isGreaterThan(0.0);
+            assertThat(hitRate).isLessThanOrEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("Instrumented store performance tracking")
+        void instrumentedStorePerformanceTracking() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(1000)
+                .build();
+            
+            InstrumentedCaffeineStore<String, String> instrumentedStore = 
+                new InstrumentedCaffeineStore<>(config, "performance_store");
+            
+            // 批量操作性能测试
+            long startTime = System.nanoTime();
+            
+            for (int i = 0; i < 100; i++) {
+                instrumentedStore.put("perf_key_" + i, "perf_value_" + i);
+            }
+            
+            for (int i = 0; i < 100; i++) {
+                instrumentedStore.get("perf_key_" + i);
+            }
+            
+            long endTime = System.nanoTime();
+            long durationMs = (endTime - startTime) / 1_000_000;
+            
+            // 验证性能合理（200个操作应该在合理时间内完成）
+            assertThat(durationMs).isLessThan(1000); // 少于1秒
+            
+            // 验证统计正确
+            StoreStats stats = instrumentedStore.getStats();
+            assertThat(stats.getSize()).isEqualTo(100);
+            assertThat(stats.getHitCount()).isGreaterThanOrEqualTo(100);
+        }
+
+        @Test
+        @DisplayName("Instrumented store with concurrent access")
+        void instrumentedStoreWithConcurrentAccess() throws InterruptedException {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(500)
+                .build();
+            
+            InstrumentedCaffeineStore<String, String> instrumentedStore = 
+                new InstrumentedCaffeineStore<>(config, "concurrent_store");
+            
+            ExecutorService executor = Executors.newFixedThreadPool(5);
+            CountDownLatch latch = new CountDownLatch(50);
+            AtomicLong hitCount = new AtomicLong(0);
+            AtomicLong missCount = new AtomicLong(0);
+            
+            // 并发读写操作
+            for (int i = 0; i < 50; i++) {
+                final int index = i;
+                executor.submit(() -> {
+                    try {
+                        // 写入
+                        instrumentedStore.put("concurrent_" + index, "value_" + index);
+                        
+                        // 读取（命中）
+                        String hit = instrumentedStore.get("concurrent_" + index);
+                        if (hit != null) {
+                            hitCount.incrementAndGet();
+                        }
+                        
+                        // 读取不存在的键（未命中）
+                        String miss = instrumentedStore.get("nonexistent_" + index);
+                        if (miss == null) {
+                            missCount.incrementAndGet();
+                        }
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+            
+            assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+            
+            // 验证并发操作结果
+            assertThat(hitCount.get()).isGreaterThan(0);
+            assertThat(missCount.get()).isGreaterThan(0);
+            
+            // 验证存储统计
+            StoreStats finalStats = instrumentedStore.getStats();
+            assertThat(finalStats.getSize()).isGreaterThan(0);
+            assertThat(finalStats.getHitCount()).isGreaterThan(0);
+            assertThat(finalStats.getMissCount()).isGreaterThan(0);
+            
+            executor.shutdown();
+        }
+    }
+
+    @Nested
+    @DisplayName("StoreAutoDegrader Tests")
+    class StoreAutoDegraderTests {
+
+        @Test
+        @DisplayName("Auto degrader configuration and basic operation")
+        void autoDegraderConfigurationAndBasicOperation() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(100)
+                .build();
+            
+            CaffeineStore<String, String> baseStore = new CaffeineStore<>(config);
+            StoreAutoDegrader<String, String> degrader = new StoreAutoDegrader<>(baseStore);
+            
+            // 测试基本操作
+            degrader.put("degrader_key", "degrader_value");
+            assertThat(degrader.get("degrader_key")).isEqualTo("degrader_value");
+            assertThat(degrader.containsKey("degrader_key")).isTrue();
+            
+            // 测试删除
+            degrader.remove("degrader_key");
+            assertThat(degrader.get("degrader_key")).isNull();
+            assertThat(degrader.containsKey("degrader_key")).isFalse();
+        }
+
+        @Test
+        @DisplayName("Auto degrader under high error rate")
+        void autoDegraderUnderHighErrorRate() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(50)
+                .build();
+            
+            // 创建一个可能失败的存储装饰器
+            CaffeineStore<String, String> baseStore = new CaffeineStore<String, String>(config) {
+                private int callCount = 0;
+                
+                @Override
+                public String get(String key) {
+                    callCount++;
+                    // 模拟50%的失败率
+                    if (callCount % 2 == 0) {
+                        throw new RuntimeException("Simulated storage failure");
+                    }
+                    return super.get(key);
+                }
+            };
+            
+            StoreAutoDegrader<String, String> degrader = new StoreAutoDegrader<>(baseStore);
+            
+            // 添加数据
+            degrader.put("test_key", "test_value");
+            
+            // 执行多次读取，一些会失败
+            int successCount = 0;
+            for (int i = 0; i < 10; i++) {
+                try {
+                    String value = degrader.get("test_key");
+                    if (value != null) {
+                        successCount++;
+                    }
+                } catch (Exception e) {
+                    // 预期的失败
+                }
+            }
+            
+            // 即使有失败，也应该有一些成功的操作
+            assertThat(successCount).isGreaterThan(0);
+        }
+
+        @Test
+        @DisplayName("Auto degrader statistics collection")
+        void autoDegraderStatisticsCollection() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(100)
+                .build();
+            
+            InstrumentedCaffeineStore<String, String> instrumentedStore = 
+                new InstrumentedCaffeineStore<>(config, "degrader_test");
+            StoreAutoDegrader<String, String> degrader = new StoreAutoDegrader<>(instrumentedStore);
+            
+            // 执行操作
+            for (int i = 0; i < 20; i++) {
+                degrader.put("stats_key_" + i, "stats_value_" + i);
+            }
+            
+            for (int i = 0; i < 20; i++) {
+                degrader.get("stats_key_" + i);
+            }
+            
+            // 获取统计
+            StoreStats stats = degrader.getStats();
+            assertThat(stats).isNotNull();
+            assertThat(stats.getSize()).isEqualTo(20);
+            assertThat(stats.getHitCount()).isGreaterThanOrEqualTo(20);
+        }
+
+        @Test
+        @DisplayName("Auto degrader cleanup operations")
+        void autoDegraderCleanupOperations() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(100)
+                .build();
+            
+            CaffeineStore<String, String> baseStore = new CaffeineStore<>(config);
+            StoreAutoDegrader<String, String> degrader = new StoreAutoDegrader<>(baseStore);
+            
+            // 添加数据
+            for (int i = 0; i < 30; i++) {
+                degrader.put("cleanup_key_" + i, "cleanup_value_" + i);
+            }
+            
+            assertThat(degrader.estimatedSize()).isEqualTo(30);
+            
+            // 清理
+            degrader.clear();
+            assertThat(degrader.estimatedSize()).isEqualTo(0);
+            
+            // 验证清理效果
+            for (int i = 0; i < 30; i++) {
+                assertThat(degrader.get("cleanup_key_" + i)).isNull();
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("StoreConfig Tests")
+    class StoreConfigTests {
+
+        @Test
+        @DisplayName("Store config builder with all options")
+        void storeConfigBuilderWithAllOptions() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(1000)
+                .expireAfterWrite(Duration.ofMinutes(10))
+                .expireAfterAccess(Duration.ofMinutes(5))
+                .refreshAfterWrite(Duration.ofMinutes(2))
+                .recordStats(true)
+                .build();
+            
+            assertThat(config.getMaxSize()).isEqualTo(1000);
+            assertThat(config.getExpireAfterWrite()).isEqualTo(Duration.ofMinutes(10));
+            assertThat(config.getExpireAfterAccess()).isEqualTo(Duration.ofMinutes(5));
+            assertThat(config.getRefreshAfterWrite()).isEqualTo(Duration.ofMinutes(2));
+            assertThat(config.isRecordStats()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Store config with default values")
+        void storeConfigWithDefaultValues() {
+            StoreConfig config = StoreConfig.builder().build();
+            
+            // 验证默认值被正确设置
+            assertThat(config.getMaxSize()).isGreaterThan(0);
+            // 其他默认值验证根据实际实现
+        }
+
+        @Test
+        @DisplayName("Store config validation")
+        void storeConfigValidation() {
+            // 测试边界值
+            assertThatCode(() -> {
+                StoreConfig.builder()
+                    .maxSize(1)
+                    .expireAfterWrite(Duration.ofSeconds(1))
+                    .build();
+            }).doesNotThrowAnyException();
+            
+            // 测试大值
+            assertThatCode(() -> {
+                StoreConfig.builder()
+                    .maxSize(1_000_000)
+                    .expireAfterWrite(Duration.ofDays(1))
+                    .build();
+            }).doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("Store config immutability")
+        void storeConfigImmutability() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(500)
+                .expireAfterWrite(Duration.ofMinutes(15))
+                .build();
+            
+            // 配置对象应该是不可变的
+            long originalMaxSize = config.getMaxSize();
+            Duration originalExpiry = config.getExpireAfterWrite();
+            
+            // 创建新配置不应影响原配置
+            StoreConfig newConfig = StoreConfig.builder()
+                .maxSize(1000)
+                .expireAfterWrite(Duration.ofMinutes(30))
+                .build();
+            
+            assertThat(config.getMaxSize()).isEqualTo(originalMaxSize);
+            assertThat(config.getExpireAfterWrite()).isEqualTo(originalExpiry);
+            assertThat(newConfig.getMaxSize()).isEqualTo(1000);
+            assertThat(newConfig.getExpireAfterWrite()).isEqualTo(Duration.ofMinutes(30));
+        }
+    }
+
+    @Nested
+    @DisplayName("StoreStats Tests")
+    class StoreStatsTests {
+
+        @Test
+        @DisplayName("Store stats calculation and accuracy")
+        void storeStatsCalculationAndAccuracy() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(100)
+                .recordStats(true)
+                .build();
+            
+            InstrumentedCaffeineStore<String, String> store = 
+                new InstrumentedCaffeineStore<>(config, "stats_test");
+            
+            // 执行已知操作
+            store.put("stats1", "value1");
+            store.put("stats2", "value2");
+            store.put("stats3", "value3");
+            
+            // 命中操作
+            store.get("stats1"); // hit
+            store.get("stats2"); // hit
+            store.get("stats3"); // hit
+            
+            // 未命中操作
+            store.get("nonexistent1"); // miss
+            store.get("nonexistent2"); // miss
+            
+            StoreStats stats = store.getStats();
+            
+            // 验证统计准确性
+            assertThat(stats.getSize()).isEqualTo(3);
+            assertThat(stats.getHitCount()).isGreaterThanOrEqualTo(3);
+            assertThat(stats.getMissCount()).isGreaterThanOrEqualTo(2);
+            
+            // 验证比率计算
+            double hitRate = stats.getHitRate();
+            double expectedHitRate = (double) stats.getHitCount() / 
+                (stats.getHitCount() + stats.getMissCount());
+            assertThat(hitRate).isEqualTo(expectedHitRate);
+            
+            double missRate = stats.getMissRate();
+            assertThat(hitRate + missRate).isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("Store stats with large number of operations")
+        void storeStatsWithLargeNumberOfOperations() {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(500)
+                .recordStats(true)
+                .build();
+            
+            InstrumentedCaffeineStore<Integer, String> store = 
+                new InstrumentedCaffeineStore<>(config, "large_stats_test");
+            
+            // 大量操作
+            int putCount = 1000;
+            int hitQueries = 800;
+            int missQueries = 200;
+            
+            // 写入数据
+            for (int i = 0; i < putCount; i++) {
+                store.put(i, "value_" + i);
+            }
+            
+            // 命中查询
+            for (int i = 0; i < hitQueries; i++) {
+                store.get(i % putCount); // 确保命中
+            }
+            
+            // 未命中查询
+            for (int i = 0; i < missQueries; i++) {
+                store.get(putCount + i); // 确保未命中
+            }
+            
+            StoreStats stats = store.getStats();
+            
+            // 验证大量操作的统计
+            assertThat(stats.getSize()).isGreaterThan(0);
+            assertThat(stats.getHitCount()).isGreaterThanOrEqualTo(hitQueries);
+            assertThat(stats.getMissCount()).isGreaterThanOrEqualTo(missQueries);
+            
+            // 验证命中率合理
+            double hitRate = stats.getHitRate();
+            assertThat(hitRate).isGreaterThan(0.5); // 应该有不错的命中率
+        }
+
+        @Test
+        @DisplayName("Store stats thread safety")
+        void storeStatsThreadSafety() throws InterruptedException {
+            StoreConfig config = StoreConfig.builder()
+                .maxSize(1000)
+                .recordStats(true)
+                .build();
+            
+            InstrumentedCaffeineStore<String, String> store = 
+                new InstrumentedCaffeineStore<>(config, "thread_safe_stats");
+            
+            ExecutorService executor = Executors.newFixedThreadPool(8);
+            CountDownLatch latch = new CountDownLatch(80);
+            
+            // 并发操作
+            for (int i = 0; i < 80; i++) {
+                final int threadIndex = i;
+                executor.submit(() -> {
+                    try {
+                        // 每个线程执行多种操作
+                        store.put("thread_" + threadIndex, "value_" + threadIndex);
+                        store.get("thread_" + threadIndex); // hit
+                        store.get("nonexistent_" + threadIndex); // miss
+                        
+                        // 获取统计（测试并发读取）
+                        StoreStats stats = store.getStats();
+                        assertThat(stats).isNotNull();
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+            
+            assertThat(latch.await(15, TimeUnit.SECONDS)).isTrue();
+            
+            // 验证最终统计的一致性
+            StoreStats finalStats = store.getStats();
+            assertThat(finalStats.getSize()).isGreaterThan(0);
+            assertThat(finalStats.getHitCount()).isGreaterThan(0);
+            assertThat(finalStats.getMissCount()).isGreaterThan(0);
+            
+            // 验证比率计算的数学正确性
+            double hitRate = finalStats.getHitRate();
+            double missRate = finalStats.getMissRate();
+            assertThat(Math.abs(hitRate + missRate - 1.0)).isLessThan(0.001); // 允许微小的浮点误差
+            
+            executor.shutdown();
+        }
+    }
+}
