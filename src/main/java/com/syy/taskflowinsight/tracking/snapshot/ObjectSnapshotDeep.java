@@ -1,5 +1,6 @@
 package com.syy.taskflowinsight.tracking.snapshot;
 
+import com.syy.taskflowinsight.api.TrackingOptions;
 import com.syy.taskflowinsight.tracking.summary.CollectionSummary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,10 +38,19 @@ public class ObjectSnapshotDeep {
     
     private final SnapshotConfig config;
     private final CollectionSummary collectionSummary;
+    private TrackingOptions.CollectionStrategy collectionStrategy;
     
     public ObjectSnapshotDeep(SnapshotConfig config) {
         this.config = config;
         this.collectionSummary = new CollectionSummary();
+        this.collectionStrategy = TrackingOptions.CollectionStrategy.SUMMARY; // 默认策略
+    }
+    
+    /**
+     * 设置集合处理策略
+     */
+    public void setCollectionStrategy(TrackingOptions.CollectionStrategy strategy) {
+        this.collectionStrategy = strategy != null ? strategy : TrackingOptions.CollectionStrategy.SUMMARY;
     }
     
     /**
@@ -215,14 +225,32 @@ public class ObjectSnapshotDeep {
         
         Collection<?> collection = (Collection<?>) obj;
         
-        // 大集合使用摘要
-        if (collection.size() > config.getCollectionSummaryThreshold()) {
-            result.put(path, collectionSummary.summarize(collection));
-            return;
+        // 根据策略处理集合
+        switch (collectionStrategy) {
+            case IGNORE:
+                // 忽略集合内容，只记录类型和大小
+                result.put(path, collection.getClass().getSimpleName() + "[" + collection.size() + "]");
+                return;
+                
+            case SUMMARY:
+                // 使用摘要策略
+                if (collection.size() > config.getCollectionSummaryThreshold()) {
+                    result.put(path, collectionSummary.summarize(collection));
+                    return;
+                }
+                // 小集合仍然展开处理
+                break;
+                
+            case ELEMENT:
+                // 逐元素处理，不管大小
+                break;
         }
         
-        // 小集合展开处理
+        // 展开处理集合元素
         int index = 0;
+        int maxElements = (collectionStrategy == TrackingOptions.CollectionStrategy.ELEMENT) ? 
+            Integer.MAX_VALUE : 100;
+            
         for (Object item : collection) {
             String itemPath = path + "[" + index + "]";
             
@@ -237,11 +265,19 @@ public class ObjectSnapshotDeep {
             
             index++;
             
-            // 限制处理数量
-            if (index >= 100) {
-                result.put(path + "[...]", "truncated at 100 items");
+            // 限制处理数量（除非是ELEMENT策略）
+            if (index >= maxElements) {
+                if (collectionStrategy != TrackingOptions.CollectionStrategy.ELEMENT) {
+                    result.put(path + "[...]", "truncated at " + maxElements + " items");
+                }
                 break;
             }
+        }
+        
+        // 为ELEMENT策略添加元数据
+        if (collectionStrategy == TrackingOptions.CollectionStrategy.ELEMENT) {
+            result.put(path + ".size", collection.size());
+            result.put(path + ".type", collection.getClass().getSimpleName());
         }
     }
     

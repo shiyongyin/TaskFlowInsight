@@ -3,9 +3,13 @@ package com.syy.taskflowinsight.aspect;
 import com.syy.taskflowinsight.annotation.TfiTask;
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.api.TaskContext;
+import com.syy.taskflowinsight.api.TrackingOptions;
 import com.syy.taskflowinsight.enums.MessageType;
+import com.syy.taskflowinsight.exporter.change.ChangeConsoleExporter;
+import com.syy.taskflowinsight.exporter.change.ChangeExporter;
 import com.syy.taskflowinsight.masking.UnifiedDataMasker;
 import com.syy.taskflowinsight.spel.SafeSpELEvaluator;
+import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -20,8 +24,7 @@ import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * TFI注解切面实现
@@ -91,6 +94,11 @@ public class TfiAnnotationAspect {
                     logArguments(pjp, stage);
                 }
                 
+                // 启动深度追踪（如果配置了）
+                if (tfiTask.deepTracking()) {
+                    startDeepTracking(pjp, tfiTask);
+                }
+                
                 // 执行目标方法
                 Object result = pjp.proceed();
                 
@@ -98,6 +106,16 @@ public class TfiAnnotationAspect {
                 if (tfiTask.logResult() && result != null) {
                     String maskedResult = dataMasker.maskValue("result", result);
                     TFI.message("返回值: " + maskedResult, MessageType.PROCESS);
+                }
+                
+                // 深度追踪返回值（如果配置了）
+                if (tfiTask.deepTracking() && result != null) {
+                    trackReturnValue(result, tfiTask);
+                }
+                
+                // 获取深度追踪变更（如果有）
+                if (tfiTask.deepTracking()) {
+                    logDeepTrackingChanges();
                 }
                 
                 successCounter.increment();
@@ -176,5 +194,112 @@ public class TfiAnnotationAspect {
             String maskedValue = dataMasker.maskValue(paramName, paramValue);
             TFI.message("参数 " + paramName + ": " + maskedValue, MessageType.PROCESS);
         }
+    }
+    
+    /**
+     * 启动深度追踪
+     */
+    private void startDeepTracking(ProceedingJoinPoint pjp, TfiTask tfiTask) {
+        try {
+            TrackingOptions options = buildTrackingOptions(tfiTask);
+            MethodSignature signature = (MethodSignature) pjp.getSignature();
+            Object[] args = pjp.getArgs();
+            Parameter[] parameters = signature.getMethod().getParameters();
+            
+            // 追踪每个参数（如果不是基本类型）
+            for (int i = 0; i < parameters.length && i < args.length; i++) {
+                Object arg = args[i];
+                if (arg != null && !isSimpleType(arg)) {
+                    String paramName = parameters[i].getName();
+                    String trackingName = "param." + paramName;
+                    TFI.trackDeep(trackingName, arg, options);
+                }
+            }
+            
+        } catch (Exception e) {
+            // 深度追踪失败不影响主流程
+            meterRegistry.counter("tfi.annotation.deep.tracking.error").increment();
+        }
+    }
+    
+    /**
+     * 追踪返回值
+     */
+    private void trackReturnValue(Object result, TfiTask tfiTask) {
+        try {
+            if (!isSimpleType(result)) {
+                TrackingOptions options = buildTrackingOptions(tfiTask);
+                TFI.trackDeep("result", result, options);
+            }
+        } catch (Exception e) {
+            // 深度追踪失败不影响主流程
+            meterRegistry.counter("tfi.annotation.deep.tracking.error").increment();
+        }
+    }
+    
+    /**
+     * 记录深度追踪变更（使用TFI标准格式）
+     */
+    private void logDeepTrackingChanges() {
+        try {
+            var changes = TFI.getChanges();
+            if (!changes.isEmpty()) {
+                TFI.message("检测到 " + changes.size() + " 个深度变更", MessageType.PROCESS);
+                
+                // 使用TFI标准的变更导出器
+                ChangeConsoleExporter exporter = new ChangeConsoleExporter();
+                String changeOutput = exporter.format(changes);
+                TFI.message(changeOutput, MessageType.PROCESS);
+            }
+        } catch (Exception e) {
+            // 变更检测失败不影响主流程
+            meterRegistry.counter("tfi.annotation.deep.changes.error").increment();
+        }
+    }
+    
+    /**
+     * 根据注解配置构建TrackingOptions
+     */
+    private TrackingOptions buildTrackingOptions(TfiTask tfiTask) {
+        TrackingOptions.Builder builder = TrackingOptions.builder()
+            .depth(TrackingOptions.TrackingDepth.DEEP)
+            .maxDepth(tfiTask.maxDepth())
+            .timeBudgetMs(tfiTask.timeBudgetMs())
+            .enablePerformanceMonitoring(true);
+        
+        // 设置包含字段
+        if (tfiTask.includeFields().length > 0) {
+            builder.includeFields(tfiTask.includeFields());
+        }
+        
+        // 设置排除字段
+        if (tfiTask.excludeFields().length > 0) {
+            builder.excludeFields(tfiTask.excludeFields());
+        }
+        
+        // 设置集合策略
+        try {
+            TrackingOptions.CollectionStrategy strategy = 
+                TrackingOptions.CollectionStrategy.valueOf(tfiTask.collectionStrategy());
+            builder.collectionStrategy(strategy);
+        } catch (IllegalArgumentException e) {
+            // 使用默认策略
+            builder.collectionStrategy(TrackingOptions.CollectionStrategy.SUMMARY);
+        }
+        
+        return builder.build();
+    }
+    
+    /**
+     * 判断是否为简单类型
+     */
+    private boolean isSimpleType(Object obj) {
+        return obj instanceof String ||
+               obj instanceof Number ||
+               obj instanceof Boolean ||
+               obj instanceof Character ||
+               obj instanceof java.util.Date ||
+               obj instanceof Enum ||
+               obj.getClass().isPrimitive();
     }
 }

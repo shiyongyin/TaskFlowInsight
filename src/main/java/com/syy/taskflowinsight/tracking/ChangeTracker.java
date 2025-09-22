@@ -1,8 +1,11 @@
 package com.syy.taskflowinsight.tracking;
 
+import com.syy.taskflowinsight.api.TrackingOptions;
 import com.syy.taskflowinsight.tracking.detector.DiffDetector;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshot;
+import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshotDeep;
+import com.syy.taskflowinsight.tracking.snapshot.SnapshotConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +49,7 @@ public final class ChangeTracker {
         final String[] fields;
         final WeakReference<Object> targetRef;
         final long timestamp;
+        final TrackingOptions options;
         
         SnapshotEntry(String name, Map<String, Object> baseline, String[] fields, Object target) {
             this.name = name;
@@ -53,6 +57,16 @@ public final class ChangeTracker {
             this.fields = fields;
             this.targetRef = new WeakReference<>(target);
             this.timestamp = System.currentTimeMillis();
+            this.options = null; // 兼容现有调用
+        }
+        
+        SnapshotEntry(String name, Map<String, Object> baseline, String[] fields, Object target, TrackingOptions options) {
+            this.name = name;
+            this.baseline = baseline;
+            this.fields = fields;
+            this.targetRef = new WeakReference<>(target);
+            this.timestamp = System.currentTimeMillis();
+            this.options = options;
         }
     }
     
@@ -111,6 +125,78 @@ public final class ChangeTracker {
     }
     
     /**
+     * 使用配置选项追踪对象
+     * 
+     * @param name 对象名称（用于标识）
+     * @param target 目标对象
+     * @param options 追踪配置选项
+     */
+    public static void track(String name, Object target, TrackingOptions options) {
+        if (name == null || target == null || options == null) {
+            logger.debug("Skip tracking: name={}, target={}, options={}", name, target, options);
+            return;
+        }
+        
+        try {
+            Map<String, SnapshotEntry> snapshots = THREAD_SNAPSHOTS.get();
+            
+            // 检查是否超过最大对象数限制
+            if (snapshots.size() >= MAX_TRACKED_OBJECTS && !snapshots.containsKey(name)) {
+                // 删除最早的条目（LinkedHashMap保持插入顺序）
+                Iterator<Map.Entry<String, SnapshotEntry>> iterator = snapshots.entrySet().iterator();
+                if (iterator.hasNext()) {
+                    Map.Entry<String, SnapshotEntry> oldest = iterator.next();
+                    iterator.remove();
+                    logger.warn("Reached max tracked objects limit ({}), removed oldest: {}", 
+                        MAX_TRACKED_OBJECTS, oldest.getKey());
+                }
+            }
+            
+            // 同名覆盖警告
+            if (snapshots.containsKey(name)) {
+                logger.debug("Overwriting existing tracked object: {}", name);
+            }
+            
+            // 根据配置选择快照策略
+            Map<String, Object> baseline = captureSnapshot(name, target, options);
+            
+            // 存储快照条目
+            snapshots.put(name, new SnapshotEntry(name, baseline, new String[0], target, options));
+            
+            logger.debug("Tracked object '{}' with {} fields using {}", name, baseline.size(), options.getDepth());
+            
+        } catch (Exception e) {
+            logger.warn("Failed to track object '{}': {}", name, e.getMessage());
+        }
+    }
+    
+    /**
+     * 根据配置选项捕获快照
+     */
+    private static Map<String, Object> captureSnapshot(String name, Object target, TrackingOptions options) {
+        if (options.getDepth() == TrackingOptions.TrackingDepth.DEEP) {
+            // 使用深度快照
+            SnapshotConfig config = new SnapshotConfig();
+            config.setTimeBudgetMs(options.getTimeBudgetMs());
+            config.setCollectionSummaryThreshold(options.getCollectionSummaryThreshold());
+            
+            ObjectSnapshotDeep deepSnapshot = new ObjectSnapshotDeep(config);
+            return deepSnapshot.captureDeep(
+                target, 
+                options.getMaxDepth(),
+                options.getIncludeFields(),
+                options.getExcludeFields()
+            );
+        } else {
+            // 使用浅层快照
+            String[] fields = options.getIncludeFields().isEmpty() ? 
+                new String[0] : 
+                options.getIncludeFields().toArray(new String[0]);
+            return ObjectSnapshot.capture(name, target, fields);
+        }
+    }
+    
+    /**
      * 批量追踪多个对象
      * 
      * @param targets 对象名称到对象的映射
@@ -158,7 +244,14 @@ public final class ChangeTracker {
                 }
                 
                 // 捕获当前快照
-                Map<String, Object> currentSnapshot = ObjectSnapshot.capture(name, target, snapshotEntry.fields);
+                Map<String, Object> currentSnapshot;
+                if (snapshotEntry.options != null) {
+                    // 使用配置选项
+                    currentSnapshot = captureSnapshot(name, target, snapshotEntry.options);
+                } else {
+                    // 使用传统方式
+                    currentSnapshot = ObjectSnapshot.capture(name, target, snapshotEntry.fields);
+                }
                 
                 // 对比差异
                 List<ChangeRecord> changes = DiffDetector.diff(name, snapshotEntry.baseline, currentSnapshot);

@@ -649,6 +649,66 @@ public final class TFI {
     }
     
     /**
+     * 深度追踪对象（包括嵌套对象和集合）
+     * 使用默认的深度追踪配置
+     * 
+     * @param name 对象名称（用于标识）
+     * @param target 要追踪的对象
+     */
+    public static void trackDeep(String name, Object target) {
+        trackDeep(name, target, TrackingOptions.deep());
+    }
+    
+    /**
+     * 使用自定义配置深度追踪对象
+     * 
+     * @param name 对象名称（用于标识）
+     * @param target 要追踪的对象
+     * @param options 追踪配置选项
+     */
+    public static void trackDeep(String name, Object target, TrackingOptions options) {
+        // 快速状态检查
+        if (!checkEnabled(true)) {
+            return;
+        }
+        
+        // 参数验证
+        if (name == null || name.trim().isEmpty()) {
+            logger.debug("Invalid tracking name: null or empty");
+            return;
+        }
+        if (target == null) {
+            logger.debug("Invalid tracking target: null for name '{}'", name);
+            return;
+        }
+        if (options == null) {
+            logger.debug("Invalid tracking options: null for name '{}'", name);
+            return;
+        }
+        
+        try {
+            ChangeTracker.track(name.trim(), target, options);
+            logger.debug("Started deep tracking object '{}' with depth={}, maxDepth={}", 
+                name.trim(), options.getDepth(), options.getMaxDepth());
+        } catch (ChangeTracker.TrackingException trackingError) {
+            handleInternalError("Deep tracking failed for object: " + name, trackingError, ErrorLevel.WARN);
+        } catch (OutOfMemoryError memError) {
+            handleInternalError("Out of memory while deep tracking object: " + name, memError, ErrorLevel.FATAL);
+        } catch (Throwable t) {
+            handleInternalError("Unexpected error deep tracking object: " + name, t, ErrorLevel.ERROR);
+        }
+    }
+    
+    /**
+     * 创建自定义追踪配置的构建器
+     * 
+     * @return TrackingOptions构建器
+     */
+    public static TrackingOptions.Builder trackingOptions() {
+        return TrackingOptions.builder();
+    }
+    
+    /**
      * 获取所有追踪对象的变更记录
      * 捕获当前状态，与基线对比，返回增量变更，并更新基线
      * 
