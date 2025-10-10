@@ -343,7 +343,7 @@ tfi:
 
 ## 🗺️ 进化路线
 
-### ✅ **v2.1.0 - 当前版本**
+### ✅ **v2.1.0 - 已发布** (2024-09)
 - ✅ 核心追踪能力完整实现
 - ✅ @TfiTask/@TfiTrack 注解AOP支持
 - ✅ Spring Boot Actuator 集成
@@ -352,13 +352,23 @@ tfi:
 - ✅ SpEL表达式动态配置
 - ✅ Caffeine高性能缓存
 
-### 🔨 **v2.2.0 - 规划中**
-- Web 控制台实时监控
-- 度量数据可视化图表
-- 性能基准测试工具
-- 异步传播链路追踪
+### 🎉 **v3.0.0 - 当前版本** (2025-10-10)
+- ✅ **统一门面模式**: DiffFacade, SnapshotProviders (Spring/非Spring 自动切换)
+- ✅ **完整注解系统**: @Entity, @Key, @NumericPrecision, @DateFormat, @CustomComparator
+- ✅ **高级比对策略**: EntityListStrategy (实体匹配+移动检测), NumericCompareStrategy (精度控制), EnhancedDateCompareStrategy (时区感知)
+- ✅ **TFI API 扩展**: compare(), render(), comparator() 流式构建器, ComparisonTemplate 预定义模板
+- ✅ **路径去重系统**: PathDeduplicator 消除冗余路径
+- ✅ **监控降级系统**: DegradationManager 自适应降级 (可选，默认禁用)
+- ✅ **测试覆盖**: 350+ 测试类，覆盖率 >85%
+- ✅ **完整文档**: QUICKSTART, EXAMPLES (11个场景), FAQ, TROUBLESHOOTING
 
-### 🌟 **v3.0.0 - 未来愿景**
+### 🔨 **v3.1.0 - 规划中**
+- Reference Change 语义增强
+- Container Events 完整实现
+- Query Helper API 性能优化
+- Array 比对策略增强
+
+### 🌟 **v4.0.0 - 未来愿景**
 - AI 智能分析异常模式
 - 分布式流程串联
 - IDE 插件实时预览

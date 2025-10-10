@@ -10,9 +10,9 @@
     </parent>
     <groupId>com.syy</groupId>
     <artifactId>TaskFlowInsight</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>3.0.0</version>
     <name>TaskFlowInsight</name>
-    <description>TaskFlowInsight</description>
+    <description>Business process visualization and change tracking library - Unified Facade Pattern, Complete Annotation System, Advanced Comparison Strategies</description>
     <url/>
     <licenses>
         <license/>

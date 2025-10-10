@@ -688,7 +688,7 @@ public void testTfi() {
 <dependency>
     <groupId>com.syy</groupId>
     <artifactId>TaskFlowInsight</artifactId>
-    <version>2.1.0</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 
