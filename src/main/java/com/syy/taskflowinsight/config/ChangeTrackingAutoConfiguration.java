@@ -17,6 +17,22 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
+
+import com.syy.taskflowinsight.config.resolver.ConfigurationResolverImpl;
+import com.syy.taskflowinsight.config.resolver.ConfigDefaults;
+import com.syy.taskflowinsight.tracking.precision.PrecisionController;
+import com.syy.taskflowinsight.tracking.compare.NumericCompareStrategy;
+import com.syy.taskflowinsight.tracking.format.TfiDateTimeFormatter;
+import com.syy.taskflowinsight.tracking.compare.PropertyComparatorRegistry;
+import com.syy.taskflowinsight.metrics.AsyncMetricsCollector;
+import com.syy.taskflowinsight.tracking.SessionAwareChangeTracker;
+import com.syy.taskflowinsight.tracking.detector.DiffFacade;
+import com.syy.taskflowinsight.tracking.snapshot.SnapshotProviders;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import java.util.concurrent.ScheduledFuture;
 
 /**
  * 变更追踪自动配置类
@@ -37,6 +53,12 @@ public class ChangeTrackingAutoConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(ChangeTrackingAutoConfiguration.class);
     
     private final TfiConfig config;
+    @Autowired(required = false)
+    private Environment environment;
+    @Autowired(required = false)
+    private ConfigurationResolverImpl resolver;
+    @Autowired(required = false)
+    private AsyncMetricsCollector asyncMetricsCollector;
     
     public ChangeTrackingAutoConfiguration(TfiConfig config) {
         this.config = config;
@@ -61,6 +83,7 @@ public class ChangeTrackingAutoConfiguration {
         
         // 配置DiffDetector
         configureDiffDetector();
+        configurePrecisionComponents();
         
         // 记录配置状态
         logger.info("ChangeTracking initialized: enabled={}, valueReprMaxLength={}, cleanupInterval={}min",
@@ -93,6 +116,58 @@ public class ChangeTrackingAutoConfiguration {
         // DiffDetector模式已配置，无需System.setProperty
         // 模式通过配置直接传递给相关组件
         logger.debug("Diff mode configured: {}", mode);
+    }
+
+    /**
+     * 配置精度控制组件（容差、比较方法、时间格式/时区）并注册指标收集器
+     */
+    private void configurePrecisionComponents() {
+        // 解析数值容差（优先Resolver，其次Environment，最后默认值）
+        double absTol = resolveDouble(ConfigDefaults.Keys.NUMERIC_FLOAT_TOLERANCE, 1e-12);
+        double relTol = resolveDouble(ConfigDefaults.Keys.NUMERIC_RELATIVE_TOLERANCE, 1e-9);
+        long dateToleranceMs = getProperty("tfi.change-tracking.datetime.tolerance-ms", Long.class, 0L);
+        String datePattern = getProperty("tfi.change-tracking.datetime.default-format", String.class, "yyyy-MM-dd HH:mm:ss");
+        String timezone = getProperty("tfi.change-tracking.datetime.timezone", String.class, "SYSTEM");
+
+        PrecisionController controller = new PrecisionController(
+            absTol,
+            relTol,
+            NumericCompareStrategy.CompareMethod.COMPARE_TO,
+            dateToleranceMs
+        );
+        DiffDetector.setPrecisionController(controller);
+
+        TfiDateTimeFormatter formatter = new TfiDateTimeFormatter(datePattern, timezone);
+        DiffDetector.setDateTimeFormatter(formatter);
+        // 同时注册可选的异步指标收集器
+        if (asyncMetricsCollector != null) {
+            logger.info("Registering AsyncMetricsCollector for precision metrics");
+            // 暴露到DiffDetector（如果未来开放接口）
+            // DiffDetector.setMetricsCollector(asyncMetricsCollector);
+        }
+
+        logger.info("Precision configured: absTol={}, relTol={}, dateToleranceMs={}, pattern={}, tz={}",
+            absTol, relTol, dateToleranceMs, datePattern, timezone);
+    }
+
+    private double resolveDouble(String key, double defaultValue) {
+        try {
+            if (resolver != null) {
+                Double v = resolver.resolve(key, Double.class, defaultValue);
+                if (v != null) return v;
+            }
+        } catch (Exception ignore) {}
+        return getProperty(key, Double.class, defaultValue);
+    }
+
+    private <T> T getProperty(String key, Class<T> type, T defaultValue) {
+        try {
+            if (environment != null) {
+                T v = environment.getProperty(key, type, defaultValue);
+                return v != null ? v : defaultValue;
+            }
+        } catch (Exception ignore) {}
+        return defaultValue;
     }
     
     // ==================== 导出器配置（条件装配） ====================
@@ -186,22 +261,45 @@ public class ChangeTrackingAutoConfiguration {
     public static class CleanupConfiguration {
         
         private final TfiConfig config;
+        private static final Logger logger = LoggerFactory.getLogger(CleanupConfiguration.class);
         
         public CleanupConfiguration(TfiConfig config) {
             this.config = config;
         }
         
-        /**
-         * 清理任务调度器Bean
-         * Phase 2+功能，MVP阶段暂不实现
-         * 
-         * @Bean
-         * @ConditionalOnMissingBean
-         * public TaskScheduler changeTrackingCleanupScheduler() {
-         *     // TODO: 实现定时清理任务
-         *     return null;
-         * }
-         */
+        // ============== 定时清理任务（按配置间隔执行） ==============
+        // 说明：
+        // - 使用 Spring TaskScheduler 在固定间隔执行清理
+        // - 清理策略：基于 tfi.context.max-age-millis 判定会话是否过期
+        // - 间隔：tfi.change-tracking.cleanup-interval-minutes（分钟）
+
+        @Bean(name = "tfiChangeTrackingTaskScheduler")
+        @ConditionalOnMissingBean(name = "tfiChangeTrackingTaskScheduler")
+        public TaskScheduler tfiChangeTrackingTaskScheduler() {
+            ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+            scheduler.setPoolSize(1);
+            scheduler.setThreadNamePrefix("tfi-cleanup-");
+            scheduler.setDaemon(true);
+            return scheduler;
+        }
+
+        @Bean(name = "tfiChangeTrackingCleanupTask")
+        @ConditionalOnMissingBean(name = "tfiChangeTrackingCleanupTask")
+        public ScheduledFuture<?> tfiChangeTrackingCleanupTask(TaskScheduler scheduler) {
+            long intervalMs = Math.max(1L, config.changeTracking().cleanupIntervalMinutes()) * 60_000L;
+            long maxAgeMs = Math.max(1_000L, config.context().maxAgeMillis());
+            logger.info("Scheduling ChangeTracking cleanup every {} ms (maxAge={} ms)", intervalMs, maxAgeMs);
+            return scheduler.scheduleAtFixedRate(() -> {
+                try {
+                    int cleaned = SessionAwareChangeTracker.cleanupExpiredSessions(maxAgeMs);
+                    if (cleaned > 0) {
+                        logger.info("ChangeTracking cleanup removed {} expired sessions", cleaned);
+                    }
+                } catch (Throwable t) {
+                    logger.warn("ChangeTracking cleanup task failed: {}", t.toString());
+                }
+            }, intervalMs);
+        }
     }
     
     // ==================== 监控端点配置（条件装配） ====================
@@ -231,5 +329,26 @@ public class ChangeTrackingAutoConfiguration {
          *     return new TfiEndpoint();
          * }
          */
+    }
+
+    // ==================== 基础设施：上下文注入器（启用门面/提供器的 Spring 发现） ====================
+
+    @Bean
+    public static DiffFacade.AppContextInjector diffFacadeAppContextInjector() {
+        return new DiffFacade.AppContextInjector();
+    }
+
+    @Bean
+    public static SnapshotProviders.AppContextInjector snapshotProvidersAppContextInjector() {
+        return new SnapshotProviders.AppContextInjector();
+    }
+
+    // ==================== 字段级比较器注册表（条件装配） ====================
+
+    @Bean
+    @ConditionalOnMissingBean(PropertyComparatorRegistry.class)
+    public PropertyComparatorRegistry propertyComparatorRegistry() {
+        logger.info("Creating PropertyComparatorRegistry bean");
+        return new PropertyComparatorRegistry();
     }
 }

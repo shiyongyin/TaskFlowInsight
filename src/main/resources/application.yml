@@ -57,12 +57,13 @@ tfi:
     
     # 快照配置
     snapshot:
-      enable-deep: false                # 深度快照开关（默认禁用，保证兼容性）
-      max-depth: 3                      # 最大遍历深度
+      enable-deep: true                 # 深度快照开关（默认启用，支持对象嵌套）
+      max-depth: 10                     # 最大遍历深度（统一默认值）
       max-stack-depth: 1000            # 栈深度限制（防止栈溢出）
-      time-budget-ms: 50               # 单次快照时间预算（毫秒）
+      time-budget-ms: 1000             # 单次快照时间预算（毫秒）（统一默认值）
       collection-summary-threshold: 100 # 集合摘要阈值
       metrics-enabled: true            # 启用性能指标
+      shallow-reference-mode: VALUE_ONLY # 浅引用模式：VALUE_ONLY(默认)/COMPOSITE_STRING/COMPOSITE_MAP
       include-patterns: []             # 包含路径模式（空=全部）
       exclude-patterns:                # 排除路径模式
         - "*.password"
@@ -82,6 +83,32 @@ tfi:
       output-mode: compat              # compat/enhanced
       include-null-changes: false      # 忽略null->null
       max-changes-per-object: 1000    # 单对象最大变更数
+
+      # M2性能选项配置（tfi.diff.perf.*）
+      perf:
+        timeout-ms: 5000               # 超时时间（毫秒）
+        max-elements: 10000            # 最大元素数量
+        strict-mode: false             # 严格模式（超出限制时抛出异常而非降级）
+        degradation-strategy: FALLBACK_TO_SIMPLE  # 降级策略
+        # M3算法配置
+        algo:
+          edit-distance:
+            max-size: 500              # 编辑距离算法最大字符串长度
+          lcs:
+            max-size: 300              # LCS算法最大序列长度
+          rename:
+            max-pairs: 1000            # 重命名检测最大候选对数
+
+      # M3缓存配置（tfi.diff.cache.*）
+      cache:
+        strategy:
+          enabled: true                # 是否启用策略缓存
+          max-size: 10000              # 最大缓存条目数
+          ttl-ms: 300000               # 过期时间（毫秒，5分钟）
+        reflection:
+          enabled: true                # 是否启用反射元数据缓存
+          max-size: 10000              # 最大缓存条目数
+          ttl-ms: 300000               # 过期时间（毫秒，5分钟）
     
     # 导出格式
     export:
@@ -89,6 +116,79 @@ tfi:
       pretty-print: true               # 格式化输出
       show-timestamp: false            # 显示时间戳
       include-sensitive-info: false   # 包含敏感信息（默认脱敏）
+
+  # M3比较路由配置（tfi.compare.auto-route.*）
+  compare:
+    auto-route:
+      entity:
+        enabled: true                  # 启用Entity列表自动路由
+      lcs:
+        enabled: true                  # 启用LCS策略
+        prefer-lcs-when-detect-moves: true  # detectMoves=true时优先使用LCS
+    
+    # 监控配置（任务卡要求）
+    monitoring:
+      slow-operation-ms: 200           # 慢操作阈值（统一键名），默认200ms
+    
+    # 数值精度配置（任务卡要求）  
+    numeric:
+      float-tolerance: 1e-12           # 浮点数容差，默认1e-12
+      relative-tolerance: 1e-9         # 相对容差，默认1e-9
+      bigdecimal:
+        compare-method: COMPARE_TO     # BigDecimal比较方法（COMPARE_TO/EQUALS/WITH_TOLERANCE）
+        default-scale: -1              # 默认小数位数，-1表示不设置
+      default-rounding-mode: HALF_UP   # 默认舍入模式
+    
+    # 日期时间精度配置（任务卡要求）
+    datetime:
+      default-format: "yyyy-MM-dd HH:mm:ss"  # 默认日期格式
+      tolerance-ms: 0                  # 默认时间容差（毫秒），0表示精确比较
+      timezone: SYSTEM                 # 默认时区（SYSTEM/UTC/具体时区ID）
+      duration-format: ISO8601         # Duration格式（ISO8601标准）
+    
+    # 降级机制配置（v3.0.0新增）
+    degradation:
+      enabled: false                   # 默认关闭自动降级，仅记录指标
+      evaluation-interval: 5s          # 评估周期
+      min-level-change-duration: 30s   # 级别变更最小间隔（滞后机制）
+      metrics-cache-time: 10s          # 指标缓存时间
+      slow-operation-threshold-ms: 200 # 慢操作阈值
+      critical-memory-threshold: 90.0  # 临界内存阈值
+      critical-operation-time-ms: 1000 # 临界操作时间
+      list-size-threshold: 500         # 列表大小阈值（与CT-003协同）
+      max-candidates: 5                # 最大候选项数量
+      k-pairs-threshold: 10000         # K对数阈值
+      
+      # 内存阈值配置
+      memory-thresholds:
+        skip-deep-analysis: 60.0       # 跳过深度分析的内存阈值
+        simple-comparison: 70.0        # 简单比较的内存阈值
+        summary-only: 80.0             # 仅摘要的内存阈值
+        disabled: 90.0                 # 禁用的内存阈值
+      
+      # 性能阈值配置
+      performance-thresholds:
+        average-operation-time-ms: 200 # 平均操作时间阈值
+        slow-operation-rate: 0.05      # 慢操作比率阈值（5%）
+        cpu-usage-percent: 80.0        # CPU使用率阈值
+    
+    # CT-006: 并发与内存优化配置（符合卡片要求的配置路径）
+    concurrency:
+      cme-retry:
+        enabled: false                 # CME重试默认关闭
+        max-attempts: 1                # 最大重试次数（符合卡片要求）
+        base-delay-ms: 10              # 基础延迟时间
+      thread-local-cleanup:
+        enabled: false                 # ThreadLocal清理默认关闭
+        interval-ms: 60000             # 清理间隔
+        timeout-ms: 3600000            # 上下文超时时间
+      fifo-cache:
+        enabled: false                 # FIFO缓存默认关闭
+        default-size: 1000             # 默认缓存大小
+      async-metrics:
+        enabled: false                 # 异步指标收集默认关闭
+        buffer-size: 1000              # 缓冲区大小
+        flush-interval-seconds: 10     # 刷新间隔
 
 # 日志配置
 logging:
