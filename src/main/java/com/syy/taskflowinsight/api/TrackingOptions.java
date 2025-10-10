@@ -3,6 +3,8 @@ package com.syy.taskflowinsight.api;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Collections;
+import com.syy.taskflowinsight.annotation.ObjectType;
+import com.syy.taskflowinsight.annotation.ValueObjectCompareStrategy;
 
 /**
  * 追踪配置选项
@@ -42,6 +44,9 @@ public class TrackingOptions {
     private final boolean enablePerformanceMonitoring;
     private final long timeBudgetMs;
     private final int collectionSummaryThreshold;
+    private final boolean typeAwareEnabled;
+    private final ObjectType forcedObjectType;
+    private final ValueObjectCompareStrategy forcedStrategy;
     
     private TrackingOptions(Builder builder) {
         this.depth = builder.depth;
@@ -54,6 +59,9 @@ public class TrackingOptions {
         this.enablePerformanceMonitoring = builder.enablePerformanceMonitoring;
         this.timeBudgetMs = builder.timeBudgetMs;
         this.collectionSummaryThreshold = builder.collectionSummaryThreshold;
+        this.typeAwareEnabled = builder.typeAwareEnabled;
+        this.forcedObjectType = builder.forcedObjectType;
+        this.forcedStrategy = builder.forcedStrategy;
     }
     
     /**
@@ -74,13 +82,13 @@ public class TrackingOptions {
     public static TrackingOptions deep() {
         return new Builder()
             .depth(TrackingDepth.DEEP)
-            .maxDepth(10)
+            .maxDepth(10)  // 使用ConfigDefaults.MAX_DEPTH统一默认值
             .collectionStrategy(CollectionStrategy.ELEMENT)
             .compareStrategy(CompareStrategy.REFLECTION)
             .enableCycleDetection(true)
             .enablePerformanceMonitoring(true)
-            .timeBudgetMs(5000)
-            .collectionSummaryThreshold(100)
+            .timeBudgetMs(1000)  // 使用ConfigDefaults.TIME_BUDGET_MS统一默认值
+            .collectionSummaryThreshold(100)  // 使用ConfigDefaults.COLLECTION_SUMMARY_THRESHOLD
             .build();
     }
     
@@ -102,6 +110,9 @@ public class TrackingOptions {
     public boolean isEnablePerformanceMonitoring() { return enablePerformanceMonitoring; }
     public long getTimeBudgetMs() { return timeBudgetMs; }
     public int getCollectionSummaryThreshold() { return collectionSummaryThreshold; }
+    public boolean isTypeAwareEnabled() { return typeAwareEnabled; }
+    public ObjectType getForcedObjectType() { return forcedObjectType; }
+    public ValueObjectCompareStrategy getForcedStrategy() { return forcedStrategy; }
     
     /**
      * 构建器模式
@@ -117,6 +128,9 @@ public class TrackingOptions {
         private boolean enablePerformanceMonitoring = false;
         private long timeBudgetMs = 1000;
         private int collectionSummaryThreshold = 50;
+        private boolean typeAwareEnabled = false;
+        private ObjectType forcedObjectType = null;
+        private ValueObjectCompareStrategy forcedStrategy = null;
         
         public Builder depth(TrackingDepth depth) {
             this.depth = depth;
@@ -168,6 +182,26 @@ public class TrackingOptions {
             return this;
         }
         
+        public Builder enableTypeAware() {
+            this.typeAwareEnabled = true;
+            return this;
+        }
+        
+        public Builder enableTypeAware(boolean enable) {
+            this.typeAwareEnabled = enable;
+            return this;
+        }
+        
+        public Builder forceObjectType(ObjectType objectType) {
+            this.forcedObjectType = objectType;
+            return this;
+        }
+        
+        public Builder forceStrategy(ValueObjectCompareStrategy strategy) {
+            this.forcedStrategy = strategy;
+            return this;
+        }
+        
         public TrackingOptions build() {
             return new TrackingOptions(this);
         }
@@ -178,9 +212,11 @@ public class TrackingOptions {
         return String.format("TrackingOptions{depth=%s, maxDepth=%d, collectionStrategy=%s, " +
                            "compareStrategy=%s, includeFields=%s, excludeFields=%s, " +
                            "enableCycleDetection=%s, enablePerformanceMonitoring=%s, " +
-                           "timeBudgetMs=%d, collectionSummaryThreshold=%d}",
+                           "timeBudgetMs=%d, collectionSummaryThreshold=%d, " +
+                           "typeAwareEnabled=%s, forcedObjectType=%s, forcedStrategy=%s}",
                            depth, maxDepth, collectionStrategy, compareStrategy,
                            includeFields, excludeFields, enableCycleDetection,
-                           enablePerformanceMonitoring, timeBudgetMs, collectionSummaryThreshold);
+                           enablePerformanceMonitoring, timeBudgetMs, collectionSummaryThreshold,
+                           typeAwareEnabled, forcedObjectType, forcedStrategy);
     }
 }

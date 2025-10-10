@@ -2,6 +2,7 @@ package com.syy.taskflowinsight.api;
 
 import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.concurrent.ConcurrentRetryUtil;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -107,14 +108,16 @@ public class TrackingStatistics {
     }
     
     /**
-     * 获取变更类型分布
+     * 获取变更类型分布（带CME重试保护）
      */
     public Map<ChangeType, Integer> getChangeTypeDistribution() {
-        Map<ChangeType, Integer> distribution = new EnumMap<>(ChangeType.class);
-        for (Map.Entry<ChangeType, AtomicInteger> entry : changesByType.entrySet()) {
-            distribution.put(entry.getKey(), entry.getValue().get());
-        }
-        return distribution;
+        return ConcurrentRetryUtil.executeWithRetry(() -> {
+            Map<ChangeType, Integer> distribution = new EnumMap<>(ChangeType.class);
+            for (Map.Entry<ChangeType, AtomicInteger> entry : changesByType.entrySet()) {
+                distribution.put(entry.getKey(), entry.getValue().get());
+            }
+            return distribution;
+        });
     }
     
     /**
@@ -129,13 +132,14 @@ public class TrackingStatistics {
     }
     
     /**
-     * 获取变更最多的对象
+     * 获取变更最多的对象（带CME重试保护）
      */
     public List<ObjectStatistics> getTopChangedObjects(int limit) {
-        return objectStats.values().stream()
-            .sorted((a, b) -> Integer.compare(b.getTotalChanges(), a.getTotalChanges()))
-            .limit(limit)
-            .collect(Collectors.toList());
+        return ConcurrentRetryUtil.executeWithRetry(() -> 
+            objectStats.values().stream()
+                .sorted((a, b) -> Integer.compare(b.getTotalChanges(), a.getTotalChanges()))
+                .limit(limit)
+                .collect(Collectors.toList()));
     }
     
     /**
