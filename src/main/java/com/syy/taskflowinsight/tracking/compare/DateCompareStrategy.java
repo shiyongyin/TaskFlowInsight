@@ -10,10 +10,13 @@ import java.util.Date;
  * @author TaskFlow Insight Team
  * @version 2.1.0
  * @since 2025-01-13
+ * @deprecated 请使用 {@link EnhancedDateCompareStrategy} 替代，支持字段级容差和多种时间类型
  */
+@Deprecated(since = "3.0.0", forRemoval = false)
 public class DateCompareStrategy implements CompareStrategy<Date> {
     
-    private static final long TOLERANCE_MS = 1000; // 1秒容差
+    // 注意：此类仅作为历史示例保留，默认容差由增强策略控制（0ms）
+    private static final long TOLERANCE_MS = 1000; // 示例容差（不要作为默认行为使用）
     
     @Override
     public CompareResult compare(Date date1, Date date2, CompareOptions options) {
