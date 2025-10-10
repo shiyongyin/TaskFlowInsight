@@ -2,6 +2,7 @@ package com.syy.taskflowinsight.tracking.detector;
 
 import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +16,12 @@ import static org.assertj.core.api.Assertions.*;
  * Focus: DiffDetector constructor (0%), diffWithMode (71%), getValueKind (68%), toRepr (71%)
  */
 class DiffDetectorEnhancedTest {
+
+    @BeforeEach
+    void setUp() {
+        // 禁用增强路径去重以确保测试预期的变更数量
+        DiffDetector.setEnhancedDeduplicationEnabled(false);
+    }
 
     // ========== Constructor Tests (提升0%→100%) ==========
 

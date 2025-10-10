@@ -322,8 +322,9 @@ public final class SafeContextManager {
     
     /**
      * 检测并清理泄漏的上下文
+     * 对测试可见，用于清理测试环境
      */
-    private void detectAndCleanLeaks() {
+    void detectAndCleanLeaks() {
         long now = System.currentTimeMillis();
         List<ManagedThreadContext> leakedContexts = new ArrayList<>();
         
@@ -423,11 +424,30 @@ public final class SafeContextManager {
     
     /**
      * 获取活动上下文数量
-     * 
+     *
      * @return 活动上下文数量
      */
     public int getActiveContextCount() {
         return activeContexts.size();
+    }
+
+    /**
+     * 清理所有活动上下文（仅供测试使用）
+     * @deprecated 仅供测试使用，生产环境不应调用
+     */
+    @Deprecated
+    void clearAllContextsForTesting() {
+        activeContexts.values().forEach(context -> {
+            try {
+                if (!context.isClosed()) {
+                    context.close();
+                }
+            } catch (Exception e) {
+                logger.debug("Failed to close context during test cleanup: {}", e.getMessage());
+            }
+        });
+        activeContexts.clear();
+        CONTEXT_LOCAL.remove();
     }
     
     /**

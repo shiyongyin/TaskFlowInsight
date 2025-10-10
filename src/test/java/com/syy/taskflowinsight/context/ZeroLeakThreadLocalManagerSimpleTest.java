@@ -339,8 +339,8 @@ class ZeroLeakThreadLocalManagerSimpleTest {
             Map<String, Object> diagnostics = manager.getDiagnostics();
             
             // 检查一些预期的诊断字段
-            assertThat(diagnostics).containsKey("registeredContexts");
-            assertThat(diagnostics.get("registeredContexts")).isInstanceOf(Number.class);
+            assertThat(diagnostics).containsKey("contexts.registered");
+            assertThat(diagnostics.get("contexts.registered")).isInstanceOf(Number.class);
         }
     }
 

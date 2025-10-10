@@ -59,28 +59,31 @@ public record TfiConfig(
             valueReprMaxLength = valueReprMaxLength != null ? valueReprMaxLength : 8192;
             cleanupIntervalMinutes = cleanupIntervalMinutes != null ? cleanupIntervalMinutes : 5;
             maxCachedClasses = maxCachedClasses != null ? maxCachedClasses : 1024;
-            snapshot = snapshot != null ? snapshot : new Snapshot(null, null, null, null, null);
-            diff = diff != null ? diff : new Diff(null, null, null, null);
+            snapshot = snapshot != null ? snapshot : new Snapshot(null, null, null, null, null, null);
+            diff = diff != null ? diff : new Diff(null, null, null, null, null);
             export = export != null ? export : new Export(null, null, null, null, null);
             summary = summary != null ? summary : new Summary(null, null, null, null);
         }
         
         /**
          * 快照配置
+         * 注意：最终生效默认值以 ConfigDefaults/Resolver 解析结果为准
          */
         public record Snapshot(
             @Min(1) @Max(100) Integer maxDepth,
             @Min(10) @Max(10000) Integer maxElements,
             Set<String> excludes,
             @Min(1) @Max(10000) Integer maxStackDepth,
-            Boolean enableDeep
+            Boolean enableDeep,
+            Long timeBudgetMs  // 补充缺失的时间预算配置
         ) {
             public Snapshot {
-                maxDepth = maxDepth != null ? maxDepth : 3;
+                maxDepth = maxDepth != null ? maxDepth : 10;  // 与 ConfigDefaults.MAX_DEPTH 对齐
                 maxElements = maxElements != null ? maxElements : 100;
                 excludes = excludes != null ? excludes : Set.of("*.password", "*.secret", "*.token", "*.key");
                 maxStackDepth = maxStackDepth != null ? maxStackDepth : 1000;
                 enableDeep = enableDeep != null ? enableDeep : false;
+                timeBudgetMs = timeBudgetMs != null ? timeBudgetMs : 1000L;  // 与 ConfigDefaults.TIME_BUDGET_MS 对齐
             }
         }
         
@@ -91,13 +94,23 @@ public record TfiConfig(
             String outputMode,
             Boolean includeNullChanges,
             @Min(1) @Max(10000) Integer maxChangesPerObject,
-            Boolean normalizeValues
+            Boolean normalizeValues,
+            String pathFormat
         ) {
             public Diff {
                 outputMode = outputMode != null ? outputMode : "compat";
                 includeNullChanges = includeNullChanges != null ? includeNullChanges : false;
                 maxChangesPerObject = maxChangesPerObject != null ? maxChangesPerObject : 1000;
                 normalizeValues = normalizeValues != null ? normalizeValues : true;
+                // 路径格式：legacy=单引号兼容模式，standard=双引号新标准
+                pathFormat = pathFormat != null ? pathFormat : "legacy";
+            }
+            
+            /**
+             * 是否使用新的路径格式标准
+             */
+            public boolean useStandardPathFormat() {
+                return "standard".equals(pathFormat);
             }
         }
         

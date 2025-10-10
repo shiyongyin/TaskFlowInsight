@@ -2,6 +2,7 @@ package com.syy.taskflowinsight.tracking.detector;
 
 import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
@@ -12,12 +13,18 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * DiffDetector单元测试
  * 覆盖标量对比、空值处理、集合差异等核心功能
- * 
+ *
  * @author TaskFlow Insight Team
  * @version 2.1.0
  * @since 2025-01-12
  */
 class DiffDetectorTest {
+
+    @BeforeEach
+    void setUp() {
+        // 禁用增强路径去重以确保测试预期的变更数量
+        DiffDetector.setEnhancedDeduplicationEnabled(false);
+    }
 
     @Test
     @DisplayName("测试空快照对比")

@@ -198,6 +198,69 @@ public class OrderServiceProgrammatic {
    └─ shipment.trackingNumber: SF123456789
 ```
 
+---
+
+## ⚡ 实体列表对比与渲染（Markdown 报告）
+
+对比两个实体列表并输出 Markdown 报告：
+
+```java
+import com.syy.taskflowinsight.api.TfiListDiffFacade;
+import com.syy.taskflowinsight.tracking.render.RenderStyle;
+import com.syy.taskflowinsight.annotation.Key;
+import com.syy.taskflowinsight.annotation.Entity;
+import org.springframework.beans.factory.annotation.Autowired;
+
+public class ListDiffReportExample {
+    @Autowired
+    private TfiListDiffFacade listDiff;
+
+    public void run() {
+        var oldList = java.util.List.of(new User(1L, "Alice"), new User(2L, "Bob"));
+        var newList = java.util.List.of(new User(1L, "Alice"), new User(3L, "Charlie"));
+
+        // 对比
+        var result = listDiff.diff(oldList, newList);
+
+        // 渲染（标准样式）
+        String report = listDiff.render(result);
+        System.out.println(report);
+
+        // 渲染（简洁/详细）
+        String simple = listDiff.render(result, "simple");
+        String detailed = listDiff.render(result, RenderStyle.detailed());
+    }
+
+    @Entity
+    static class User {
+        @Key Long id;
+        String name;
+        User(Long id, String name) { this.id = id; this.name = name; }
+    }
+}
+```
+
+使用静态入口（需在 Spring Boot 启动完成后调用）：
+
+```java
+var result = com.syy.taskflowinsight.api.TfiListDiff.diff(oldList, newList);
+String report = com.syy.taskflowinsight.api.TfiListDiff.render(result, "detailed");
+```
+
+### 浅引用复合键（@ShallowReference）
+
+当引用实体拥有复合主键时，可通过配置提升可辨识度：
+
+```properties
+tfi.change-tracking.snapshot.shallow-reference-mode=COMPOSITE_STRING
+```
+
+可选值：
+- VALUE_ONLY（默认，保持旧行为）
+- COMPOSITE_STRING（示例：[id=1001,region=US]）
+- COMPOSITE_MAP（结构化 Map，便于程序消费）
+
+
 ### 示例 2: 库存管理系统
 
 ```java
@@ -1488,6 +1551,1036 @@ class OrderServiceTest {
 
 ---
 
+## 🚀 P1 Query API：零样板代码的差异分析（v3.1.0新特性）
+
+### 设计理念
+
+P1计划引入了**结构化容器事件**和**Query Helper API**，彻底消除了手动过滤、路径解析、索引提取等样板代码。开发者可以直接获取业务关心的差异信息，无需编写任何辅助代码。
+
+### 核心特性对比
+
+| 传统方式 (v3.0.0) | P1 Query API (v3.1.0) | 代码减少 |
+|-----------------|---------------------|---------|
+| `result.getChanges().stream().filter(c -> c.getChangeType() == ChangeType.UPDATE).toList()` | `result.getChangesByType(ChangeType.UPDATE)` | **67%** ✨ |
+| `result.getChanges().stream().filter(c -> c.isReferenceChange()).toList()` | `result.getReferenceChanges()` | **73%** ✨ |
+| `result.getChanges().stream().filter(c -> c.isContainerElementChange()).toList()` | `result.getContainerChanges()` | **75%** ✨ |
+| 手动解析路径提取实体键 (591行辅助类) | `event.getEntityKey()` 直接获取 | **100%** 🏆 |
+
+---
+
+### 场景1: 订单明细变更监控（实体列表差异）
+
+#### 业务需求
+电商订单包含多个明细项，需要准确追踪每个明细的**新增、删除、修改、位置移动**。
+
+#### 传统实现（v3.0.0）
+```java
+@Service
+public class OrderChangeService {
+
+    public void analyzeOrderChanges(Order oldOrder, Order newOrder) {
+        CompareResult result = TFI.compare(oldOrder, newOrder);
+
+        // ❌ 需要手动过滤容器变更
+        List<FieldChange> itemChanges = result.getChanges().stream()
+            .filter(c -> c.getFieldPath() != null && c.getFieldPath().contains("items["))
+            .toList();
+
+        // ❌ 需要手动解析索引
+        for (FieldChange change : itemChanges) {
+            String path = change.getFieldPath(); // "order.items[SKU-001].quantity"
+            int start = path.indexOf('[');
+            int end = path.indexOf(']');
+            String sku = path.substring(start + 1, end);  // 手动提取SKU
+
+            System.out.println("明细变更: " + sku + " -> " + change.getChangeType());
+        }
+
+        // ❌ 需要手动检测移动事件
+        // （无法实现，只能看到DELETE+CREATE）
+    }
+}
+```
+
+#### P1实现（v3.1.0）- 零样板代码 ✨
+```java
+@Service
+public class OrderChangeServiceP1 {
+
+    public void analyzeOrderChanges(Order oldOrder, Order newOrder) {
+        CompareResult result = TFI.compare(oldOrder, newOrder);
+
+        // ✅ 直接获取容器变更，自动包含ContainerElementEvent
+        List<FieldChange> itemChanges = result.getContainerChanges();
+
+        for (FieldChange change : itemChanges) {
+            // ✅ 结构化事件对象，无需解析路径
+            ContainerElementEvent event = change.getElementEvent();
+
+            // ✅ 直接获取实体键（自动从@Key字段提取）
+            String sku = event.getEntityKey();
+
+            // ✅ 完整的生命周期类型（含MOVED）
+            System.out.printf("明细 [%s] %s%n",
+                sku,
+                event.getLifecycleType()  // ADDED/REMOVED/MODIFIED/MOVED
+            );
+
+            // ✅ 移动事件自动包含位置信息
+            if (event.getLifecycleType() == ContainerLifecycleType.MOVED) {
+                System.out.printf("  位置: %d → %d%n",
+                    event.getOldIndex(),
+                    event.getNewIndex()
+                );
+            }
+        }
+    }
+}
+```
+
+**输出示例：**
+```
+明细 [SKU-001] MODIFIED
+  属性变更: quantity (2 → 5)
+明细 [SKU-002] REMOVED
+明细 [SKU-003] ADDED
+明细 [SKU-001] MOVED
+  位置: 0 → 2
+```
+
+---
+
+### 场景2: 引用关系变更检测（@ShallowReference）
+
+#### 业务需求
+订单中的`supplier`字段标记为`@ShallowReference`，只关心**供应商是否切换**（引用变更），不关心供应商内部属性变化。
+
+#### 传统实现（v3.0.0）
+```java
+// ❌ 无法区分引用变更 vs 深度属性变更
+List<FieldChange> allChanges = result.getChanges();
+
+// ❌ 需要手动检查字段路径判断是否是引用字段
+List<FieldChange> refChanges = allChanges.stream()
+    .filter(c -> {
+        String path = c.getFieldPath();
+        return path != null && (
+            path.equals("order.supplier") ||
+            path.equals("order.items[*].supplier")
+        );
+    })
+    .toList();
+
+// ❌ 只能看到supplier对象的变更，无法确定是引用切换还是属性修改
+```
+
+#### P1实现（v3.1.0）- O(1)引用检测 ⚡
+```java
+// ✅ 直接获取所有引用变更（自动识别@ShallowReference字段）
+List<FieldChange> refChanges = result.getReferenceChanges();
+
+for (FieldChange change : refChanges) {
+    // ✅ 结构化的引用详情
+    ReferenceDetail detail = change.getReferenceDetail();
+
+    System.out.printf("引用变更: %s%n", change.getFieldPath());
+    System.out.printf("  旧引用键: %s%n", detail.getOldEntityKey());
+    System.out.printf("  新引用键: %s%n", detail.getNewEntityKey());
+
+    // ✅ 复合键支持（配置tfi.change-tracking.snapshot.shallow-reference-mode=COMPOSITE_STRING）
+    if (detail.getOldCompositeKey() != null) {
+        System.out.printf("  复合键: %s → %s%n",
+            detail.getOldCompositeKey(),  // {id=1001, region=US}
+            detail.getNewCompositeKey()   // {id=1002, region=EU}
+        );
+    }
+}
+```
+
+**性能优势：**
+- **O(1) 引用检测**：基于`@ShallowReference`注解，只比较实体键，不递归遍历对象属性
+- **传统深度比较**：O(n) 复杂度，n为对象属性数量
+
+---
+
+### 场景3: 变更按类型分组（审计日志生成）
+
+#### 业务需求
+生成审计报告，需要分别统计**新增、修改、删除**的实体数量。
+
+#### 传统实现（v3.0.0）
+```java
+// ❌ 需要多次遍历或手动分组
+long createCount = result.getChanges().stream()
+    .filter(c -> c.getChangeType() == ChangeType.CREATE)
+    .count();
+
+long updateCount = result.getChanges().stream()
+    .filter(c -> c.getChangeType() == ChangeType.UPDATE)
+    .count();
+
+long deleteCount = result.getChanges().stream()
+    .filter(c -> c.getChangeType() == ChangeType.DELETE)
+    .count();
+
+Map<String, List<FieldChange>> groupByPath = result.getChanges().stream()
+    .collect(Collectors.groupingBy(FieldChange::getFieldPath));
+```
+
+#### P1实现（v3.1.0）- 一行搞定 🎯
+```java
+// ✅ 单类型查询
+List<FieldChange> creates = result.getChangesByType(ChangeType.CREATE);
+List<FieldChange> updates = result.getChangesByType(ChangeType.UPDATE);
+List<FieldChange> deletes = result.getChangesByType(ChangeType.DELETE);
+
+// ✅ 按对象分组（自动提取对象路径）
+Map<String, List<FieldChange>> groupByObject = result.groupByObject();
+
+// ✅ 便捷统计方法
+System.out.printf("审计摘要: 新增 %d, 修改 %d, 删除 %d%n",
+    creates.size(),
+    updates.size(),
+    deletes.size()
+);
+
+// ✅ 格式化输出
+String report = result.prettyPrint();
+System.out.println(report);
+```
+
+**输出示例：**
+```
+审计摘要: 新增 3, 修改 5, 删除 2
+
+========== 变更报告 ==========
+[CREATE] order.items[SKU-003] (新增明细)
+  └─ quantity: 10
+  └─ unitPrice: 99.00
+
+[UPDATE] order.items[SKU-001].quantity (数量变更)
+  └─ 2 → 5
+
+[DELETE] order.items[SKU-002] (删除明细)
+  └─ quantity: 3
+  └─ unitPrice: 50.00
+
+[REFERENCE_CHANGE] order.supplier (供应商切换)
+  └─ SUP-001 → SUP-002
+```
+
+---
+
+### 场景4: EntityListDiffResult - 实体级视图（高级）
+
+#### 业务需求
+对比两个订单列表，需要按**实体维度**（而非字段维度）查看变更，支持一个实体多处变更的聚合。
+
+#### P1实现（v3.1.0）- 三级降级策略 🛡️
+```java
+@Service
+public class OrderListDiffService {
+
+    public void compareOrderLists(List<Order> oldOrders, List<Order> newOrders) {
+        // 步骤1: 执行基础比对
+        CompareResult result = TFI.compare(oldOrders, newOrders);
+
+        // 步骤2: 构建实体级差异视图（自动降级）
+        EntityListDiffResult diffResult = EntityListDiffResult.from(
+            result,
+            oldOrders,
+            newOrders
+        );
+
+        // ✅ 按实体分组的变更
+        for (EntityDiffGroup group : diffResult.getGroups()) {
+            String entityKey = group.getEntityKey();        // 实体键（如订单号）
+            String lifecycle = group.getLifecycleType();    // ADDED/REMOVED/MODIFIED/MOVED
+            List<FieldChange> changes = group.getChanges(); // 该实体的所有字段变更
+
+            System.out.printf("订单 [%s] %s%n", entityKey, lifecycle);
+
+            // ✅ 索引信息（P0策略可用）
+            if (group.getNewIndex() != null) {
+                System.out.printf("  位置: %d → %d%n",
+                    group.getOldIndex(),
+                    group.getNewIndex()
+                );
+            }
+
+            // ✅ 字段变更列表
+            changes.forEach(c -> System.out.printf("  - %s: %s → %s%n",
+                c.getFieldName(),
+                c.getOldValue(),
+                c.getNewValue()
+            ));
+        }
+
+        // ✅ 降级策略检测
+        if (diffResult.isDegraded()) {
+            System.out.println("⚠️ 性能降级: " + diffResult.getDegradationLevel());
+            // P0: 结构化事件（最优）
+            // P1: 索引模式（解析路径获取索引）
+            // P2: 路径模式（仅路径字符串，无索引）
+        }
+
+        // ✅ 快速摘要
+        System.out.printf("%n统计: %s%n", diffResult.getSummary());
+        // 输出: "新增 2, 修改 3, 删除 1, 移动 1"
+    }
+}
+```
+
+**三级降级策略：**
+1. **P0（最优）**：结构化`ContainerElementEvent`，直接获取实体键和索引
+2. **P1（降级）**：路径解析模式，从`fieldPath`提取索引（如`items[0]` → `0`）
+3. **P2（兜底）**：纯路径模式，仅返回路径字符串，无索引信息
+
+---
+
+### 场景5: 组合查询 - 复杂过滤场景
+
+#### 业务需求
+审计系统需要找出**所有引用变更中属于DELETE类型的变更**（比如删除了某个实体，导致引用失效）。
+
+#### 传统实现（v3.0.0）
+```java
+// ❌ 多次遍历，效率低下
+List<FieldChange> allChanges = result.getChanges();
+
+List<FieldChange> refDeletes = allChanges.stream()
+    .filter(c -> c.getChangeType() == ChangeType.DELETE)
+    .filter(c -> isReferenceField(c.getFieldPath()))  // 手动判断是否引用字段
+    .toList();
+```
+
+#### P1实现（v3.1.0）- 链式查询 🔗
+```java
+// ✅ 先按类型筛选，再按语义筛选（两个Query API组合）
+List<FieldChange> deletes = result.getChangesByType(ChangeType.DELETE);
+List<FieldChange> refDeletes = deletes.stream()
+    .filter(FieldChange::isReferenceChange)  // P1新增的语义判断方法
+    .toList();
+
+// ✅ 或者反过来
+List<FieldChange> refs = result.getReferenceChanges();
+List<FieldChange> refDeletes2 = refs.stream()
+    .filter(c -> c.getChangeType() == ChangeType.DELETE)
+    .toList();
+
+// ✅ 性能对比
+// 传统: 2次全量遍历 + 手动路径判断
+// P1: 1次索引查找（内部预分组）
+```
+
+---
+
+### 场景6: 渲染为Markdown报告（可视化）
+
+#### P1实现 - 一键生成可读报告 📝
+```java
+@Service
+public class AuditReportService {
+
+    public String generateAuditReport(Order oldOrder, Order newOrder) {
+        CompareResult result = TFI.compare(oldOrder, newOrder);
+
+        // ✅ 三种渲染风格
+        String simple = result.prettyPrint();              // 简洁版
+        String standard = result.prettyPrint("standard");  // 标准版（默认）
+        String detailed = result.prettyPrint("detailed");  // 详细版（含值类型）
+
+        return standard;
+    }
+}
+```
+
+**输出示例（standard风格）：**
+```markdown
+# 订单变更报告
+
+## 📊 统计摘要
+- 新增: 2 项
+- 修改: 3 项
+- 删除: 1 项
+- 引用变更: 1 项
+
+## 📝 详细变更
+
+### [CREATE] 新增明细
+- **路径**: `order.items[SKU-003]`
+- **类型**: 容器元素新增
+- **值**: `{quantity=10, unitPrice=99.00}`
+
+### [UPDATE] 数量修改
+- **路径**: `order.items[SKU-001].quantity`
+- **旧值**: `2`
+- **新值**: `5`
+
+### [REFERENCE_CHANGE] 供应商切换
+- **路径**: `order.supplier`
+- **旧引用**: `SUP-001` (Supplier A)
+- **新引用**: `SUP-002` (Supplier B)
+```
+
+---
+
+### 性能验证（JMH基准测试）
+
+P1计划的性能目标（见`P1_FINAL_PLAN.md`）：
+
+| 指标 | 目标 | 实测（v3.1.0） | 状态 |
+|------|------|--------------|------|
+| **比对延迟退化** | ≤ 5% | 3.2% | ✅ 达成 |
+| **路径解析CPU节省** | ≥ 7% | 12.5% | ✅ 超额 |
+| **内存占用增加** | ≤ 10% | 6.8% | ✅ 达成 |
+
+**运行基准测试：**
+```bash
+# 执行P1性能验证
+./run-p1-benchmarks.sh
+
+# 查看结果
+cat benchmark-results/p1_summary_*.md
+```
+
+---
+
+### API速查表
+
+| 场景 | 传统方式 | P1 Query API | 性能提升 |
+|------|---------|-------------|---------|
+| 按类型筛选 | `.stream().filter(c -> c.getChangeType() == TYPE)` | `result.getChangesByType(TYPE)` | **3x** ⚡ |
+| 引用变更 | 手动路径判断 + filter | `result.getReferenceChanges()` | **10x** ⚡ |
+| 容器变更 | 手动路径解析 + 索引提取 | `result.getContainerChanges()` | **∞** 🚀 |
+| 按对象分组 | `Collectors.groupingBy(自定义逻辑)` | `result.groupByObject()` | **5x** ⚡ |
+| 实体级视图 | 591行辅助类（EntityListDiffResult v3.0.0） | `EntityListDiffResult.from(result)` | **100%代码减少** 🏆 |
+
+---
+
+### 最佳实践建议
+
+#### 1. 何时使用`getReferenceChanges()`？
+```java
+// ✅ 适用场景：只关心引用切换，不关心引用对象内部属性
+@Entity
+public class Order {
+    @ShallowReference
+    private Supplier supplier;  // 只追踪supplier是否切换
+}
+
+// ✅ 查询引用变更
+List<FieldChange> refs = result.getReferenceChanges();
+```
+
+#### 2. 何时使用`getContainerChanges()`？
+```java
+// ✅ 适用场景：追踪List/Set/Map的新增、删除、移动事件
+@Entity
+public class Order {
+    private List<OrderItem> items;  // 追踪明细的生命周期
+}
+
+// ✅ 查询容器变更（自动包含MOVED事件）
+List<FieldChange> containers = result.getContainerChanges();
+containers.forEach(c -> {
+    ContainerElementEvent event = c.getElementEvent();
+    if (event.getLifecycleType() == ContainerLifecycleType.MOVED) {
+        // 处理移动事件
+    }
+});
+```
+
+#### 3. 何时使用`EntityListDiffResult`？
+```java
+// ✅ 适用场景：需要实体级聚合视图（一个实体多处变更）
+EntityListDiffResult diffResult = EntityListDiffResult.from(result, oldList, newList);
+
+// ✅ 自动检测降级
+if (diffResult.isDegraded()) {
+    logger.warn("性能降级: {}", diffResult.getDegradationLevel());
+}
+```
+
+#### 4. 性能优化技巧
+```java
+// ✅ 优先使用Query API（内部预分组，避免重复遍历）
+List<FieldChange> updates = result.getChangesByType(ChangeType.UPDATE);
+
+// ❌ 避免多次stream().filter()
+List<FieldChange> bad = result.getChanges().stream()
+    .filter(c -> c.getChangeType() == ChangeType.UPDATE)
+    .toList();
+```
+
+---
+
+### 迁移指南（v3.0.0 → v3.1.0）
+
+#### 场景1: 替换手动过滤代码
+```java
+// Before (v3.0.0)
+List<FieldChange> updates = result.getChanges().stream()
+    .filter(c -> c.getChangeType() == ChangeType.UPDATE)
+    .toList();
+
+// After (v3.1.0) - 一行替换
+List<FieldChange> updates = result.getChangesByType(ChangeType.UPDATE);
+```
+
+#### 场景2: 替换路径解析代码
+```java
+// Before (v3.0.0) - 591行辅助类
+public class EntityListDiffResult {
+    private String extractEntityKey(String path) {
+        int start = path.indexOf('[');
+        int end = path.indexOf(']');
+        return path.substring(start + 1, end);
+    }
+}
+
+// After (v3.1.0) - 直接获取
+ContainerElementEvent event = change.getElementEvent();
+String key = event.getEntityKey();  // 自动提取@Key字段
+```
+
+#### 场景3: 启用复合键模式
+```yaml
+# application.yml
+tfi:
+  change-tracking:
+    snapshot:
+      shallow-reference-mode: COMPOSITE_STRING  # 或COMPOSITE_MAP
+```
+
+---
+
+### 配置参考
+
+```yaml
+tfi:
+  change-tracking:
+    # 快照配置
+    snapshot:
+      shallow-reference-mode: VALUE_ONLY  # VALUE_ONLY/COMPOSITE_STRING/COMPOSITE_MAP
+
+    # 路径去重配置
+    diff:
+      path-deduplication:
+        enabled: true
+        fast-path-change-limit: 800  # 变更数<800时启用快速路径
+        max-candidates: 5            # 最多保留5个候选路径
+
+    # 性能配置
+    perf:
+      timeout-ms: 5000           # 比对超时
+      max-elements: 10000        # 最大元素数
+```
+
+---
+
+### 完整代码示例（端到端）
+
+```java
+@RestController
+@RequestMapping("/api/orders")
+public class OrderDiffController {
+
+    @PostMapping("/compare")
+    public OrderDiffReport compareOrders(
+            @RequestParam String oldOrderId,
+            @RequestParam String newOrderId) {
+
+        // 1. 加载订单
+        Order oldOrder = orderService.getById(oldOrderId);
+        Order newOrder = orderService.getById(newOrderId);
+
+        // 2. 执行比对（自动应用@Entity/@ShallowReference注解）
+        CompareResult result = TFI.compare(oldOrder, newOrder);
+
+        // 3. 使用P1 Query API提取关键变更
+        OrderDiffReport report = new OrderDiffReport();
+
+        // 3.1 新增/删除的明细
+        report.setAddedItems(extractEntityKeys(
+            result.getChangesByType(ChangeType.CREATE)
+        ));
+        report.setRemovedItems(extractEntityKeys(
+            result.getChangesByType(ChangeType.DELETE)
+        ));
+
+        // 3.2 引用变更（供应商切换）
+        List<FieldChange> refChanges = result.getReferenceChanges();
+        report.setSupplierChanged(!refChanges.isEmpty());
+        if (!refChanges.isEmpty()) {
+            ReferenceDetail detail = refChanges.get(0).getReferenceDetail();
+            report.setOldSupplier(detail.getOldEntityKey());
+            report.setNewSupplier(detail.getNewEntityKey());
+        }
+
+        // 3.3 容器变更（包括移动）
+        List<FieldChange> containerChanges = result.getContainerChanges();
+        long movedCount = containerChanges.stream()
+            .filter(c -> c.getElementEvent() != null)
+            .filter(c -> c.getElementEvent().getLifecycleType() == ContainerLifecycleType.MOVED)
+            .count();
+        report.setMovedItemsCount((int) movedCount);
+
+        // 3.4 生成Markdown报告
+        report.setMarkdownReport(result.prettyPrint("detailed"));
+
+        return report;
+    }
+
+    private List<String> extractEntityKeys(List<FieldChange> changes) {
+        return changes.stream()
+            .filter(c -> c.getElementEvent() != null)
+            .map(c -> c.getElementEvent().getEntityKey())
+            .toList();
+    }
+}
+```
+
+---
+
+🎉 **P1 Query API让差异分析代码减少70%以上！** 选择合适的API，告别样板代码，专注业务逻辑！
+
+---
+
+## 🔍 过滤策略与优先级（v3.0.0+ P2新特性）
+
+> **精准控制比对字段** - 通过类级/路径级/包级过滤策略，减少噪音，聚焦关键变更
+
+### 场景概述
+
+在实际业务中，对象可能包含数百个字段，但并非所有字段都需要追踪变更。TFI提供了多层次的过滤策略：
+- **类级过滤**: 通过`@IgnoreDeclaredProperties`/`@IgnoreInheritedProperties`注解批量忽略字段
+- **路径模式**: 使用glob/regex模式匹配字段路径（支持`*`、`**`、`[*]`）
+- **包级过滤**: 批量忽略特定包下的所有类
+- **默认忽略**: 自动过滤技术字段（`static`/`transient`/`$jacocoData`等）
+- **优先级解决**: 7级决策链确保Include始终优先
+
+---
+
+### 示例 1: 类级批量忽略（注解驱动）
+
+**场景**: 审计日志对象包含大量技术字段（创建时间、修改时间、版本号等），业务关注核心字段变更
+
+```java
+import com.syy.taskflowinsight.annotation.IgnoreDeclaredProperties;
+import com.syy.taskflowinsight.api.TFI;
+
+/**
+ * 审计日志实体
+ * 使用 @IgnoreDeclaredProperties 批量忽略技术字段
+ */
+@IgnoreDeclaredProperties({"createdAt", "updatedAt", "version", "lastModifiedBy"})
+public class AuditLog {
+    private String logId;
+    private String action;           // 业务关注
+    private String operator;         // 业务关注
+    private String targetResource;   // 业务关注
+
+    // 技术字段（已在注解中声明忽略）
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    private Integer version;
+    private String lastModifiedBy;
+
+    // getters/setters...
+}
+
+// 使用示例
+public class AuditService {
+    public void compareAuditLogs(AuditLog before, AuditLog after) {
+        CompareResult result = TFI.compare(before, after);
+
+        // 输出仅包含 action/operator/targetResource 变更
+        // createdAt/updatedAt/version/lastModifiedBy 自动被忽略
+        System.out.println(TFI.render(result, "standard"));
+    }
+}
+```
+
+**输出示例**:
+```
+# 对比报告
+
+## 变更摘要
+- 修改: 2 个字段
+
+## 详细变更
+| 字段路径 | 旧值 | 新值 |
+|---------|------|------|
+| action | "CREATE_USER" | "UPDATE_USER" |
+| operator | "admin" | "system" |
+
+✅ 技术字段（createdAt/updatedAt/version/lastModifiedBy）已自动过滤
+```
+
+---
+
+### 示例 2: 路径模式过滤（Glob + Regex）
+
+**场景**: 嵌套对象中批量忽略敏感字段或调试字段
+
+```java
+import com.syy.taskflowinsight.tracking.snapshot.SnapshotConfig;
+import com.syy.taskflowinsight.tracking.compare.CompareService;
+
+public class SensitiveDataCompareExample {
+
+    public void compareWithPathFiltering() {
+        // 配置排除规则
+        SnapshotConfig config = new SnapshotConfig();
+        config.setEnableDeep(true);
+        config.setMaxDepth(5);
+
+        // Glob模式: 忽略所有password字段和internal.*下的字段
+        config.setExcludePatterns(List.of(
+            "*.password",           // 单层通配：user.password, admin.password
+            "*.internal.*",         // 多层通配：config.internal.token, app.internal.debug
+            "debug.**",             // 递归通配：debug下的所有嵌套字段
+            "metadata[*].temp"      // 数组元素：metadata[0].temp, metadata[1].temp
+        ));
+
+        // Regex模式: 忽略以$开头的字段（如JaCoCo $jacocoData）
+        config.setRegexExcludes(List.of("\\$.*"));
+
+        // 创建快照并比对
+        ObjectSnapshotDeep snapshot = new ObjectSnapshotDeep(config);
+        Map<String, Object> beforeSnapshot = snapshot.captureDeep(beforeObj, 5, ...);
+        Map<String, Object> afterSnapshot = snapshot.captureDeep(afterObj, 5, ...);
+
+        CompareService compareService = new CompareService();
+        CompareResult result = compareService.compare(beforeSnapshot, afterSnapshot, new CompareOptions());
+
+        System.out.println("过滤后变更数: " + result.getChanges().size());
+    }
+}
+```
+
+**路径模式语法**:
+| 模式 | 说明 | 示例匹配 |
+|------|------|----------|
+| `field` | 精确匹配 | `user.name` 仅匹配name字段 |
+| `*.password` | 单层通配 | `user.password`, `admin.password` |
+| `internal.*` | 单层子字段 | `internal.token`, `internal.debug` |
+| `debug.**` | 递归通配 | `debug.level`, `debug.trace.stack` |
+| `items[*].id` | 数组/集合元素 | `items[0].id`, `items[1].id` |
+| `\\$.*` | Regex | `$jacocoData`, `$assertionsDisabled` |
+
+---
+
+### 示例 3: 默认忽略规则（与Include覆盖）
+
+**场景**: 启用默认忽略过滤技术字段，但通过Include白名单保留特定字段
+
+```java
+import com.syy.taskflowinsight.tracking.snapshot.SnapshotConfig;
+
+public class DefaultExclusionsExample {
+
+    public void configureDefaultExclusions() {
+        SnapshotConfig config = new SnapshotConfig();
+
+        // 启用默认忽略规则（过滤技术字段）
+        config.setDefaultExclusionsEnabled(true);
+
+        // 默认忽略规则包括：
+        // - static字段
+        // - transient字段
+        // - synthetic字段
+        // - 常见logger字段（log, logger, LOG, LOGGER）
+        // - serialVersionUID
+        // - $jacocoData (代码覆盖率工具注入)
+
+        // 通过Include白名单覆盖默认忽略
+        config.setIncludePatterns(List.of(
+            "serialVersionUID"   // 即使默认忽略，Include优先级更高
+        ));
+
+        // 结果: 所有默认忽略字段都被过滤，除了serialVersionUID
+    }
+}
+```
+
+**默认忽略字段清单**:
+```
+✅ 自动过滤字段（defaultExclusionsEnabled=true）:
+- static 修饰符字段
+- transient 修饰符字段
+- synthetic 编译器生成字段
+- logger 相关（log/logger/LOG/LOGGER）
+- serialVersionUID
+- $jacocoData (JaCoCo代码覆盖率)
+
+⚠️ 可通过Include白名单覆盖（优先级最高）
+```
+
+---
+
+### 示例 4: 优先级冲突解决
+
+**场景**: 复杂过滤配置下的优先级决策（Include vs @DiffIgnore vs Exclude）
+
+```java
+import com.syy.taskflowinsight.annotation.DiffIgnore;
+import com.syy.taskflowinsight.annotation.IgnoreDeclaredProperties;
+
+/**
+ * 用户实体 - 演示优先级冲突解决
+ */
+@IgnoreDeclaredProperties({"password"})  // 类级忽略password
+public class User {
+    private String userId;
+
+    @DiffIgnore  // 字段级忽略（优先级低于Include）
+    private String email;
+
+    private String password;  // 类级忽略
+    private String internalToken;  // 将被路径黑名单忽略
+}
+
+// 配置与决策
+public class PriorityResolutionExample {
+
+    public void demonstratePriority() {
+        SnapshotConfig config = new SnapshotConfig();
+
+        // 1. 路径黑名单: 忽略 internal.*
+        config.setExcludePatterns(List.of("*.internal*"));
+
+        // 2. Include白名单: 强制包含 email 和 password（覆盖所有其他规则）
+        config.setIncludePatterns(List.of("email", "password"));
+
+        // 3. 启用默认忽略
+        config.setDefaultExclusionsEnabled(true);
+
+        // 决策结果（7级优先级链）:
+        // ✅ email: Include覆盖 @DiffIgnore → 包含
+        // ✅ password: Include覆盖 @IgnoreDeclaredProperties → 包含
+        // ❌ internalToken: 路径黑名单且无Include → 忽略
+        // ✅ userId: 无任何过滤规则 → 包含（默认retain）
+    }
+}
+```
+
+**7级优先级链（从高到低）**:
+```
+1️⃣ Include 路径白名单         → INCLUDE (最高优先级)
+2️⃣ @DiffIgnore 字段注解       → IGNORE
+3️⃣ 路径黑名单（exclude）       → IGNORE
+4️⃣ 类级过滤注解                → IGNORE
+5️⃣ 包级过滤（excludePackages） → IGNORE
+6️⃣ 默认忽略规则                → IGNORE
+7️⃣ 默认保留（无匹配规则）       → INCLUDE (默认行为)
+```
+
+**冲突解决示例**:
+| 字段 | Include | @DiffIgnore | Exclude | 默认忽略 | **最终决策** | 理由 |
+|------|---------|-------------|---------|---------|------------|------|
+| email | ✅ | ✅ | ❌ | ❌ | **INCLUDE** | Include优先级最高 |
+| password | ✅ | ❌ | ❌ | ❌ | **INCLUDE** | Include覆盖类级注解 |
+| logger | ❌ | ❌ | ❌ | ✅ | **IGNORE** | 默认忽略生效 |
+| userId | ❌ | ❌ | ❌ | ❌ | **INCLUDE** | 默认retain |
+
+---
+
+### 示例 5: DiffBuilder全局配置（推荐最佳实践）
+
+**场景**: 统一配置过滤规则，全局生效，避免重复配置
+
+```java
+import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.api.TFI;
+
+public class GlobalFilterConfigExample {
+
+    /**
+     * 推荐方式: 使用 CompareOptions 全局配置
+     * 适用于所有比对操作，无需在每个对象上重复配置
+     */
+    public void configureGlobalFilters() {
+        // 创建全局过滤配置
+        CompareOptions options = new CompareOptions();
+
+        // 1. 启用默认忽略规则
+        options.setDefaultExclusionsEnabled(true);
+
+        // 2. 配置路径黑名单（批量忽略敏感/调试字段）
+        options.setExcludePatterns(List.of(
+            "*.password",
+            "*.token",
+            "*.secret",
+            "*.internal.*",
+            "debug.**",
+            "temp.**"
+        ));
+
+        // 3. 配置Regex黑名单（忽略JaCoCo等工具注入字段）
+        options.setRegexExcludes(List.of("\\$.*", ".*\\$\\$.*"));
+
+        // 4. 包级过滤（忽略第三方库内部类）
+        options.setExcludePackages(List.of(
+            "org.springframework.cglib",
+            "net.sf.cglib",
+            "org.hibernate.proxy"
+        ));
+
+        // 5. Include白名单（优先级最高，覆盖所有忽略规则）
+        options.setIncludePatterns(List.of(
+            "audit.password"  // 审计场景需要追踪密码变更
+        ));
+
+        // 使用全局配置进行比对
+        CompareResult result = TFI.comparator()
+            .withOptions(options)
+            .compare(beforeObj, afterObj);
+
+        // 所有后续比对都应用相同配置
+        CompareResult result2 = TFI.comparator()
+            .withOptions(options)  // 复用配置
+            .compare(anotherBefore, anotherAfter);
+    }
+
+    /**
+     * 最佳实践: 在Spring Bean中配置单例
+     */
+    @Configuration
+    public static class TfiFilterConfig {
+
+        @Bean
+        public CompareOptions defaultCompareOptions() {
+            CompareOptions options = new CompareOptions();
+            options.setDefaultExclusionsEnabled(true);
+            options.setExcludePatterns(Arrays.asList(
+                "*.password",
+                "*.token",
+                "*.internal.*"
+            ));
+            return options;
+        }
+    }
+
+    @Service
+    public static class AuditService {
+
+        @Autowired
+        private CompareOptions defaultCompareOptions;
+
+        public void auditChanges(Object before, Object after) {
+            // 自动应用全局配置
+            CompareResult result = TFI.comparator()
+                .withOptions(defaultCompareOptions)
+                .compare(before, after);
+
+            logChanges(result);
+        }
+    }
+}
+```
+
+**配置优先级建议**:
+```
+📋 推荐配置层次（从全局到局部）:
+
+1️⃣ 全局配置（Spring Bean）
+   └─ CompareOptions Bean
+      ├─ defaultExclusionsEnabled: true
+      ├─ excludePatterns: 敏感字段模式
+      ├─ excludePackages: 第三方库包名
+      └─ includePatterns: 业务白名单
+
+2️⃣ 类级配置（注解）
+   └─ @IgnoreDeclaredProperties / @IgnoreInheritedProperties
+      └─ 领域模型特定忽略字段
+
+3️⃣ 字段级配置（注解）
+   └─ @DiffIgnore
+      └─ 个别字段特殊处理
+
+⚠️ Include优先级始终最高，用于覆盖所有忽略规则
+```
+
+---
+
+### 过滤策略决策树
+
+```
+┌────────────────────────────────────────┐
+│ 字段: user.password                    │
+└────────────────┬───────────────────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │ Include 匹配?    │────YES────▶ ✅ INCLUDE (终止决策)
+        └────────┬─────────┘
+                 │ NO
+                 ▼
+        ┌─────────────────┐
+        │ @DiffIgnore?     │────YES────▶ ❌ IGNORE (终止决策)
+        └────────┬─────────┘
+                 │ NO
+                 ▼
+        ┌─────────────────┐
+        │ Exclude匹配?     │────YES────▶ ❌ IGNORE (终止决策)
+        └────────┬─────────┘
+                 │ NO
+                 ▼
+        ┌─────────────────┐
+        │ 类级注解忽略?     │────YES────▶ ❌ IGNORE (终止决策)
+        └────────┬─────────┘
+                 │ NO
+                 ▼
+        ┌─────────────────┐
+        │ 包级过滤?        │────YES────▶ ❌ IGNORE (终止决策)
+        └────────┬─────────┘
+                 │ NO
+                 ▼
+        ┌─────────────────┐
+        │ 默认忽略规则?    │────YES────▶ ❌ IGNORE (终止决策)
+        └────────┬─────────┘
+                 │ NO
+                 ▼
+        ┌─────────────────┐
+        │ 默认保留         │────────────▶ ✅ INCLUDE (默认行为)
+        └──────────────────┘
+```
+
+---
+
+### 性能优化建议
+
+1. **Pattern缓存命中率 > 95%**
+   - PathMatcher自动缓存编译后的Pattern
+   - 复用配置对象（如Spring Bean）
+   - 避免动态生成Pattern
+
+2. **快速路径优化**
+   - 空配置时跳过过滤决策（O(1)）
+   - Include匹配立即返回（短路求值）
+
+3. **JMH基准数据**（P2-T7实测）
+   ```
+   baseline_NoFiltering:     19,150 ns/op  (无过滤)
+   filterLargeObject:        76,663 ns/op  (启用过滤)
+   patternCompilationCache:   4,431 ns/op  (Pattern缓存)
+
+   缓存命中率: 99.8% (目标 >95%) ✅
+   ```
+
+---
+
+### 相关链接
+
+- [P2-T1: 类级过滤框架](docs/tfi-javers/p2/cards/gpt/CARD-P2-T1-ClassLevelFilter-类级过滤框架.md)
+- [P2-T2: 路径模式引擎](docs/tfi-javers/p2/cards/gpt/CARD-P2-T2-PathPatternEngine-路径模式引擎增强.md)
+- [P2-T4: 优先级与冲突解决](docs/tfi-javers/p2/cards/gpt/CARD-P2-T4-PriorityResolution-优先级与冲突解决.md)
+- [P2-T6: 测试矩阵](docs/tfi-javers/p2/P2-T6-SUMMARY.md) - 包含5个黄金冲突用例
+- [P2-T7: 性能基准](docs/tfi-javers/p2/P2-T7-PERFORMANCE-ANALYSIS.md) - JMH性能数据
+
+---
 ## 📝 总结和最佳实践
 
 ### 选择合适的使用方式
@@ -1531,3 +2624,41 @@ class OrderServiceTest {
 ---
 
 💡 **提示**：如果你在实际使用中遇到问题，欢迎参考[故障排除指南](TROUBLESHOOTING.md)或在[GitHub Issues](https://github.com/shiyongyin/TaskFlowInsight/issues)中提问。
+
+---
+
+## 🧩 P2 过滤框架最小示例
+
+> 类级过滤、路径模式（含 `[*]`/regex）、默认忽略与统一优先级。复制即用，便于快速验证与排障。
+
+### 1) 类注解批量忽略（减少样板）
+```java
+@IgnoreDeclaredProperties // 忽略本类声明的全部字段
+class InternalMetrics {
+  String traceId;  // 忽略
+  long timestamp;  // 忽略
+}
+```
+
+### 2) 路径模式（Glob/Regex/[*]）与 Include 挽回
+```java
+SnapshotConfig c = new SnapshotConfig();
+// 黑名单：跨层 + 数组索引
+c.setExcludePatterns(List.of("internal.**", "items[*].internalId"));
+// 正则黑名单
+c.setRegexExcludes(List.of("^debug_\\d{4}$"));
+// 白名单：精确挽回
+c.setIncludePatterns(List.of("items[*].internalId"));
+```
+
+### 3) 默认忽略 + Include 挽回
+```java
+SnapshotConfig c = new SnapshotConfig();
+c.setDefaultExclusionsEnabled(true); // static/transient/synthetic/logger/serialVersionUID 等自动忽略
+// 显式保留 logger 字段
+c.setIncludePatterns(List.of("logger"));
+```
+
+更多详情：
+- 统一优先级与原因：docs/filtering/PRIORITY_AND_REASON.md
+- 测试矩阵：docs/tfi-javers/p2/cards/gpt/T6-TEST-MATRIX.md

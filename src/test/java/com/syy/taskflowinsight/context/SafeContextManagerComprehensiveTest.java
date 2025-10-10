@@ -60,6 +60,9 @@ class SafeContextManagerComprehensiveTest {
         if (current != null && !current.isClosed()) {
             current.close();
         }
+
+        // 清理所有遗留上下文（测试专用）
+        manager.clearAllContextsForTesting();
     }
 
     @Nested

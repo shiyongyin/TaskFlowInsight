@@ -37,6 +37,10 @@ public class StoreConfig {
     
     private CacheLoader<?, ?> loader;
     
+    // CT-006: FIFO缓存支持
+    @Builder.Default
+    private EvictionStrategy evictionStrategy = EvictionStrategy.LRU;
+    
     /**
      * 创建默认配置
      * @return 默认配置
@@ -67,5 +71,30 @@ public class StoreConfig {
             .defaultTtl(Duration.ofMinutes(60))
             .idleTimeout(Duration.ofMinutes(30))
             .build();
+    }
+    
+    /**
+     * 创建FIFO配置
+     * @return FIFO配置
+     */
+    public static StoreConfig fifoConfig() {
+        return StoreConfig.builder()
+            .maxSize(1000)
+            .defaultTtl(Duration.ofMinutes(30))
+            .evictionStrategy(EvictionStrategy.FIFO)
+            .recordStats(true)
+            .build();
+    }
+    
+    /**
+     * 缓存驱逐策略枚举
+     */
+    public enum EvictionStrategy {
+        /** 最近最少使用（默认） */
+        LRU,
+        /** 先进先出 */
+        FIFO,
+        /** 混合策略（LRU+FIFO） */
+        MIXED
     }
 }

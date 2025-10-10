@@ -81,8 +81,44 @@
     {
       "name": "tfi.change-tracking.snapshot.max-depth",
       "type": "java.lang.Integer",
-      "defaultValue": 3,
-      "description": "Maximum depth for object snapshot traversal."
+      "defaultValue": 10,
+      "description": "Maximum depth for object snapshot traversal (unified default)."
+    },
+    {
+      "name": "tfi.change-tracking.snapshot.time-budget-ms",
+      "type": "java.lang.Long",
+      "defaultValue": 1000,
+      "description": "Time budget for snapshot operations in milliseconds (unified default)."
+    },
+    {
+      "name": "tfi.change-tracking.monitoring.slow-operation-ms",
+      "type": "java.lang.Long",
+      "defaultValue": 200,
+      "description": "Threshold for slow operations in monitoring (unified default)."
+    },
+    {
+      "name": "tfi.change-tracking.numeric.float-tolerance",
+      "type": "java.lang.Double",
+      "defaultValue": 1e-12,
+      "description": "Tolerance for floating point comparisons in change detection."
+    },
+    {
+      "name": "tfi.change-tracking.numeric.relative-tolerance",
+      "type": "java.lang.Double",
+      "defaultValue": 1e-9,
+      "description": "Relative tolerance for numeric comparisons in change detection."
+    },
+    {
+      "name": "tfi.config.enable-env",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable environment variable configuration support (security: disabled by default)."
+    },
+    {
+      "name": "tfi.config.resolver.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enable 7-layer configuration priority resolver system."
     },
     {
       "name": "tfi.change-tracking.snapshot.max-elements",

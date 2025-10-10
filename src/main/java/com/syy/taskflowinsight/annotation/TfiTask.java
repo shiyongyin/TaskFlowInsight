@@ -107,4 +107,46 @@ public @interface TfiTask {
      * @return 标签数组，用于分类和过滤
      */
     String[] tags() default {};
+    
+    /**
+     * 是否启用深度追踪
+     * 
+     * @return true表示启用深度追踪，会追踪方法参数和返回值的嵌套对象
+     */
+    boolean deepTracking() default false;
+    
+    /**
+     * 深度追踪的最大深度
+     * 
+     * @return 最大深度，默认3层
+     */
+    int maxDepth() default 3;
+    
+    /**
+     * 包含的字段模式
+     * 
+     * @return 字段模式数组，支持通配符，空表示包含所有字段
+     */
+    String[] includeFields() default {};
+    
+    /**
+     * 排除的字段模式
+     * 
+     * @return 字段模式数组，支持通配符
+     */
+    String[] excludeFields() default {};
+    
+    /**
+     * 集合追踪策略
+     * 
+     * @return 集合追踪策略：IGNORE, SUMMARY, ELEMENT
+     */
+    String collectionStrategy() default "SUMMARY";
+    
+    /**
+     * 追踪时间预算（毫秒）
+     * 
+     * @return 时间预算，超时将中断追踪
+     */
+    long timeBudgetMs() default 1000;
 }

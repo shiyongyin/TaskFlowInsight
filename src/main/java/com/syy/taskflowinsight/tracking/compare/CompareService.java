@@ -1,15 +1,23 @@
 package com.syy.taskflowinsight.tracking.compare;
 
+import com.syy.taskflowinsight.metrics.TfiMetrics;
+import com.syy.taskflowinsight.tracking.cache.StrategyCache;
 import com.syy.taskflowinsight.tracking.detector.DiffDetector;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.tracking.detector.DiffDetectorService;
+import com.syy.taskflowinsight.tracking.detector.DiffFacade;
+import com.syy.taskflowinsight.tracking.metrics.MicrometerDiagnosticSink;
 import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshot;
+import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshotDeep;
 import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshotDeepOptimized;
 import com.syy.taskflowinsight.tracking.snapshot.SnapshotConfig;
+import com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,24 +43,93 @@ public class CompareService {
     
     private static final Logger logger = LoggerFactory.getLogger(CompareService.class);
     
-    private final ObjectSnapshot snapshot;
     private final ObjectSnapshotDeepOptimized deepSnapshot;
     private final Map<Class<?>, CompareStrategy<?>> strategies = new ConcurrentHashMap<>();
     private final Map<String, CompareStrategy<?>> namedStrategies = new ConcurrentHashMap<>();
-    
+    private final ListCompareExecutor listCompareExecutor;
+    private final StrategyResolver strategyResolver;
+    private final CompareEngine compareEngine;
+    private final ComparePerfProperties perfPropsOrNull;
+    private final PerfOptions perfOptionsOrNull;
+    private final TfiMetrics tfiMetricsOrNull;
+    private final MicrometerDiagnosticSink microSinkOrNull;
+    private volatile DiffDetectorService programmaticDiffDetector;
+
     public CompareService() {
-        this.snapshot = null;
-        
-        // 初始化深度快照
+        this(createDefaultListExecutor(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    /**
+     * 构造函数（支持ListCompareExecutor注入）
+     * @param executor 列表比较执行器
+     */
+    public CompareService(ListCompareExecutor executor) {
+        this(executor, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    /**
+     * 构造函数（支持多参数注入，用于benchmark和高级测试）
+     */
+    @Autowired
+    public CompareService(
+            ListCompareExecutor executor,
+            Optional<ComparePerfProperties> perfProperties,
+            Optional<PerfOptions> perfOptions,
+            Optional<TfiMetrics> tfiMetrics,
+            Optional<MeterRegistry> meterRegistry,
+            Optional<StrategyCache> strategyCache) {
         SnapshotConfig config = new SnapshotConfig();
         config.setEnableDeep(true);
         config.setMaxDepth(10);
         this.deepSnapshot = new ObjectSnapshotDeepOptimized(config);
-        
-        // 注册默认策略
+
+        this.listCompareExecutor = executor != null ? executor : createDefaultListExecutor();
+        this.perfPropsOrNull = perfProperties != null ? perfProperties.orElse(null) : null;
+        this.perfOptionsOrNull = perfOptions != null ? perfOptions.orElse(null) : null;
+        this.tfiMetricsOrNull = tfiMetrics != null ? tfiMetrics.orElse(null) : null;
+        this.microSinkOrNull = resolveMicrometerSink(this.tfiMetricsOrNull, meterRegistry != null ? meterRegistry.orElse(null) : null);
+
+        StrategyCache cache = strategyCache != null ? strategyCache.orElse(null) : null;
+        this.strategyResolver = new StrategyResolver(cache);
+
         registerDefaultStrategies();
+
+        this.compareEngine = new CompareEngine(
+            this.strategyResolver,
+            this.tfiMetricsOrNull,
+            this.microSinkOrNull,
+            this.listCompareExecutor,
+            this.strategies,
+            this.namedStrategies
+        );
     }
-    
+
+    /**
+     * 创建默认CompareService实例
+     * @param options 比较选项
+     * @return CompareService实例
+     */
+    public static CompareService createDefault(CompareOptions options) {
+        return createDefault(options, null);
+    }
+
+    /**
+     * 创建默认CompareService实例（带属性比较器注册表）
+     * @param options 比较选项
+     * @param registry 属性比较器注册表
+     * @return CompareService实例
+     */
+    public static CompareService createDefault(CompareOptions options, PropertyComparatorRegistry registry) {
+        CompareService service = new CompareService();
+        DiffDetectorService detector = new DiffDetectorService();
+        if (registry != null) {
+            detector.setComparatorRegistry(registry);
+        }
+        detector.programmaticInitNoSpring();
+        service.setProgrammaticDiffDetector(detector);
+        return service;
+    }
+
     /**
      * 比较两个对象
      */
@@ -65,47 +142,33 @@ public class CompareService {
      */
     public CompareResult compare(Object obj1, Object obj2, CompareOptions options) {
         long startTime = System.currentTimeMillis();
-        
-        // 快速检查
-        if (obj1 == obj2) {
-            return CompareResult.identical();
+        CompareOptions effectiveOptions = options != null ? options : CompareOptions.DEFAULT;
+        effectiveOptions = enrichPerfOptions(effectiveOptions);
+        System.out.println("[DEBUG] effective maxDepth=" + effectiveOptions.getMaxDepth() + ", deep=" + effectiveOptions.isEnableDeepCompare());
+
+        boolean useProgrammatic = programmaticDiffDetector != null;
+        if (useProgrammatic) {
+            if (obj1 != null) {
+                programmaticDiffDetector.registerObjectType(obj1.getClass().getSimpleName(), obj1.getClass());
+            } else if (obj2 != null) {
+                programmaticDiffDetector.registerObjectType(obj2.getClass().getSimpleName(), obj2.getClass());
+            }
+            DiffFacade.setProgrammaticService(programmaticDiffDetector);
         }
-        
-        if (obj1 == null || obj2 == null) {
-            return CompareResult.ofNullDiff(obj1, obj2);
+
+        CompareResult engineResult;
+        try {
+            engineResult = compareEngine.execute(obj1, obj2, effectiveOptions);
+        } finally {
+            if (useProgrammatic) {
+                DiffFacade.setProgrammaticService(null);
+            }
         }
-        
-        if (!obj1.getClass().equals(obj2.getClass())) {
-            return CompareResult.ofTypeDiff(obj1, obj2);
-        }
-        
-        // 检查自定义策略
-        CompareStrategy strategy = findStrategy(obj1.getClass(), options);
-        if (strategy != null) {
-            return strategy.compare(obj1, obj2, options);
-        }
-        
-        // 深度比较
-        Map<String, Object> snapshot1 = captureSnapshot(obj1, options);
-        Map<String, Object> snapshot2 = captureSnapshot(obj2, options);
-        
-        // 检测差异
-        List<ChangeRecord> changes = DiffDetector.diff(
-            obj1.getClass().getSimpleName(), 
-            snapshot1, 
-            snapshot2
-        );
-        
-        // 转换为FieldChange
-        List<FieldChange> fieldChanges = changes.stream()
-            .map(this::toFieldChange)
-            .filter(fc -> shouldIncludeChange(fc, options))
-            .collect(Collectors.toList());
-        
-        // 构建结果
-        CompareResult result = buildResult(obj1, obj2, fieldChanges, options);
+
+        System.out.println("[DEBUG] engine changes=" + (engineResult != null ? engineResult.getChanges() : null));
+
+        CompareResult result = buildResult(obj1, obj2, engineResult, effectiveOptions);
         result.setCompareTimeMs(System.currentTimeMillis() - startTime);
-        
         return result;
     }
     
@@ -216,100 +279,64 @@ public class CompareService {
     }
     
     /**
-     * 查找比较策略
-     */
-    @SuppressWarnings("unchecked")
-    private <T> CompareStrategy<T> findStrategy(Class<T> type, CompareOptions options) {
-        // 优先使用命名策略
-        String strategyName = options.getStrategyName();
-        if (strategyName != null) {
-            CompareStrategy<?> named = namedStrategies.get(strategyName);
-            if (named != null) {
-                return (CompareStrategy<T>) named;
-            }
-        }
-        
-        // 查找类型策略
-        CompareStrategy<?> strategy = strategies.get(type);
-        if (strategy != null) {
-            return (CompareStrategy<T>) strategy;
-        }
-        
-        // 查找父类或接口策略
-        for (Map.Entry<Class<?>, CompareStrategy<?>> entry : strategies.entrySet()) {
-            if (entry.getKey().isAssignableFrom(type)) {
-                return (CompareStrategy<T>) entry.getValue();
-            }
-        }
-        
-        return null;
-    }
-    
-    /**
      * 转换ChangeRecord为FieldChange
      */
-    private FieldChange toFieldChange(ChangeRecord record) {
-        return FieldChange.builder()
-            .fieldName(record.getFieldName())
-            .oldValue(record.getOldValue())
-            .newValue(record.getNewValue())
-            .changeType(record.getChangeType())
-            .valueType(record.getValueType())
-            .build();
-    }
-    
-    /**
-     * 判断是否包含变更
-     */
-    private boolean shouldIncludeChange(FieldChange change, CompareOptions options) {
-        // 过滤null变更
-        if (!options.isIncludeNullChanges()) {
-            if (change.getOldValue() == null && change.getNewValue() == null) {
-                return false;
-            }
-        }
-        
-        // 过滤忽略字段
-        if (options.getIgnoreFields() != null) {
-            if (options.getIgnoreFields().contains(change.getFieldName())) {
-                return false;
-            }
-        }
-        
-        return true;
-    }
-    
     /**
      * 构建比较结果
      */
-    private CompareResult buildResult(Object obj1, Object obj2, 
-                                     List<FieldChange> changes, 
-                                     CompareOptions options) {
+    private CompareResult buildResult(Object obj1, Object obj2,
+                                      CompareResult engineResult,
+                                      CompareOptions options) {
+        if (engineResult == null) {
+            return CompareResult.builder()
+                .object1(obj1)
+                .object2(obj2)
+                .changes(Collections.emptyList())
+                .identical(true)
+                .build();
+        }
+
+        List<FieldChange> changes = engineResult.getChanges() != null
+            ? engineResult.getChanges()
+            : Collections.emptyList();
+
         CompareResult.CompareResultBuilder builder = CompareResult.builder()
             .object1(obj1)
             .object2(obj2)
             .changes(changes)
-            .identical(changes.isEmpty());
-        
-        // 计算相似度
-        if (options.isCalculateSimilarity()) {
-            double similarity = calculateSimilarity(obj1, obj2, changes, options);
-            builder.similarity(similarity);
+            .identical(engineResult.isIdentical())
+            .duplicateKeys(engineResult.getDuplicateKeys())
+            .algorithmUsed(engineResult.getAlgorithmUsed())
+            .degradationReasons(engineResult.getDegradationReasons())
+            .compareTime(engineResult.getCompareTime());
+
+        if (engineResult.getSimilarity() != null) {
+            builder.similarity(engineResult.getSimilarity());
+        } else if (options.isCalculateSimilarity()) {
+            builder.similarity(calculateSimilarity(obj1, obj2, changes, options));
         }
-        
-        // 生成报告
+
         if (options.isGenerateReport()) {
-            String report = generateReport(changes, options);
-            builder.report(report);
+            builder.report(generateReport(changes, options));
+        } else if (engineResult.getReport() != null) {
+            builder.report(engineResult.getReport());
         }
-        
-        // 生成补丁
+
         if (options.isGeneratePatch()) {
-            String patch = generatePatch(changes, options);
-            builder.patch(patch);
+            builder.patch(generatePatch(changes, options));
+        } else if (engineResult.getPatch() != null) {
+            builder.patch(engineResult.getPatch());
         }
-        
+
         return builder.build();
+    }
+
+    private CompareOptions enrichPerfOptions(CompareOptions options) {
+        if (options == null) {
+            return CompareOptions.DEFAULT;
+        }
+        // P1: 若存在外部配置，可在此合并性能预算；当前保持传入选项。
+        return options;
     }
     
     /**
@@ -620,10 +647,44 @@ public class CompareService {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void registerDefaultStrategies() {
         // 注册集合比较策略
+        strategies.put(Set.class, new SetCompareStrategy());
         strategies.put(Collection.class, new CollectionCompareStrategy());
         strategies.put(Map.class, new MapCompareStrategy());
+        strategies.put(Object[].class, new ArrayCompareStrategy());
         
         // 注册日期比较策略
         strategies.put(Date.class, new DateCompareStrategy());
+    }
+
+    private static com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor createDefaultListExecutor() {
+        java.util.List<com.syy.taskflowinsight.tracking.compare.list.ListCompareStrategy> defaults = java.util.Arrays.asList(
+            new com.syy.taskflowinsight.tracking.compare.list.SimpleListStrategy(),
+            new com.syy.taskflowinsight.tracking.compare.list.AsSetListStrategy(),
+            new com.syy.taskflowinsight.tracking.compare.list.LcsListStrategy(),
+            new com.syy.taskflowinsight.tracking.compare.list.LevenshteinListStrategy(),
+            new com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy()
+        );
+        return new com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor(defaults);
+    }
+
+    private MicrometerDiagnosticSink resolveMicrometerSink(TfiMetrics metrics, MeterRegistry registry) {
+        if (metrics != null) {
+            return null; // 优先使用 TfiMetrics
+        }
+        if (registry == null) {
+            return null;
+        }
+        try {
+            return new MicrometerDiagnosticSink(registry);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    void setProgrammaticDiffDetector(DiffDetectorService detector) {
+        this.programmaticDiffDetector = detector;
+        if (this.compareEngine != null) {
+            this.compareEngine.setProgrammaticDiffDetector(detector);
+        }
     }
 }

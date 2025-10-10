@@ -106,9 +106,10 @@ class ObjectSnapshotTests {
         // When
         String repr = ObjectSnapshot.repr(longString);
         
-        // Then
-        assertEquals(8192, repr.length());
-        assertTrue(repr.endsWith("... (truncated)"));
+        // Then（现代表示：3段式 + 引号包裹）
+        assertEquals(115, repr.length());
+        assertTrue(repr.endsWith(" (truncated)"));
+        assertTrue(repr.contains("..."));
     }
     
     @Test
@@ -119,8 +120,8 @@ class ObjectSnapshotTests {
         // When
         String repr = ObjectSnapshot.repr(special);
         
-        // Then
-        assertEquals("line1\\nline2\\ttab\\\"quoted\\\"", repr);
+        // Then（现代表示：字符串带引号、JSON风格转义）
+        assertEquals("\"line1\\nline2\\ttab\\\"quoted\\\"\"", repr);
     }
     
     @Test
