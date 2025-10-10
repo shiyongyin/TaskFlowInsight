@@ -4,7 +4,7 @@ package com.syy.taskflowinsight.tracking;
  * 变更类型枚举
  * 
  * @author TaskFlow Insight Team
- * @version 2.0.0
+ * @version 2.1.0
  * @since 2025-01-10
  */
 public enum ChangeType {
@@ -13,5 +13,7 @@ public enum ChangeType {
     /** 更新：字段值发生变化 */
     UPDATE,
     /** 删除：字段从有值变为null */
-    DELETE
+    DELETE,
+    /** 移动：元素位置发生变化（仅LEVENSHTEIN+detectMoves=true时输出） */
+    MOVE
 }
