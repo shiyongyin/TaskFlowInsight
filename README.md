@@ -36,6 +36,58 @@ cd TaskFlowInsight
 
 **想要详细入门指导？** → [📖 完整入门指南](GETTING-STARTED.md)
 
+更多文档入口：`docs/INDEX.md`
+
+---
+
+## 💎 TL;DR 使用 Facade（推荐）
+
+### 一行式对比+渲染
+```java
+// 对比两个对象
+CompareResult r = TFI.compare(before, after);
+// 渲染为 Markdown
+System.out.println(TFI.render(r, "standard"));
+```
+
+### 链式配置（使用模板）
+```java
+// import 提示：模板枚举位于 com.syy.taskflowinsight.api
+import com.syy.taskflowinsight.api.ComparisonTemplate;
+
+// 使用审计模板 + 自定义深度
+CompareResult r = TFI.comparator()
+    .useTemplate(ComparisonTemplate.AUDIT)
+    .withMaxDepth(5)
+    .compare(oldObj, newObj);
+```
+
+### 样式别名说明
+- **"simple"**: 简洁输出，仅摘要信息
+- **"standard"**: 标准详细度（默认推荐）
+- **"detailed"**: 完整详细信息，包含时间戳
+
+> 📝 **提示**: 未知样式值会触发一次性诊断（TFI-DIAG-005）并自动回退到 `standard`
+
+---
+
+## 📋 CT-006 实现对照表
+
+**TaskFlowInsight v3.0.0 已完整实现CT-006并发与内存优化卡片要求，类名映射关系如下：**
+
+| 卡片设计类名 | 实际实现类名 | 职责对齐说明 |
+|-------------|-------------|-------------|
+| `ThreadLocalManager` | `SafeContextManager`<br>`ZeroLeakThreadLocalManager` | ThreadLocal生命周期管理与泄漏检测 |
+| `ResourceCleanupAspect` | `TFI.stage/TaskContext` | 通过try-with-resources自动清理（功能等价） |
+| `CMERetryHandler` | `ConcurrentRetryUtil` | 并发修改异常重试机制 |
+| `ConcurrentSafeCache` | `FifoCaffeineStore` | FIFO淘汰策略的并发安全缓存 |
+| `MemoryLeakDetector` | `ZeroLeakThreadLocalManager` | 内存泄漏检测与预防 |
+
+**配置映射：**
+- `tfi.change-tracking.concurrency.*` → 完全按照卡片要求实现
+- CME重试默认次数：1次（符合卡片规格）
+- 配置示例：`application.yml` 中已提供完整的并发优化配置块
+
 ---
 
 ## 🚀 快速体验（2分钟上手）
@@ -47,10 +99,9 @@ public class OrderController {
     
     @TfiTask("订单处理")  // 自动追踪整个方法
     public ResponseEntity<?> processOrder(@RequestBody Order order) {
-        
-        @TfiTrack("order")  // 追踪对象变化
         Order processedOrder = orderService.process(order);
-        
+        // 通过API编程方式追踪对象变化（当前未启用本地变量注解追踪）
+        TFI.track("order", processedOrder);
         return ResponseEntity.ok(processedOrder);
     }
 }
@@ -60,24 +111,32 @@ public class OrderController {
 ```java
 public void processOrder() {
     TFI.start("订单处理流程");
-    
-    TFI.stage("参数校验");
-    // 业务逻辑...
-    
-    TFI.track("order", order);
-    TFI.stage("库存检查"); 
-    // 业务逻辑...
-    
-    TFI.end();  // 自动输出流程树
+    try {
+        try (var s = TFI.stage("参数校验")) {
+            // 业务逻辑...
+        }
+
+        TFI.track("order", order); // 追踪对象变化
+
+        try (var s = TFI.stage("库存检查")) {
+            // 业务逻辑...
+        }
+    } finally {
+        TFI.stop();               // 结束当前任务
+        TFI.exportToConsole();    // 可选：输出流程树
+    }
 }
 ```
 
 ### 实时监控
 ```bash
-# 启动应用后访问监控端点
-curl http://localhost:19090/actuator/tfi/health
-curl http://localhost:19090/actuator/tfi/metrics  
-curl http://localhost:19090/actuator/tfi/context
+# 启动应用后访问监控端点（默认端口见 application.yml -> server.port）
+# TFI 概览（只读、安全脱敏）
+curl http://localhost:19090/actuator/taskflow
+# TFI 指标（REST 控制器）
+curl http://localhost:19090/tfi/metrics/summary
+# 上下文诊断（开启 taskflow.monitoring.endpoint.enabled 时）
+curl http://localhost:19090/actuator/taskflow-context
 ```
 
 ---
@@ -113,9 +172,9 @@ TFI.error("支付失败", e);  // 异常不再是黑盒，完整记录上下文
 
 ### 5. 📊 **「多维导出」之翼**
 ```java
-TFI.exportConsole();  // 控制台树形图
-TFI.exportJson();     // JSON 格式数据
-TFI.exportHtml();     // HTML 可视化报告（即将推出）
+TFI.exportToConsole();        // 控制台树形图
+String json = TFI.exportToJson(); // JSON 格式数据
+// TFI.exportToHtml();        // HTML 可视化报告（规划中）
 ```
 
 ### 6. 🔒 **「数据脱敏」之盾**
@@ -127,10 +186,39 @@ TFI.exportHtml();     // HTML 可视化报告（即将推出）
 ### 7. 🏥 **「健康监控」之眼**
 ```java
 // Spring Actuator 集成，企业级监控
-GET /actuator/tfi/health     // 健康状态检查
-GET /actuator/tfi/metrics    // 性能指标监控
-GET /actuator/tfi/context    // 上下文状态查看
+GET /actuator/health               // 健康状态检查（Spring 通用）
+GET /actuator/taskflow             // TFI 概览（只读、安全脱敏）
+GET /tfi/metrics/summary           // 指标摘要（REST 控制器）
+GET /actuator/taskflow-context     // 上下文状态（按需开启）
 ```
+
+---
+
+## 🧪 运行测试（CI/本地）
+
+```bash
+# 运行全部测试
+./mvnw test
+
+# 只运行部分测试（示例：增强去重性能用例）
+./mvnw -Dtest=EnhancedPathDeduplicationIntegrationTest test
+
+# 如需在 CI/本地减少冷启动对性能用例的抖动，可显式开启轻量预热（默认关闭，不影响生产）
+./mvnw -Dtest=EnhancedPathDeduplicationIntegrationTest \
+  -Dtfi.align.warmup=true test
+
+# 验证 AOP 切面性能阈值（需显式开启 perf 测试）
+./mvnw test -Dperf=true -Dtest=TfiAnnotationAspectPerformanceTests
+```
+
+---
+
+## 🔄 迁移与兼容（Query Helper API）
+
+- 自 v3.1.x 起，`CompareResult#groupByContainerOperationAsString()` 已标记为弃用，计划在 v3.2.0 移除。
+- 请使用强类型版本：`CompareResult#groupByContainerOperation()`。
+- 迁移说明与示例参见：docs/api/QUERY-HELPER-MIGRATION-3.2.0.md
+
 
 ---
 
@@ -213,6 +301,46 @@ GET /actuator/tfi/context    // 上下文状态查看
 
 ---
 
+## 🔐 特性开关与安全
+
+### Facade 开关控制
+```bash
+# 临时关闭 Facade API（默认开启）
+-Dtfi.api.facade.enabled=false
+
+# 或在 application.yml 中配置
+tfi:
+  api:
+    facade:
+      enabled: true  # 默认值
+```
+
+> ⚠️ **安全兜底**: 关闭后 API 调用会安全降级，不会抛出异常
+
+### 渲染掩码配置
+```bash
+# 启用/关闭敏感数据掩码（默认开启）
+-Dtfi.render.masking.enabled=true
+
+# 自定义掩码字段规则（支持通配符）
+-Dtfi.render.mask-fields=password,secret,token,internal*
+```
+
+```yaml
+# YAML 配置示例
+tfi:
+  render:
+    masking:
+      enabled: true  # 默认启用掩码
+    mask-fields:
+      - password
+      - secret
+      - token
+      - internal*  # 通配符匹配
+```
+
+---
+
 ## 🗺️ 进化路线
 
 ### ✅ **v2.1.0 - 当前版本**
@@ -242,13 +370,21 @@ GET /actuator/tfi/context    // 上下文状态查看
 
 ### 👥 用户文档
 - 📖 [入门指南](GETTING-STARTED.md) - 5分钟从零到运行
-- 💡 [实战示例](EXAMPLES.md) - 11个真实业务场景  
+- 💡 [实战示例](EXAMPLES.md) - 11个真实业务场景
 - 🚀 [部署指南](DEPLOYMENT.md) - 生产环境最佳实践
+- 🚀 [快速开始](QUICKSTART.md) - 3分钟快速体验
 
 ### 🛠️ 支持文档
 - ❓ [常见问题](FAQ.md) - 40个常见问题解答
 - 🔧 [故障排除](TROUBLESHOOTING.md) - 详细问题诊断
 - 🔒 [安全配置](SECURITY.md) - 企业级安全指南
+
+### 🏗️ 架构文档
+- 🏛️ [架构概览](docs/architecture/README.md) - 系统架构设计与原理
+- 🔎 P2 过滤框架
+  - [统一优先级与原因](docs/filtering/PRIORITY_AND_REASON.md)
+  - [测试矩阵（用例索引）](docs/tfi-javers/p2/cards/gpt/T6-TEST-MATRIX.md)
+  - [性能基准与回归](docs/performance/README.md)
 
 ### 🤝 开发者文档
 - 🤝 [贡献指南](CONTRIBUTING.md) - 如何参与开发

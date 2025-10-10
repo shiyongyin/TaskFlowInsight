@@ -259,6 +259,131 @@ public class Application {}
 @TfiTask(value = "数据处理", description = "处理用户数据")
 ```
 
+### 重复@Key场景诊断
+
+**症状**: 日志出现重复key警告或变更路径包含`#idx`后缀
+
+**问题识别**:
+```
+[DUPLICATE_KEYS] Found 1 keys with duplicate instances: [1].
+Check equals()/hashCode() implementation if this is unexpected.
+```
+
+**诊断步骤**:
+
+1. **检查日志**确认重复key
+   ```bash
+   grep "DUPLICATE_KEYS" logs/application.log
+   ```
+
+2. **检查equals/hashCode实现**
+   ```java
+   // ⚠️ 问题代码：equals比较所有字段，hashCode也基于所有字段
+   @Entity(name = "Product")
+   public class Product {
+       @Key
+       private Long id;
+       private String name;
+
+       @Override
+       public boolean equals(Object o) {
+           // 错误：比较了非@Key字段
+           return Objects.equals(id, that.id) && Objects.equals(name, that.name);
+       }
+
+       @Override
+       public int hashCode() {
+           return Objects.hash(id, name);  // 错误：包含非@Key字段
+       }
+   }
+   ```
+
+3. **验证集合内容**
+   ```java
+   // 使用调试代码验证
+   Set<Product> products = getProducts();
+   Map<Long, Long> keyCount = new HashMap<>();
+   for (Product p : products) {
+       keyCount.merge(p.getId(), 1L, Long::sum);
+   }
+   keyCount.forEach((id, count) -> {
+       if (count > 1) {
+           System.out.println("重复@Key检测: id=" + id + ", 实例数=" + count);
+       }
+   });
+   ```
+
+**解决方案**:
+
+**方案1: 修正equals/hashCode（推荐）**
+```java
+@Override
+public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    Product that = (Product) o;
+    return Objects.equals(id, that.id);  // ✅ 只比较@Key字段
+}
+
+@Override
+public int hashCode() {
+    return Objects.hash(id);  // ✅ 只基于@Key字段
+}
+```
+
+**方案2: 使用@ValueObject（如果确实需要值对象语义）**
+```java
+@ValueObject  // 不是Entity
+public class Product {
+    private Long id;
+    private String name;
+
+    // equals/hashCode比较所有字段（正确）
+    @Override
+    public boolean equals(Object o) {
+        return Objects.equals(id, that.id) && Objects.equals(name, that.name);
+    }
+}
+```
+
+**方案3: 理解并接受重复key（特殊业务场景）**
+
+某些业务场景下确实需要多个相同@Key的实例（如历史版本、候选方案等）：
+
+```java
+// 场景：保存产品的多个候选方案
+List<ProductCandidate> candidates = Arrays.asList(
+    new ProductCandidate(1L, "方案A", 100.0),
+    new ProductCandidate(1L, "方案B", 150.0),  // 同@Key不同方案
+    new ProductCandidate(1L, "方案C", 200.0)
+);
+
+// TFI会正确处理，使用entity[1#0], entity[1#1], entity[1#2]区分
+```
+
+此时应：
+- 接受警告日志（正常业务行为）
+- 使用`result.getDuplicateKeys()`获取重复key列表
+- 在业务逻辑中正确处理多实例
+
+**验证修复**:
+```java
+// 运行测试验证
+@Test
+void testNoMoreDuplicateKeys() {
+    List<Product> products = createProducts();
+    CompareResult result = strategy.compare(products, products, options);
+
+    assertFalse(result.hasDuplicateKeys(),
+        "修复后不应再有重复key");
+}
+```
+
+**性能影响**:
+- 重复key场景下，变更数 = 2 × (旧实例数 + 新实例数)
+- 性能影响 <5%（实测数据，见`EntityListStrategyPerformanceTest`）
+- 大规模重复（1 key × 100 instances）仍可在毫秒级完成
+
 ---
 
 ## ⚡ 性能问题
