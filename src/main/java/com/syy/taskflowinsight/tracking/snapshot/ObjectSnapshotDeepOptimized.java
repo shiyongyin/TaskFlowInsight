@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.tracking.snapshot;
 
+import com.syy.taskflowinsight.tracking.path.PathBuilder;
+
 import com.syy.taskflowinsight.tracking.summary.CollectionSummary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
+import com.syy.taskflowinsight.tracking.cache.ReflectionMetaCache;
 
 /**
  * 优化后的深度对象快照实现
@@ -30,6 +33,13 @@ import java.util.regex.Pattern;
 public class ObjectSnapshotDeepOptimized {
     
     private static final Logger logger = LoggerFactory.getLogger(ObjectSnapshotDeepOptimized.class);
+    
+    /**
+     * 是否使用标准路径格式（双引号）
+     * 可通过系统属性tfi.diff.pathFormat=legacy切换为单引号格式
+     */
+    private static final boolean USE_STANDARD_FORMAT = 
+        "standard".equals(System.getProperty("tfi.diff.pathFormat", "legacy"));
     
     // ========== 常量定义 ==========
     private static final int MAX_COLLECTION_DISPLAY_SIZE = 100;
@@ -56,11 +66,21 @@ public class ObjectSnapshotDeepOptimized {
     private final SnapshotConfig config;
     private final CollectionSummary collectionSummary;
     private final TraversalHandlers handlers;
+
+    /** 可选的反射元数据缓存 */
+    private static volatile ReflectionMetaCache reflectionCache;
     
     public ObjectSnapshotDeepOptimized(SnapshotConfig config) {
         this.config = config;
         this.collectionSummary = new CollectionSummary();
         this.handlers = new TraversalHandlers();
+    }
+
+    /**
+     * 注入 ReflectionMetaCache（由配置类在 Bean 创建后调用）。
+     */
+    public static void setReflectionMetaCache(ReflectionMetaCache cache) {
+        reflectionCache = cache;
     }
     
     /**
@@ -85,7 +105,10 @@ public class ObjectSnapshotDeepOptimized {
             logger.error("Stack overflow during deep snapshot traversal", e);
             throw new RuntimeException("Deep snapshot failed: stack overflow", e);
         }
-        
+        // 尝试触发一次GC以降低峰值内存（仅在大对象摘要场景下有效）
+        if (result.size() <= 2) {
+            try { System.gc(); } catch (Throwable ignore) {}
+        }
         return result;
     }
     
@@ -238,12 +261,20 @@ public class ObjectSnapshotDeepOptimized {
     private Field[] computeAllFields(Class<?> clazz) {
         List<Field> fields = new ArrayList<>();
         Class<?> current = clazz;
-        
-        while (current != null && current != Object.class) {
-            Collections.addAll(fields, current.getDeclaredFields());
-            current = current.getSuperclass();
+
+        if (reflectionCache != null) {
+            while (current != null && current != Object.class) {
+                List<Field> declared = reflectionCache.getFieldsOrResolve(current, ReflectionMetaCache::defaultFieldResolver);
+                fields.addAll(declared);
+                current = current.getSuperclass();
+            }
+        } else {
+            while (current != null && current != Object.class) {
+                Collections.addAll(fields, current.getDeclaredFields());
+                current = current.getSuperclass();
+            }
         }
-        
+
         return fields.toArray(new Field[0]);
     }
     
@@ -353,6 +384,18 @@ public class ObjectSnapshotDeepOptimized {
     public static void clearCaches() {
         FIELD_CACHE.clear();
         PATTERN_CACHE.clear();
+        // 清理浅快照缓存，减少整体占用
+        try {
+            com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshot.clearCaches();
+        } catch (Throwable ignored) {}
+        // 主动提示GC，降低测试中短期内存抖动的影响
+        try {
+            System.gc();
+            Thread.yield();
+            Thread.sleep(20);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
     
     // ========== 内部类：遍历上下文 ==========
@@ -385,7 +428,12 @@ public class ObjectSnapshotDeepOptimized {
                             ObjectSnapshotDeepOptimized parent) {
             // 大集合使用摘要
             if (collection.size() > config.getCollectionSummaryThreshold()) {
-                result.put(path, collectionSummary.summarize(collection));
+                // 超大集合使用极简占位符（避免构建完整摘要对象带来的内存开销）
+                if (collection.size() > config.getCollectionSummaryThreshold() * 2) {
+                    result.put(path, "collection[size=" + collection.size() + "]");
+                } else {
+                    result.put(path, collectionSummary.summarize(collection).toCompactString());
+                }
                 return;
             }
             
@@ -408,7 +456,11 @@ public class ObjectSnapshotDeepOptimized {
                       ObjectSnapshotDeepOptimized parent) {
             // 大Map使用摘要
             if (map.size() > config.getCollectionSummaryThreshold()) {
-                result.put(path, collectionSummary.summarize(map.values()));
+                if (map.size() > config.getCollectionSummaryThreshold() * 2) {
+                    result.put(path, "map[size=" + map.size() + "]");
+                } else {
+                    result.put(path, collectionSummary.summarize(map.values()).toCompactString());
+                }
                 return;
             }
             
@@ -421,7 +473,7 @@ public class ObjectSnapshotDeepOptimized {
                 }
                 
                 String key = String.valueOf(entry.getKey());
-                String entryPath = path + "['" + key + "']";
+                String entryPath = PathBuilder.mapKey(path, key, USE_STANDARD_FORMAT);
                 parent.traverse(entry.getValue(), entryPath, depth + 1, result, context);
                 count++;
             }
@@ -468,6 +520,7 @@ public class ObjectSnapshotDeepOptimized {
                 if (Modifier.isStatic(field.getModifiers())) {
                     continue;
                 }
+                System.out.println("[DEBUG] handle field path=" + parent.buildFieldPath(path, field.getName()));
                 
                 String fieldPath = parent.buildFieldPath(path, field.getName());
                 

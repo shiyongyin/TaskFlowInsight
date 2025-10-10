@@ -1,11 +1,13 @@
 package com.syy.taskflowinsight.tracking.snapshot;
 
+import com.syy.taskflowinsight.tracking.format.ValueReprFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import com.syy.taskflowinsight.tracking.cache.ReflectionMetaCache;
 
 /**
  * 对象快照工具
@@ -35,6 +37,14 @@ public final class ObjectSnapshot {
     
     private ObjectSnapshot() {
         throw new UnsupportedOperationException("Utility class");
+    }
+
+    /** 可选的反射元数据缓存 */
+    private static volatile ReflectionMetaCache reflectionCache;
+
+    /** 提供外部注入的缓存 */
+    public static void setReflectionMetaCache(ReflectionMetaCache cache) {
+        reflectionCache = cache;
     }
     
     /**
@@ -99,6 +109,13 @@ public final class ObjectSnapshot {
         
         return FIELD_CACHE.computeIfAbsent(clazz, ObjectSnapshot::buildFieldMap);
     }
+
+    /**
+     * 清理ObjectSnapshot内部缓存（用于测试/诊断）
+     */
+    public static void clearCaches() {
+        FIELD_CACHE.clear();
+    }
     
     /**
      * 构建类的字段映射（仅包含标量字段）
@@ -111,7 +128,8 @@ public final class ObjectSnapshot {
         int depth = 0;
         
         while (current != null && current != Object.class && depth < 2) {
-            for (Field field : current.getDeclaredFields()) {
+            List<Field> declared = getDeclaredFieldsCached(current);
+            for (Field field : declared) {
                 if (isScalarType(field.getType())) {
                     field.setAccessible(true);
                     fieldMap.putIfAbsent(field.getName(), field);
@@ -123,9 +141,18 @@ public final class ObjectSnapshot {
         
         return fieldMap;
     }
+
+    private static List<Field> getDeclaredFieldsCached(Class<?> c) {
+        ReflectionMetaCache cache = reflectionCache;
+        if (cache != null) {
+            return cache.getFieldsOrResolve(c, ReflectionMetaCache::defaultFieldResolver);
+        }
+        return Arrays.asList(c.getDeclaredFields());
+    }
     
     /**
      * 判断是否为标量类型
+     * 修改：现在也包括Map和Collection类型，以支持集合比较
      */
     private static boolean isScalarType(Class<?> type) {
         return type.isPrimitive() ||
@@ -139,27 +166,45 @@ public final class ObjectSnapshot {
                type == Short.class ||
                type == Character.class ||
                type == Date.class ||
-               type.isEnum();
+               type.isEnum() ||
+               Map.class.isAssignableFrom(type) ||     // 支持Map类型
+               Collection.class.isAssignableFrom(type); // 支持Collection类型（包括List和Set）
     }
     
     /**
-     * 归一化值（深拷贝Date，其他标量直接返回）
+     * 归一化值（深拷贝Date，Map和Collection浅拷贝，其他标量直接返回）
      */
     private static Object normalizeValue(Object value) {
         if (value == null) {
             return null;
         }
-        
+
         // Date深拷贝
         if (value instanceof Date) {
             return new Date(((Date) value).getTime());
         }
-        
+
+        // Map浅拷贝（保持引用以便DiffDetector进行比较）
+        if (value instanceof Map) {
+            return new HashMap<>((Map<?, ?>) value);
+        }
+
+        // Collection浅拷贝（保持引用以便DiffDetector进行比较）
+        if (value instanceof Set) {
+            return new HashSet<>((Set<?>) value);
+        }
+        if (value instanceof List) {
+            return new ArrayList<>((List<?>) value);
+        }
+        if (value instanceof Collection) {
+            return new ArrayList<>((Collection<?>) value);
+        }
+
         // 标量类型直接返回
         if (isScalarType(value.getClass())) {
             return value;
         }
-        
+
         // 非标量类型返回null（不采集）
         logger.debug("Skipping non-scalar value of type: {}", value.getClass().getName());
         return null;
@@ -172,7 +217,7 @@ public final class ObjectSnapshot {
      * @return 转义和截断后的字符串表示
      */
     public static String repr(Object value) {
-        return repr(value, maxValueLength);
+        return ValueReprFormatter.format(value);
     }
 
     /**

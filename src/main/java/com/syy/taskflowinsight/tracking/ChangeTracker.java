@@ -1,11 +1,8 @@
 package com.syy.taskflowinsight.tracking;
 
 import com.syy.taskflowinsight.api.TrackingOptions;
-import com.syy.taskflowinsight.tracking.detector.DiffDetector;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
-import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshot;
-import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshotDeep;
-import com.syy.taskflowinsight.tracking.snapshot.SnapshotConfig;
+import com.syy.taskflowinsight.tracking.monitoring.DegradationContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,8 +34,9 @@ public final class ChangeTracker {
     
     private static final Logger logger = LoggerFactory.getLogger(ChangeTracker.class);
     
-    /** 最大追踪对象数（VIP-003要求） */
-    private static final int MAX_TRACKED_OBJECTS = 1000;
+    /** 最大追踪对象数（VIP-003要求，可通过 -Dtfi.change-tracking.max-tracked-objects 覆盖） */
+    private static volatile int MAX_TRACKED_OBJECTS =
+        Integer.getInteger("tfi.change-tracking.max-tracked-objects", 1000);
     
     /**
      * 快照条目，包含基线快照和相关元数据
@@ -91,6 +89,13 @@ public final class ChangeTracker {
             return;
         }
         
+        // 检查降级状态：如果完全禁用，直接返回
+        if (DegradationContext.isDisabled()) {
+            logger.debug("Tracking disabled due to degradation level: {}", DegradationContext.getCurrentLevel());
+            return;
+        }
+        
+        long startTime = System.nanoTime(); // 性能监控埋点
         try {
             Map<String, SnapshotEntry> snapshots = THREAD_SNAPSHOTS.get();
             
@@ -111,8 +116,9 @@ public final class ChangeTracker {
                 logger.debug("Overwriting existing tracked object: {}", name);
             }
             
-            // 捕获基线快照
-            Map<String, Object> baseline = ObjectSnapshot.capture(name, target, fields);
+            // 捕获基线快照（统一通过 SnapshotProvider，以便后续 A/B）
+            Map<String, Object> baseline = com.syy.taskflowinsight.tracking.snapshot.SnapshotProviders.get()
+                .captureBaseline(name, target, fields);
             
             // 存储快照条目
             snapshots.put(name, new SnapshotEntry(name, baseline, fields, target));
@@ -121,6 +127,9 @@ public final class ChangeTracker {
             
         } catch (Exception e) {
             logger.warn("Failed to track object '{}': {}", name, e.getMessage());
+        } finally {
+            // 记录操作性能（如果启用了监控）
+            DegradationContext.recordOperationIfEnabled("track", startTime);
         }
     }
     
@@ -157,8 +166,9 @@ public final class ChangeTracker {
                 logger.debug("Overwriting existing tracked object: {}", name);
             }
             
-            // 根据配置选择快照策略
-            Map<String, Object> baseline = captureSnapshot(name, target, options);
+            // 根据配置选择快照策略（统一通过 SnapshotProvider）
+            Map<String, Object> baseline = com.syy.taskflowinsight.tracking.snapshot.SnapshotProviders.get()
+                .captureWithOptions(name, target, options);
             
             // 存储快照条目
             snapshots.put(name, new SnapshotEntry(name, baseline, new String[0], target, options));
@@ -170,31 +180,7 @@ public final class ChangeTracker {
         }
     }
     
-    /**
-     * 根据配置选项捕获快照
-     */
-    private static Map<String, Object> captureSnapshot(String name, Object target, TrackingOptions options) {
-        if (options.getDepth() == TrackingOptions.TrackingDepth.DEEP) {
-            // 使用深度快照
-            SnapshotConfig config = new SnapshotConfig();
-            config.setTimeBudgetMs(options.getTimeBudgetMs());
-            config.setCollectionSummaryThreshold(options.getCollectionSummaryThreshold());
-            
-            ObjectSnapshotDeep deepSnapshot = new ObjectSnapshotDeep(config);
-            return deepSnapshot.captureDeep(
-                target, 
-                options.getMaxDepth(),
-                options.getIncludeFields(),
-                options.getExcludeFields()
-            );
-        } else {
-            // 使用浅层快照
-            String[] fields = options.getIncludeFields().isEmpty() ? 
-                new String[0] : 
-                options.getIncludeFields().toArray(new String[0]);
-            return ObjectSnapshot.capture(name, target, fields);
-        }
-    }
+    // 统一由 SnapshotProvider 承担捕获逻辑
     
     /**
      * 批量追踪多个对象
@@ -218,6 +204,14 @@ public final class ChangeTracker {
      * @return 变更记录列表
      */
     public static List<ChangeRecord> getChanges() {
+        // 检查降级状态：如果完全禁用，返回空列表
+        if (DegradationContext.isDisabled()) {
+            logger.debug("getChanges() disabled due to degradation level: {}", DegradationContext.getCurrentLevel());
+            return Collections.emptyList();
+        }
+        
+        long startTime = System.nanoTime(); // 性能监控埋点
+        
         Map<String, SnapshotEntry> snapshots = THREAD_SNAPSHOTS.get();
         
         if (snapshots.isEmpty()) {
@@ -247,14 +241,19 @@ public final class ChangeTracker {
                 Map<String, Object> currentSnapshot;
                 if (snapshotEntry.options != null) {
                     // 使用配置选项
-                    currentSnapshot = captureSnapshot(name, target, snapshotEntry.options);
+                    currentSnapshot = com.syy.taskflowinsight.tracking.snapshot.SnapshotProviders.get()
+                        .captureWithOptions(name, target, snapshotEntry.options);
                 } else {
                     // 使用传统方式
-                    currentSnapshot = ObjectSnapshot.capture(name, target, snapshotEntry.fields);
+                    currentSnapshot = com.syy.taskflowinsight.tracking.snapshot.SnapshotProviders.get()
+                        .captureBaseline(name, target, snapshotEntry.fields);
                 }
                 
-                // 对比差异
-                List<ChangeRecord> changes = DiffDetector.diff(name, snapshotEntry.baseline, currentSnapshot);
+                // 为字段级注解提供类上下文（使 Detector 可解析字段注解）
+                com.syy.taskflowinsight.tracking.detector.DiffDetector.setCurrentObjectClass(target.getClass());
+                // 对比差异（统一入口门面）
+                List<ChangeRecord> changes = com.syy.taskflowinsight.tracking.detector.DiffFacade
+                    .diff(name, snapshotEntry.baseline, currentSnapshot);
                 
                 if (!changes.isEmpty()) {
                     allChanges.addAll(changes);
@@ -270,6 +269,9 @@ public final class ChangeTracker {
                 logger.debug("Failed to get changes for object '{}': {}", name, e.getMessage());
             }
         }
+        
+        // 记录操作性能
+        DegradationContext.recordOperationIfEnabled("getChanges", startTime);
         
         return allChanges;
     }
@@ -298,6 +300,9 @@ public final class ChangeTracker {
         } catch (Exception e) {
             // 清理失败不应该影响主流程
             logger.warn("Failed to clear tracking: {}", e.getMessage());
+        } finally {
+            // 清理降级上下文
+            DegradationContext.clear();
         }
     }
     
@@ -331,5 +336,30 @@ public final class ChangeTracker {
         logger.debug("Session-based clearing not yet implemented for session: {}", sessionId);
         // 临时处理：清理所有追踪数据
         clearAllTracking();
+    }
+    
+    /**
+     * 记录操作性能（内部方法，用于监控埋点）
+     * 只有在启用监控时才会记录，确保零开销
+     */
+    private static void recordOperationPerformance(String operationType, long startTimeNanos) {
+        try {
+            // 通过Spring容器查找性能监控器（如果存在且启用）
+            // 这样避免了强依赖，保持ChangeTracker的独立性
+            long durationNanos = System.nanoTime() - startTimeNanos;
+            long durationMs = durationNanos / 1_000_000;
+            
+            // 只在Debug级别记录详细性能信息
+            if (logger.isDebugEnabled() && durationMs > 100) { // 超过100ms才记录
+                logger.debug("Operation '{}' took {}ms", operationType, durationMs);
+            }
+            
+            // TODO: 在后续版本中，这里可以调用PerformanceMonitor.recordOperation()
+            // 当前阶段保持最小侵入，仅做占位
+            
+        } catch (Exception e) {
+            // 监控失败不应影响主业务逻辑
+            logger.trace("Failed to record operation performance: {}", e.getMessage());
+        }
     }
 }
