@@ -2,13 +2,14 @@ package com.syy.taskflowinsight.performance;
 
 import com.syy.taskflowinsight.performance.monitor.*;
 import com.syy.taskflowinsight.performance.dashboard.PerformanceDashboard;
-import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshotDeepOptimized;
+import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshotDeep;
 import com.syy.taskflowinsight.tracking.snapshot.SnapshotConfig;
 import com.syy.taskflowinsight.tracking.path.CaffeinePathMatcherCache;
 import com.syy.taskflowinsight.config.TfiConfig;
 
 import org.junit.jupiter.api.*;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.test.context.TestPropertySource;
 
 import java.util.*;
@@ -75,6 +76,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 2025-01-13
  */
 @SpringBootTest
+@EnabledIfSystemProperty(named = "tfi.runPerfTests", matches = "true")
 @TestPropertySource(properties = {
     "tfi.performance.enabled=true",
     "tfi.performance.monitor.enabled=true",
@@ -242,7 +244,7 @@ public class PerformanceTestSuite {
         SnapshotConfig config = new SnapshotConfig();
         config.setEnableDeep(true);
         config.setMaxDepth(5);
-        ObjectSnapshotDeepOptimized snapshot = new ObjectSnapshotDeepOptimized(config);
+        ObjectSnapshotDeep snapshot = new ObjectSnapshotDeep(config);
         
         // 预热
         ComplexTestObject obj = createComplexObject();

@@ -45,7 +45,7 @@ class TfiConfigValidatorTest {
     void shouldFailOnInvalidBasicConfig() {
         // 创建一个会让isValid()返回false的配置：maxDepth = 0
         TfiConfig.ChangeTracking.Snapshot invalidSnapshot = new TfiConfig.ChangeTracking.Snapshot(
-            0, 100, Set.of(), 1000, true); // maxDepth = 0 会导致isValid()失败
+            0, 100, Set.of(), 1000, true, 1000L); // maxDepth = 0 会导致isValid()失败
         TfiConfig.ChangeTracking invalidChangeTracking = new TfiConfig.ChangeTracking(
             true, 1000, 30, invalidSnapshot, 
             validConfig.changeTracking().diff(),
@@ -74,7 +74,7 @@ class TfiConfigValidatorTest {
     @DisplayName("快照深度过大应失败")
     void shouldFailOnExcessiveSnapshotDepth() {
         TfiConfig.ChangeTracking.Snapshot largeSnapshot = new TfiConfig.ChangeTracking.Snapshot(
-            100, 100, Set.of(), 1000, true); // 超过50
+            100, 100, Set.of(), 1000, true, 1000L); // 超过50
         TfiConfig.ChangeTracking changeTracking = new TfiConfig.ChangeTracking(
             true, 1000, 30, largeSnapshot,
             validConfig.changeTracking().diff(),
@@ -133,7 +133,7 @@ class TfiConfigValidatorTest {
     @DisplayName("每对象最大变更数过多应失败")
     void shouldFailOnExcessiveMaxChangesPerObject() {
         TfiConfig.ChangeTracking.Diff largeDiff = new TfiConfig.ChangeTracking.Diff(
-            "compat", true, 10000, true); // 超过5000
+            "compat", true, 10000, true, "legacy"); // 超过5000
         TfiConfig.ChangeTracking changeTracking = new TfiConfig.ChangeTracking(
             true, 1000, 30,
             validConfig.changeTracking().snapshot(),
@@ -154,9 +154,9 @@ class TfiConfigValidatorTest {
     void shouldPassOnBoundaryValues() {
         // 测试边界值
         TfiConfig.ChangeTracking.Snapshot boundarySnapshot = new TfiConfig.ChangeTracking.Snapshot(
-            50, 100, Set.of(), 1000, true); // 正好50
+            50, 100, Set.of(), 1000, true, 1000L); // 正好50
         TfiConfig.ChangeTracking.Diff boundaryDiff = new TfiConfig.ChangeTracking.Diff(
-            "compat", true, 5000, true); // 正好5000
+            "compat", true, 5000, true, "legacy"); // 正好5000
         TfiConfig.ChangeTracking changeTracking = new TfiConfig.ChangeTracking(
             true, 1_000_000, 30, // 边界值
             boundarySnapshot, boundaryDiff,
@@ -249,9 +249,9 @@ class TfiConfigValidatorTest {
      */
     private TfiConfig createValidConfig() {
         TfiConfig.ChangeTracking.Snapshot snapshot = new TfiConfig.ChangeTracking.Snapshot(
-            10, 100, Set.of("*.password"), 1000, true);
+            10, 100, Set.of("*.password"), 1000, true, 1000L);
         TfiConfig.ChangeTracking.Diff diff = new TfiConfig.ChangeTracking.Diff(
-            "compat", true, 1000, true);
+            "compat", true, 1000, true, "legacy");
         TfiConfig.ChangeTracking.Export export = new TfiConfig.ChangeTracking.Export(
             "json", true, false, false, false);
         TfiConfig.ChangeTracking.Summary summary = new TfiConfig.ChangeTracking.Summary(

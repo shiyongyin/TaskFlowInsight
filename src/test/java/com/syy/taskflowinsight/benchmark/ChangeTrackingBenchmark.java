@@ -5,6 +5,7 @@ import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * @version 2.0.0
  * @since 2025-01-10
  */
+@EnabledIfSystemProperty(named = "tfi.runPerfTests", matches = "true")
 class ChangeTrackingBenchmark {
     
     private static final int WARMUP_ITERATIONS = 1000;

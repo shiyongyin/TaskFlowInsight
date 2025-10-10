@@ -29,7 +29,8 @@ class ValueReprVerificationTest {
         after.put("amount", 150.0);
         
         // When
-        List<ChangeRecord> changes = DiffDetector.diff("Order", before, after);
+        List<ChangeRecord> changes = DiffDetector.diffWithMode("Order", before, after, 
+            com.syy.taskflowinsight.tracking.detector.DiffDetector.DiffMode.ENHANCED);
         
         // Then
         assertEquals(2, changes.size());
@@ -39,8 +40,8 @@ class ValueReprVerificationTest {
             .filter(c -> c.getFieldName().equals("amount"))
             .findFirst().orElse(null);
         assertNotNull(amountChange);
-        assertEquals("150.0", amountChange.getValueRepr(), 
-            "valueRepr应该只包含新值，而非'100.0 → 150.0'");
+        assertEquals("150", amountChange.getValueRepr(), 
+            "valueRepr应该只包含新值，数值无需双引号");
         assertFalse(amountChange.getValueRepr().contains("→"), 
             "valueRepr不应包含箭头符号");
         
@@ -50,7 +51,7 @@ class ValueReprVerificationTest {
             .findFirst().orElse(null);
         assertNotNull(statusChange);
         assertEquals("PAID", statusChange.getValueRepr(),
-            "valueRepr应该只包含新值，而非'PENDING → PAID'");
+            "增强模式下字符串不加引号，仅包含新值");
         assertFalse(statusChange.getValueRepr().contains("→"),
             "valueRepr不应包含箭头符号");
     }
@@ -65,7 +66,9 @@ class ValueReprVerificationTest {
         after.put("description", null);
         
         // When
-        List<ChangeRecord> changes = DiffDetector.diff("Product", before, after);
+        // 兼容模式下DELETE的valueRepr应为null
+        List<ChangeRecord> changes = DiffDetector.diffWithMode("Product", before, after,
+            com.syy.taskflowinsight.tracking.detector.DiffDetector.DiffMode.COMPAT);
         
         // Then
         assertEquals(1, changes.size());
@@ -85,14 +88,15 @@ class ValueReprVerificationTest {
         after.put("name", "John");
         
         // When
-        List<ChangeRecord> changes = DiffDetector.diff("User", before, after);
+        List<ChangeRecord> changes = DiffDetector.diffWithMode("User", before, after,
+            com.syy.taskflowinsight.tracking.detector.DiffDetector.DiffMode.ENHANCED);
         
         // Then
         assertEquals(1, changes.size());
         ChangeRecord change = changes.get(0);
         assertEquals(ChangeType.CREATE, change.getChangeType());
         assertEquals("John", change.getValueRepr(),
-            "CREATE场景下valueRepr应该包含新值");
+            "增强模式下字符串不加引号");
         assertFalse(change.getValueRepr().contains("null"),
             "valueRepr不应包含null → John格式");
     }
@@ -103,13 +107,14 @@ class ValueReprVerificationTest {
         String longString = "a".repeat(10000);
         String repr = ObjectSnapshot.repr(longString);
         
-        // 验证统一的截断长度和后缀
-        assertEquals(8192, repr.length());
-        assertTrue(repr.endsWith("... (truncated)"));
+        // 验证新的截断格式：≥1000字符使用首50+...+尾50+(truncated)
+        assertEquals(115, repr.length()); // 2个双引号 + 50 + 3个点 + 50 + 10个" (truncated)" = 115
+        assertTrue(repr.endsWith(" (truncated)"));
+        assertTrue(repr.contains("..."));
         
         // 验证特殊字符转义
         String special = "line1\nline2\ttab";
         String escapedRepr = ObjectSnapshot.repr(special);
-        assertEquals("line1\\nline2\\ttab", escapedRepr);
+        assertEquals("\"line1\\nline2\\ttab\"", escapedRepr);
     }
 }

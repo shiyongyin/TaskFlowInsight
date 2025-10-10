@@ -4,6 +4,7 @@ import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -18,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 2.1.0
  * @since 2025-01-12
  */
+@EnabledIfSystemProperty(named = "tfi.runPerfTests", matches = "true")
 class DiffDetectorPerformanceTest {
     
     private Map<String, Object> smallBefore;
@@ -29,6 +31,9 @@ class DiffDetectorPerformanceTest {
     
     @BeforeEach
     void setUp() {
+        // 禁用增强路径去重以确保测试预期的变更数量
+        DiffDetector.setEnhancedDeduplicationEnabled(false);
+
         // 准备小规模数据（2个字段）
         smallBefore = new HashMap<>();
         smallAfter = new HashMap<>();

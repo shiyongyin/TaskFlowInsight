@@ -176,8 +176,8 @@ public class ObjectSnapshotDeepTest {
         obj.data = "public data";
         
         Set<String> excludePatterns = new HashSet<>(Arrays.asList(
-            "*.password",
-            "*.token"
+            "*password",  // Matches any path ending with "password" (including "password" itself)
+            "*token"      // Matches any path ending with "token" (including "token" itself)
         ));
         
         Map<String, Object> result = deepSnapshot.captureDeep(

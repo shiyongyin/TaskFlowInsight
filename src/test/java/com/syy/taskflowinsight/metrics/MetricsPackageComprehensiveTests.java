@@ -497,13 +497,13 @@ class MetricsPackageComprehensiveTests {
             // 直接验证指标数据汇总的逻辑
             assertThatCode(() -> {
                 // 验证指标数据的逻辑一致性
-                Counter sessionsCreated = meterRegistry.find("tfi.sessions.created").counter();
-                Counter tasksStarted = meterRegistry.find("tfi.tasks.started").counter();
-                Timer taskTimer = meterRegistry.find("tfi.tasks.duration").timer();
-                
-                assertThat(sessionsCreated).isNotNull();
-                assertThat(tasksStarted).isNotNull();
-                assertThat(taskTimer).isNotNull();
+                Counter changeTrackingCounter = meterRegistry.find("tfi.change.tracking.total").counter();
+                Counter snapshotCreationCounter = meterRegistry.find("tfi.snapshot.creation.total").counter();
+                Timer changeTrackingTimer = meterRegistry.find("tfi.change.tracking.duration.seconds").timer();
+
+                assertThat(changeTrackingCounter).isNotNull();
+                assertThat(snapshotCreationCounter).isNotNull();
+                assertThat(changeTrackingTimer).isNotNull();
                 
             }).doesNotThrowAnyException();
             

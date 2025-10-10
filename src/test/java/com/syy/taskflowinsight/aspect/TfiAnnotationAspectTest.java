@@ -1,6 +1,7 @@
 package com.syy.taskflowinsight.aspect;
 
 import com.syy.taskflowinsight.annotation.TfiTask;
+import com.syy.taskflowinsight.config.resolver.ConfigurationResolver;
 import com.syy.taskflowinsight.masking.UnifiedDataMasker;
 import com.syy.taskflowinsight.spel.SafeSpELEvaluator;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -26,12 +27,13 @@ class TfiAnnotationAspectTest {
     @Mock private TfiTask tfiTask;
     @Mock private SafeSpELEvaluator spelEvaluator;
     @Mock private UnifiedDataMasker dataMasker;
+    @Mock private ConfigurationResolver configurationResolver;
     
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
         meterRegistry = new SimpleMeterRegistry();
-        aspect = new TfiAnnotationAspect(spelEvaluator, dataMasker, meterRegistry);
+        aspect = new TfiAnnotationAspect(spelEvaluator, dataMasker, meterRegistry, configurationResolver);
     }
     
     @Test

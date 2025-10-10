@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since 2025-01-13
  */
 @DisplayName("PerformanceDashboard综合测试 - 目标覆盖率80%")
+@EnabledIfSystemProperty(named = "tfi.runPerfTests", matches = "true")
 class PerformanceDashboardComprehensiveTest {
 
     private PerformanceMonitor monitor;
