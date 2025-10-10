@@ -48,6 +48,10 @@ public class TfiMetrics {
     private final Counter collectionSummaryCounter;
     private final Counter errorCounter;
     
+    // 降级相关指标（v3.0.0新增）
+    private final Counter degradationEventsCounter;
+    private final Counter slowOperationCounter;
+    
     // 计时器
     private final Timer changeTrackingTimer;
     private final Timer snapshotCreationTimer;
@@ -83,6 +87,15 @@ public class TfiMetrics {
             
         this.errorCounter = Counter.builder("tfi.error.total")
             .description("Number of errors")
+            .register(this.registry);
+        
+        // 降级相关计数器（v3.0.0新增）
+        this.degradationEventsCounter = Counter.builder("tfi.degradation.events.total")
+            .description("Number of degradation level changes")
+            .register(this.registry);
+            
+        this.slowOperationCounter = Counter.builder("tfi.operation.slow.total")
+            .description("Number of slow operations (>=200ms)")
             .register(this.registry);
         
         // 初始化计时器
@@ -171,6 +184,38 @@ public class TfiMetrics {
     }
     
     /**
+     * 记录降级事件（v3.0.0新增）
+     */
+    public void recordDegradationEvent(String fromLevel, String toLevel, String reason) {
+        degradationEventsCounter.increment();
+        
+        Counter.builder("tfi.degradation.transitions.total")
+            .tag("from", fromLevel.toLowerCase())
+            .tag("to", toLevel.toLowerCase())
+            .tag("reason", reason)
+            .register(registry)
+            .increment();
+            
+        logger.info("Degradation event recorded: {} -> {} ({})", fromLevel, toLevel, reason);
+    }
+    
+    /**
+     * 记录慢操作（v3.0.0新增）
+     */
+    public void recordSlowOperation(String operationType, long durationMs) {
+        slowOperationCounter.increment();
+        
+        Timer.builder("tfi.operation.slow.duration.milliseconds")
+            .tag("operation", operationType)
+            .register(registry)
+            .record(durationMs, TimeUnit.MILLISECONDS);
+            
+        if (logger.isDebugEnabled()) {
+            logger.debug("Slow operation recorded: {} took {}ms", operationType, durationMs);
+        }
+    }
+    
+    /**
      * 记录自定义指标
      */
     public void recordCustomMetric(String name, double value) {
@@ -187,6 +232,16 @@ public class TfiMetrics {
                 .register(registry);
             return counter;
         }).incrementAndGet();
+    }
+    
+    /**
+     * 记录自定义计时（毫秒）
+     */
+    public void recordCustomTiming(String name, long durationMs) {
+        Timer timer = Timer.builder("tfi.custom.timing." + name + ".milliseconds")
+            .publishPercentiles(0.5, 0.95, 0.99)
+            .register(registry);
+        timer.record(durationMs, TimeUnit.MILLISECONDS);
     }
     
     /**
@@ -230,6 +285,15 @@ public class TfiMetrics {
             return Duration.ofNanos((long) timer.mean(TimeUnit.NANOSECONDS));
         }
         return Duration.ZERO;
+    }
+    
+    /**
+     * 注册Gauge指标（v3.0.0新增）
+     */
+    public void registerGauge(String name, Supplier<Number> supplier) {
+        Gauge.builder(name, supplier)
+            .description("Custom gauge metric")
+            .register(registry);
     }
     
     /**
@@ -336,6 +400,11 @@ public class TfiMetrics {
     
     public static final String ERROR_TOTAL = "tfi.error.total";
     public static final String ERROR_RATE = "tfi.error.rate";
+    
+    // CT-006: 并发与内存指标
+    public static final String CME_RETRY_TOTAL = "tfi.cme.retry.total";
+    public static final String CME_RETRY_SUCCESS_RATE = "tfi.cme.retry.success.rate";
+    public static final String FIFO_EVICTION_TOTAL = "tfi.fifo.eviction.total";
     
     // 兼容性：旧指标名映射（自动迁移）
     private static final Map<String, String> LEGACY_METRIC_MAPPING = Map.of(
@@ -575,6 +644,43 @@ public class TfiMetrics {
                 .tag("class", error != null ? error.getClass().getSimpleName() : "Unknown")
                 .register(registry)
         ).increment();
+    }
+    
+    /**
+     * 记录CME重试统计（CT-006）
+     */
+    public void recordCmeRetryStats(int totalRetries, int successes, int exhausted) {
+        if (!isMetricEnabled("cme")) return;
+        
+        // 总重试次数
+        enterpriseCounterCache.computeIfAbsent(
+            CME_RETRY_TOTAL,
+            k -> Counter.builder(CME_RETRY_TOTAL)
+                .description("Total CME retry attempts")
+                .register(registry)
+        ).increment(totalRetries);
+        
+        // 成功率
+        if (totalRetries > 0) {
+            double successRate = (double)(totalRetries - exhausted) / totalRetries;
+            registerGauge(CME_RETRY_SUCCESS_RATE, () -> successRate);
+        }
+    }
+    
+    /**
+     * 记录FIFO驱逐（CT-006）
+     */
+    public void recordFifoEviction(String cacheName, long evictedCount) {
+        if (!isMetricEnabled("fifo")) return;
+        
+        enterpriseCounterCache.computeIfAbsent(
+            FIFO_EVICTION_TOTAL + "." + cacheName,
+            k -> Counter.builder(FIFO_EVICTION_TOTAL)
+                .description("Total FIFO cache evictions")
+                .tag("cache", cacheName)
+                .tag("strategy", "FIFO")
+                .register(registry)
+        ).increment(evictedCount);
     }
     
     // === 企业级辅助方法 ===

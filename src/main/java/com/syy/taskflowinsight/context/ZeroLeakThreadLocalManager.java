@@ -1,6 +1,7 @@
 package com.syy.taskflowinsight.context;
 
 
+import com.syy.taskflowinsight.config.resolver.ConfigDefaults;
 import lombok.Getter;
 
 import java.lang.ref.ReferenceQueue;
@@ -34,6 +35,9 @@ public final class ZeroLeakThreadLocalManager {
     
     // 线程上下文注册表
     private final ConcurrentHashMap<Long, ContextRecord> contextRecords = new ConcurrentHashMap<>();
+    
+    // CT-006: 嵌套stage注册表
+    private final ConcurrentHashMap<Long, NestedStageRegistry> nestedStageRecords = new ConcurrentHashMap<>();
     
     // 弱引用队列，用于检测死线程
     private final ReferenceQueue<Thread> deadThreadQueue = new ReferenceQueue<>();
@@ -163,6 +167,9 @@ public final class ZeroLeakThreadLocalManager {
         ContextRecord record = contextRecords.remove(threadId);
         threadReferences.remove(threadId);
         
+        // CT-006: 同时清理嵌套stage记录
+        nestedStageRecords.remove(threadId);
+        
         if (record != null) {
             unregisteredCount.incrementAndGet();
             
@@ -171,6 +178,135 @@ public final class ZeroLeakThreadLocalManager {
                 logger.debug("Unregistered context for thread id={}, lifetime={}ms", threadId, lifetime);
             }
         }
+    }
+    
+    // ==================== CT-006: 嵌套Stage管理 ====================
+    
+    /**
+     * 注册嵌套stage
+     * 
+     * @param threadId 线程ID
+     * @param stageId stage标识
+     * @param depth 嵌套深度
+     */
+    public void registerNestedStage(long threadId, String stageId, int depth) {
+        if (stageId == null || stageId.trim().isEmpty()) {
+            return;
+        }
+        
+        if (depth > ConfigDefaults.NESTED_STAGE_MAX_DEPTH) {
+            logger.warn("Nested stage depth {} exceeds maximum {}, registration ignored", 
+                depth, ConfigDefaults.NESTED_STAGE_MAX_DEPTH);
+            return;
+        }
+        
+        NestedStageRegistry registry = nestedStageRecords.computeIfAbsent(
+            threadId, k -> new NestedStageRegistry());
+        registry.addStage(stageId, depth);
+        
+        if (diagnosticMode) {
+            logger.debug("Registered nested stage: thread={}, stage={}, depth={}", 
+                threadId, stageId, depth);
+        }
+    }
+    
+    /**
+     * 清理指定深度及以上的嵌套stage
+     * 
+     * @param threadId 线程ID
+     * @param fromDepth 起始深度（包含）
+     * @return 清理的stage数量
+     */
+    public int cleanupNestedStages(long threadId, int fromDepth) {
+        NestedStageRegistry registry = nestedStageRecords.get(threadId);
+        if (registry == null) {
+            return 0;
+        }
+        
+        int cleaned = registry.cleanupFromDepth(fromDepth);
+        
+        // 如果registry为空，移除整个记录
+        if (registry.isEmpty()) {
+            nestedStageRecords.remove(threadId);
+        }
+        
+        if (cleaned > 0 && diagnosticMode) {
+            logger.debug("Cleaned {} nested stages from depth {} for thread {}", 
+                cleaned, fromDepth, threadId);
+        }
+        
+        return cleaned;
+    }
+    
+    /**
+     * 批量清理嵌套stage（基于时间或数量阈值）
+     * 
+     * @return 清理的总数量
+     */
+    public int cleanupNestedStagesBatch() {
+        int totalCleaned = 0;
+        int batchSize = ConfigDefaults.NESTED_CLEANUP_BATCH_SIZE;
+        long now = System.currentTimeMillis();
+        
+        // 收集需要清理的线程ID
+        List<Long> threadsToCleanup = new ArrayList<>();
+        
+        nestedStageRecords.forEach((threadId, registry) -> {
+            if (threadsToCleanup.size() >= batchSize) {
+                return; // 达到批次限制
+            }
+            
+            // 检查是否有过期的stage或线程已死
+            Thread thread = getThreadById(threadId);
+            boolean threadDead = thread == null || !thread.isAlive();
+            boolean hasExpiredStages = registry.hasExpiredStages(now, contextTimeoutMillis);
+            
+            if (threadDead || hasExpiredStages) {
+                threadsToCleanup.add(threadId);
+            }
+        });
+        
+        // 执行清理
+        for (Long threadId : threadsToCleanup) {
+            NestedStageRegistry registry = nestedStageRecords.remove(threadId);
+            if (registry != null) {
+                totalCleaned += registry.size();
+            }
+        }
+        
+        if (totalCleaned > 0) {
+            logger.info("Batch cleanup: removed {} nested stages from {} threads", 
+                totalCleaned, threadsToCleanup.size());
+        }
+        
+        return totalCleaned;
+    }
+    
+    /**
+     * 获取嵌套stage状态
+     * 
+     * @param threadId 线程ID
+     * @return stage状态信息
+     */
+    public NestedStageStatus getNestedStageStatus(long threadId) {
+        NestedStageRegistry registry = nestedStageRecords.get(threadId);
+        if (registry == null) {
+            return new NestedStageStatus(0, 0, Collections.emptyList());
+        }
+        
+        return new NestedStageStatus(
+            registry.size(),
+            registry.getMaxDepth(),
+            registry.getStageIds()
+        );
+    }
+    
+    /**
+     * 辅助方法：根据线程ID获取线程对象
+     */
+    private Thread getThreadById(long threadId) {
+        ThreadWeakReference ref = threadReferences.get(threadId);
+        return ref != null ? ref.get() : null;
     }
     
     /**
@@ -523,6 +659,94 @@ public final class ZeroLeakThreadLocalManager {
         public String toString() {
             return String.format("HealthStatus{level=%s, active=%d, leaks=%d, cleaned=%d}",
                 level, activeContexts, totalLeaks, leaksCleaned);
+        }
+    }
+    
+    // ==================== CT-006: 嵌套Stage内部类 ====================
+    
+    /**
+     * 嵌套Stage注册表
+     */
+    private static class NestedStageRegistry {
+        private final ConcurrentHashMap<String, NestedStageInfo> stages = new ConcurrentHashMap<>();
+        
+        void addStage(String stageId, int depth) {
+            stages.put(stageId, new NestedStageInfo(stageId, depth, System.currentTimeMillis()));
+        }
+        
+        int cleanupFromDepth(int fromDepth) {
+            int cleaned = 0;
+            Iterator<Map.Entry<String, NestedStageInfo>> iterator = stages.entrySet().iterator();
+            
+            while (iterator.hasNext()) {
+                Map.Entry<String, NestedStageInfo> entry = iterator.next();
+                if (entry.getValue().depth >= fromDepth) {
+                    iterator.remove();
+                    cleaned++;
+                }
+            }
+            return cleaned;
+        }
+        
+        boolean hasExpiredStages(long now, long timeoutMs) {
+            return stages.values().stream()
+                .anyMatch(stage -> (now - stage.registeredTime) > timeoutMs);
+        }
+        
+        boolean isEmpty() {
+            return stages.isEmpty();
+        }
+        
+        int size() {
+            return stages.size();
+        }
+        
+        int getMaxDepth() {
+            return stages.values().stream()
+                .mapToInt(stage -> stage.depth)
+                .max()
+                .orElse(0);
+        }
+        
+        List<String> getStageIds() {
+            return new ArrayList<>(stages.keySet());
+        }
+    }
+    
+    /**
+     * 嵌套Stage信息
+     */
+    private static class NestedStageInfo {
+        final String stageId;
+        final int depth;
+        final long registeredTime;
+        
+        NestedStageInfo(String stageId, int depth, long registeredTime) {
+            this.stageId = stageId;
+            this.depth = depth;
+            this.registeredTime = registeredTime;
+        }
+    }
+    
+    /**
+     * 嵌套Stage状态
+     */
+    @Getter
+    public static class NestedStageStatus {
+        private final int stageCount;
+        private final int maxDepth;
+        private final List<String> stageIds;
+        
+        public NestedStageStatus(int stageCount, int maxDepth, List<String> stageIds) {
+            this.stageCount = stageCount;
+            this.maxDepth = maxDepth;
+            this.stageIds = Collections.unmodifiableList(new ArrayList<>(stageIds));
+        }
+        
+        @Override
+        public String toString() {
+            return String.format("NestedStageStatus{count=%d, maxDepth=%d, stages=%s}",
+                stageCount, maxDepth, stageIds);
         }
     }
 }

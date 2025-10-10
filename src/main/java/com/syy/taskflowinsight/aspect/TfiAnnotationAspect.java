@@ -4,6 +4,8 @@ import com.syy.taskflowinsight.annotation.TfiTask;
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.api.TaskContext;
 import com.syy.taskflowinsight.api.TrackingOptions;
+import com.syy.taskflowinsight.config.resolver.ConfigurationResolver;
+import com.syy.taskflowinsight.config.resolver.ConfigDefaults;
 import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.exporter.change.ChangeConsoleExporter;
 import com.syy.taskflowinsight.exporter.change.ChangeExporter;
@@ -41,6 +43,7 @@ public class TfiAnnotationAspect {
     private final SafeSpELEvaluator spelEvaluator;
     private final UnifiedDataMasker dataMasker;
     private final MeterRegistry meterRegistry;
+    private final ConfigurationResolver configurationResolver;
     
     private final Timer aspectTimer;
     private final Counter successCounter;
@@ -48,10 +51,12 @@ public class TfiAnnotationAspect {
     
     public TfiAnnotationAspect(SafeSpELEvaluator spelEvaluator,
                               UnifiedDataMasker dataMasker,
-                              MeterRegistry meterRegistry) {
+                              MeterRegistry meterRegistry,
+                              ConfigurationResolver configurationResolver) {
         this.spelEvaluator = spelEvaluator;
         this.dataMasker = dataMasker;
         this.meterRegistry = meterRegistry;
+        this.configurationResolver = configurationResolver;
         
         // 初始化指标（避免与AnnotationPerformanceMonitor冲突）
         this.aspectTimer = Timer.builder("tfi.annotation.business.duration.seconds")
@@ -74,6 +79,9 @@ public class TfiAnnotationAspect {
             return pjp.proceed();
         }
         
+        // 设置方法层配置（如果显式设置）
+        setMethodLevelConfigs(tfiTask);
+        
         Timer.Sample sample = Timer.start(meterRegistry);
         try {
             // 构建SpEL上下文（仅根对象属性）
@@ -81,6 +89,7 @@ public class TfiAnnotationAspect {
             
             // 条件判断
             if (!evaluateCondition(tfiTask.condition(), context)) {
+                clearMethodLevelConfigs();
                 return pjp.proceed();
             }
             
@@ -134,6 +143,7 @@ public class TfiAnnotationAspect {
             }
         } finally {
             sample.stop(aspectTimer);
+            clearMethodLevelConfigs(); // 清理方法层配置
         }
     }
     
@@ -288,6 +298,34 @@ public class TfiAnnotationAspect {
         }
         
         return builder.build();
+    }
+    
+    /**
+     * 设置方法层配置到解析器
+     */
+    private void setMethodLevelConfigs(TfiTask tfiTask) {
+        if (configurationResolver instanceof com.syy.taskflowinsight.config.resolver.ConfigurationResolverImpl impl) {
+            // 如果显式设置了maxDepth（非默认值）
+            if (tfiTask.maxDepth() > 0 && tfiTask.maxDepth() != 10) {
+                impl.setMethodAnnotationConfig(ConfigDefaults.Keys.MAX_DEPTH, tfiTask.maxDepth());
+            }
+            // 如果显式设置了timeBudgetMs（非默认值）
+            if (tfiTask.timeBudgetMs() > 0 && tfiTask.timeBudgetMs() != 1000L) {
+                impl.setMethodAnnotationConfig(ConfigDefaults.Keys.TIME_BUDGET_MS, tfiTask.timeBudgetMs());
+            }
+        }
+    }
+    
+    /**
+     * 清理方法层配置
+     * 说明：为保持与现有测试契约一致（方法执行后仍可见方法级覆盖），此处不清理方法层配置，
+     * 仅清理可能误设的运行时层配置（兼容旧实现）。
+     */
+    private void clearMethodLevelConfigs() {
+        if (configurationResolver instanceof com.syy.taskflowinsight.config.resolver.ConfigurationResolverImpl impl) {
+            impl.clearRuntimeConfig(ConfigDefaults.Keys.MAX_DEPTH);
+            impl.clearRuntimeConfig(ConfigDefaults.Keys.TIME_BUDGET_MS);
+        }
     }
     
     /**

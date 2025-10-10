@@ -75,8 +75,8 @@ public final class TaskNode {
         this.parent = parent;
         this.taskPath = computeTaskPath();
         
-        Instant now = Instant.now();
-        this.createdMillis = now.toEpochMilli();
+        // 使用 System.currentTimeMillis 避免 Instant 对象创建的额外开销
+        this.createdMillis = System.currentTimeMillis();
         this.createdNanos = System.nanoTime();
         this.threadName = Thread.currentThread().getName();
         
@@ -238,8 +238,7 @@ public final class TaskNode {
         }
         
         this.status = TaskStatus.COMPLETED;
-        Instant now = Instant.now();
-        this.completedMillis = now.toEpochMilli();
+        this.completedMillis = System.currentTimeMillis();
         this.completedNanos = System.nanoTime();
     }
 
