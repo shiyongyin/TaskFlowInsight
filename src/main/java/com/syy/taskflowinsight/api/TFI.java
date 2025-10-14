@@ -17,10 +17,6 @@ import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshot;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.ApplicationListener;
-import org.springframework.stereotype.Component;
 import com.syy.taskflowinsight.util.DiagnosticLogger;
 
 import java.util.ArrayList;
@@ -54,43 +50,16 @@ public final class TFI {
     // 比较服务（用于 compare API，优先使用 Spring Bean，否则兜底初始化）
     private static volatile com.syy.taskflowinsight.tracking.compare.CompareService compareService;
 
-    // Markdown渲染器（用于 render API，优先使用 Spring Bean，否则兜底初始化）
+    // Markdown渲染器（用于 render API，否则兜底初始化）
     private static volatile com.syy.taskflowinsight.tracking.render.MarkdownRenderer markdownRenderer;
 
-    // Spring ApplicationContext（通过 ApplicationContextAware 注入）
-    private static volatile org.springframework.context.ApplicationContext applicationContext;
-    
-    /**
-     * 内部注入器类
-     * 用于在Spring启动完成后注入TfiCore实例
-     */
-    @Component
-    static class CoreInjector implements ApplicationListener<ApplicationReadyEvent> {
-        @Autowired
-        private TfiCore tfiCore;
+    // ==================== Provider 缓存（v4.0.0 路由机制）====================
+    // 缓存 Provider 实例，避免每次调用都查找（P95 < 100ns）
+    private static volatile com.syy.taskflowinsight.spi.ComparisonProvider cachedComparisonProvider;
+    private static volatile com.syy.taskflowinsight.spi.TrackingProvider cachedTrackingProvider;
+    private static volatile com.syy.taskflowinsight.spi.FlowProvider cachedFlowProvider;
+    private static volatile com.syy.taskflowinsight.spi.RenderProvider cachedRenderProvider;
 
-        @Override
-        public void onApplicationEvent(ApplicationReadyEvent event) {
-            TFI.core = tfiCore;
-            logger.info("TfiCore injected into TFI facade at application ready");
-        }
-    }
-
-    /**
-     * ApplicationContext 注入器
-     * 用于在 Spring 容器启动时注入 ApplicationContext，支持 Bean 查找
-     */
-    @Component
-    static class AppContextInjector implements org.springframework.context.ApplicationContextAware {
-        @Override
-        public void setApplicationContext(org.springframework.context.ApplicationContext ctx) {
-            TFI.applicationContext = ctx;
-            logger.info("ApplicationContext injected into TFI facade - Spring Bean lookup enabled");
-        }
-    }
-
-    
-    
     /**
      * 私有构造函数，防止实例化
      */
@@ -168,22 +137,28 @@ public final class TFI {
         if (!isEnabled()) {
             return null;
         }
-        
+
+        if (sessionName == null || sessionName.trim().isEmpty()) {
+            return null;
+        }
+
         try {
-            if (sessionName == null || sessionName.trim().isEmpty()) {
-                return null;
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    return provider.startSession(sessionName.trim());
+                }
             }
-            
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context == null) {
                 context = ManagedThreadContext.create(sessionName.trim());
-                // create已经创建了session，直接返回
                 Session session = context.getCurrentSession();
                 return session != null ? session.getSessionId() : null;
             } else {
-                // 如果已经有context，检查是否有活动会话
                 if (context.getCurrentSession() != null && context.getCurrentSession().isActive()) {
-                    // 如果有活动会话，先结束它
                     context.endSession();
                 }
                 Session session = context.startSession(sessionName.trim());
@@ -203,8 +178,22 @@ public final class TFI {
         if (!isEnabled()) {
             return;
         }
-        
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    provider.endSession();
+                    // 清理变更追踪数据
+                    if (isChangeTrackingEnabled()) {
+                        clearAllTracking();
+                    }
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context != null) {
                 context.endSession();
@@ -282,7 +271,7 @@ public final class TFI {
     
     /**
      * 开始一个新任务
-     * 
+     *
      * @param taskName 任务名称
      * @return TaskContext 任务上下文，支持链式调用
      */
@@ -290,26 +279,35 @@ public final class TFI {
         if (!isEnabled()) {
             return NullTaskContext.INSTANCE;
         }
-        
+
+        if (taskName == null || taskName.trim().isEmpty()) {
+            return NullTaskContext.INSTANCE;
+        }
+
         try {
-            if (taskName == null || taskName.trim().isEmpty()) {
-                return NullTaskContext.INSTANCE;
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    // 确保有活动会话
+                    if (provider.currentSession() == null) {
+                        provider.startSession("auto-session");
+                    }
+                    TaskNode taskNode = provider.startTask(taskName.trim());
+                    return taskNode != null ? new TaskContextImpl(taskNode) : NullTaskContext.INSTANCE;
+                }
             }
-            
-            // 如果没有上下文，自动创建一个
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context == null) {
                 context = ManagedThreadContext.create("auto-session");
             }
-            
-            // 如果没有会话，自动创建一个
             if (context.getCurrentSession() == null) {
                 context.startSession("auto-session");
             }
-            
             TaskNode taskNode = context.startTask(taskName.trim());
             return taskNode != null ? new TaskContextImpl(taskNode) : NullTaskContext.INSTANCE;
-            
         } catch (Throwable t) {
             handleInternalError("Failed to start task: " + taskName, t);
             return NullTaskContext.INSTANCE;
@@ -324,14 +322,23 @@ public final class TFI {
         if (!isEnabled()) {
             return;
         }
-        
+
         try {
             // 先刷新变更记录（如果启用了变更追踪）
             if (isChangeTrackingEnabled()) {
                 flushChangesToCurrentTask();
             }
-            
-            // 再结束任务
+
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    provider.endTask();
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context != null) {
                 context.endTask();
@@ -400,7 +407,7 @@ public final class TFI {
 
     /**
      * 记录指定类型的消息
-     * 
+     *
      * @param content 消息内容
      * @param messageType 消息类型
      */
@@ -408,8 +415,19 @@ public final class TFI {
         if (!isEnabled() || content == null || content.trim().isEmpty() || messageType == null) {
             return;
         }
-        
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    // Convert MessageType to label string
+                    provider.message(content.trim(), messageType.getDisplayName());
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context != null && context.getCurrentTask() != null) {
                 TaskNode task = context.getCurrentTask();
@@ -422,17 +440,27 @@ public final class TFI {
     
     /**
      * 记录自定义标签消息
-     * 
+     *
      * @param content 消息内容
      * @param customLabel 自定义标签
      */
     public static void message(String content, String customLabel) {
-        if (!isEnabled() || content == null || content.trim().isEmpty() || 
+        if (!isEnabled() || content == null || content.trim().isEmpty() ||
             customLabel == null || customLabel.trim().isEmpty()) {
             return;
         }
-        
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    provider.message(content.trim(), customLabel.trim());
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context != null && context.getCurrentTask() != null) {
                 TaskNode task = context.getCurrentTask();
@@ -445,15 +473,25 @@ public final class TFI {
     
     /**
      * 记录错误消息
-     * 
+     *
      * @param content 错误消息内容
      */
     public static void error(String content) {
         if (!isEnabled() || content == null || content.trim().isEmpty()) {
             return;
         }
-        
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    provider.message(content.trim(), MessageType.ALERT.getDisplayName());
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context != null && context.getCurrentTask() != null) {
                 TaskNode task = context.getCurrentTask();
@@ -463,10 +501,10 @@ public final class TFI {
             handleInternalError("Failed to record error", t);
         }
     }
-    
+
     /**
      * 记录错误消息和异常
-     * 
+     *
      * @param content 错误消息内容
      * @param throwable 异常对象
      */
@@ -474,13 +512,23 @@ public final class TFI {
         if (!isEnabled()) {
             return;
         }
-        
+
         try {
             String errorMessage = content;
             if (throwable != null) {
                 errorMessage = content + " - " + throwable.getClass().getSimpleName() + ": " + throwable.getMessage();
             }
-            
+
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    provider.message(errorMessage, MessageType.ALERT.getDisplayName());
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context != null && context.getCurrentTask() != null) {
                 TaskNode task = context.getCurrentTask();
@@ -495,15 +543,24 @@ public final class TFI {
     
     /**
      * 获取当前会话
-     * 
+     *
      * @return 当前会话，如果没有返回null
      */
     public static Session getCurrentSession() {
         if (!isEnabled()) {
             return null;
         }
-        
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    return provider.currentSession();
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             return context != null ? context.getCurrentSession() : null;
         } catch (Throwable t) {
@@ -511,18 +568,27 @@ public final class TFI {
             return null;
         }
     }
-    
+
     /**
      * 获取当前任务
-     * 
+     *
      * @return 当前任务节点，如果没有返回null
      */
     public static TaskNode getCurrentTask() {
         if (!isEnabled()) {
             return null;
         }
-        
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    return provider.currentTask();
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ManagedThreadContext context = ManagedThreadContext.current();
             return context != null ? context.getCurrentTask() : null;
         } catch (Throwable t) {
@@ -585,8 +651,22 @@ public final class TFI {
             logger.debug("Invalid tracking target: null for name '{}'", name);
             return;
         }
-        
+
         try {
+            // 路由分支：Provider 路由 vs Legacy 路径
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                // 新路由：使用 TrackingProvider
+                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
+                if (provider != null) {
+                    provider.track(name.trim(), target, fields);
+                    logger.debug("Tracked object '{}' via Provider with {} fields", name.trim(),
+                        fields != null ? fields.length : "all");
+                    return;
+                }
+                // Provider 为 null 时降级到 legacy 路径
+            }
+
+            // Legacy 路径：保持 v3.0.0 行为
             ChangeTracker.track(name.trim(), target, fields);
             logger.debug("Started tracking object '{}' with {} fields", name.trim(), 
                 fields != null ? fields.length : "all");
@@ -692,11 +772,14 @@ public final class TFI {
      * @param options 追踪配置选项
      */
     public static void trackDeep(String name, Object target, TrackingOptions options) {
+        // TODO v4.0.1: TrackingProvider 不支持 trackDeep()，仅支持 track()
+        // 当前使用 legacy ChangeTracker，Provider 路由延后到 v4.0.1
+
         // 快速状态检查
         if (!checkEnabled(true)) {
             return;
         }
-        
+
         // 参数验证
         if (name == null || name.trim().isEmpty()) {
             logger.debug("Invalid tracking name: null or empty");
@@ -744,8 +827,23 @@ public final class TFI {
         if (!checkEnabled(true)) {
             return List.of();
         }
-        
+
         try {
+            // 路由分支：Provider 路由 vs Legacy 路径
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                // 新路由：使用 TrackingProvider
+                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
+                if (provider != null) {
+                    List<ChangeRecord> changes = provider.changes();
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Retrieved {} change records via Provider", changes.size());
+                    }
+                    return changes;
+                }
+                // Provider 为 null 时降级到 legacy 路径
+            }
+
+            // Legacy 路径：保持 v3.0.0 行为
             List<ChangeRecord> changes = ChangeTracker.getChanges();
             if (logger.isDebugEnabled()) {
                 logger.debug("Retrieved {} change records from {} tracked objects", 
@@ -852,8 +950,21 @@ public final class TFI {
         if (!isEnabled()) {
             return;
         }
-        
+
         try {
+            // 路由分支：Provider 路由 vs Legacy 路径
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                // 新路由：使用 TrackingProvider
+                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
+                if (provider != null) {
+                    provider.clear();
+                    logger.debug("Cleared tracking via Provider");
+                    return;
+                }
+                // Provider 为 null 时降级到 legacy 路径
+            }
+
+            // Legacy 路径：保持 v3.0.0 行为
             int trackedCount = ChangeTracker.getTrackedCount();
             ChangeTracker.clearAllTracking();
             logger.debug("Cleared tracking for {} objects", trackedCount);
@@ -1341,19 +1452,26 @@ public final class TFI {
                 return com.syy.taskflowinsight.tracking.compare.CompareResult.ofTypeDiff(a, b);
             }
 
-            // 委托 CompareService
-            com.syy.taskflowinsight.tracking.compare.CompareService svc = ensureCompareService();
-            if (svc == null) {
-                DiagnosticLogger.once(
-                    "TFI-DIAG-006",
-                    "CompareFallback",
-                    "CompareService not available (Spring Bean lookup failed and fallback initialization failed)",
-                    "Check Spring container configuration or review fallback initialization logs"
-                );
-                return com.syy.taskflowinsight.tracking.compare.CompareResult.ofTypeDiff(a, b);
-            }
+            // 路由分支：根据 routing.enabled 决定使用 Provider 还是 legacy 实现
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                // 新路由：使用 ComparisonProvider
+                com.syy.taskflowinsight.spi.ComparisonProvider provider = getComparisonProvider();
+                return provider.compare(a, b);
+            } else {
+                // Legacy 路径：保持 v3.0.0 行为
+                com.syy.taskflowinsight.tracking.compare.CompareService svc = ensureCompareService();
+                if (svc == null) {
+                    DiagnosticLogger.once(
+                        "TFI-DIAG-006",
+                        "CompareFallback",
+                        "CompareService not available (fallback initialization failed)",
+                        "Check fallback initialization logs"
+                    );
+                    return com.syy.taskflowinsight.tracking.compare.CompareResult.ofTypeDiff(a, b);
+                }
 
-            return svc.compare(a, b, com.syy.taskflowinsight.tracking.compare.CompareOptions.DEFAULT);
+                return svc.compare(a, b, com.syy.taskflowinsight.tracking.compare.CompareOptions.DEFAULT);
+            }
 
         } catch (Throwable t) {
             handleInternalError("Failed to compare objects", t, ErrorLevel.WARN);
@@ -1388,6 +1506,13 @@ public final class TFI {
                 return ComparatorBuilder.disabled();
             }
 
+            // v4.0.0+: Provider-aware builder
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.ComparisonProvider provider = getComparisonProvider();
+                return new ComparatorBuilder(null, provider);
+            }
+
+            // Legacy：使用 CompareService
             com.syy.taskflowinsight.tracking.compare.CompareService svc = ensureCompareService();
             if (svc == null) {
                 logger.warn("CompareService not available for comparator()");
@@ -1435,6 +1560,20 @@ public final class TFI {
                 return "# No Result\n\nCompare result is null.\n";
             }
 
+            // 路由分支：Provider 路由 vs Legacy 路径
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                // 新路由：使用 RenderProvider
+                com.syy.taskflowinsight.spi.RenderProvider provider = getRenderProvider();
+                if (provider != null) {
+                    // 转换为 EntityListDiffResult
+                    com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult diffResult =
+                        com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult.from(result);
+                    return provider.render(diffResult, style);
+                }
+                // Provider 为 null 时降级到 legacy 路径
+            }
+
+            // Legacy 路径：保持 v3.0.0 行为
             // 解析样式
             com.syy.taskflowinsight.tracking.render.RenderStyle renderStyle = parseStyle(style);
 
@@ -1492,52 +1631,45 @@ public final class TFI {
         synchronized (TFI.class) {
             if (compareService == null) {
                 try {
-                    // 尝试从 Spring 获取 Bean
-                    compareService = tryGetSpringBean(com.syy.taskflowinsight.tracking.compare.CompareService.class);
+                    // 兜底：构造默认实例
+                    logger.info("CompareService creating fallback instance");
 
-                    if (compareService == null) {
-                        // 兜底：构造默认实例
-                        logger.info("CompareService bean not found, creating fallback instance");
+                    // 构造 ListCompareExecutor（带默认策略）
+                    List<com.syy.taskflowinsight.tracking.compare.list.ListCompareStrategy> strategies = new ArrayList<>();
 
-                        // 构造 ListCompareExecutor（带默认策略）
-                        List<com.syy.taskflowinsight.tracking.compare.list.ListCompareStrategy> strategies = new ArrayList<>();
-
-                        // 按顺序添加策略（失败不致命）
-                        try {
-                            strategies.add(new com.syy.taskflowinsight.tracking.compare.list.SimpleListStrategy());
-                        } catch (Exception e) {
-                            logger.warn("Failed to init SimpleListStrategy: {}", e.getMessage());
-                        }
-
-                        try {
-                            strategies.add(new com.syy.taskflowinsight.tracking.compare.list.AsSetListStrategy());
-                        } catch (Exception e) {
-                            logger.warn("Failed to init AsSetListStrategy: {}", e.getMessage());
-                        }
-
-                        try {
-                            strategies.add(new com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy());
-                        } catch (Exception e) {
-                            logger.warn("Failed to init EntityListStrategy: {}", e.getMessage());
-                        }
-
-                        try {
-                            strategies.add(new com.syy.taskflowinsight.tracking.compare.list.LevenshteinListStrategy());
-                        } catch (Exception e) {
-                            logger.warn("Failed to init LevenshteinListStrategy: {}", e.getMessage());
-                        }
-
-                        if (strategies.isEmpty()) {
-                            logger.error("No list compare strategies available");
-                            return null;
-                        }
-
-                        compareService = new com.syy.taskflowinsight.tracking.compare.CompareService();
-
-                        logger.info("CompareService fallback instance created with {} strategies", strategies.size());
-                    } else {
-                        logger.info("CompareService bean found and injected");
+                    // 按顺序添加策略（失败不致命）
+                    try {
+                        strategies.add(new com.syy.taskflowinsight.tracking.compare.list.SimpleListStrategy());
+                    } catch (Exception e) {
+                        logger.warn("Failed to init SimpleListStrategy: {}", e.getMessage());
                     }
+
+                    try {
+                        strategies.add(new com.syy.taskflowinsight.tracking.compare.list.AsSetListStrategy());
+                    } catch (Exception e) {
+                        logger.warn("Failed to init AsSetListStrategy: {}", e.getMessage());
+                    }
+
+                    try {
+                        strategies.add(new com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy());
+                    } catch (Exception e) {
+                        logger.warn("Failed to init EntityListStrategy: {}", e.getMessage());
+                    }
+
+                    try {
+                        strategies.add(new com.syy.taskflowinsight.tracking.compare.list.LevenshteinListStrategy());
+                    } catch (Exception e) {
+                        logger.warn("Failed to init LevenshteinListStrategy: {}", e.getMessage());
+                    }
+
+                    if (strategies.isEmpty()) {
+                        logger.error("No list compare strategies available");
+                        return null;
+                    }
+
+                    compareService = new com.syy.taskflowinsight.tracking.compare.CompareService();
+
+                    logger.info("CompareService fallback instance created with {} strategies", strategies.size());
 
                 } catch (Exception e) {
                     logger.error("Failed to initialize CompareService: {}", e.getMessage());
@@ -1568,18 +1700,10 @@ public final class TFI {
         synchronized (TFI.class) {
             if (markdownRenderer == null) {
                 try {
-                    // 尝试从 Spring 获取 Bean（by name）
-                    markdownRenderer = tryGetSpringBean("markdownRenderer",
-                        com.syy.taskflowinsight.tracking.render.MarkdownRenderer.class);
-
-                    if (markdownRenderer == null) {
-                        // 兜底：创建新实例
-                        logger.info("MarkdownRenderer bean not found, creating fallback instance");
-                        markdownRenderer = new com.syy.taskflowinsight.tracking.render.MarkdownRenderer();
-                        logger.info("MarkdownRenderer fallback instance created");
-                    } else {
-                        logger.info("MarkdownRenderer bean found and injected");
-                    }
+                    // 兜底：创建新实例
+                    logger.info("MarkdownRenderer creating fallback instance");
+                    markdownRenderer = new com.syy.taskflowinsight.tracking.render.MarkdownRenderer();
+                    logger.info("MarkdownRenderer fallback instance created");
 
                 } catch (Exception e) {
                     logger.error("Failed to initialize MarkdownRenderer: {}", e.getMessage());
@@ -1646,96 +1770,246 @@ public final class TFI {
         return com.syy.taskflowinsight.tracking.render.RenderStyle.standard();
     }
 
-    /**
-     * 尝试从 Spring 容器获取 Bean（by type）
-     * <p>
-     * 通过 ApplicationContext 获取指定类型的 Bean。
-     * 容器不存在或获取异常时返回 null（仅 debug 级别记录，不抛异常）。
-     * </p>
-     *
-     * @param beanClass Bean 类型
-     * @return Bean 实例，失败时返回 null
-     */
-    private static <T> T tryGetSpringBean(Class<T> beanClass) {
-        try {
-            org.springframework.context.ApplicationContext ctx = getApplicationContext();
-            return (ctx != null ? ctx.getBean(beanClass) : null);
-        } catch (Throwable e) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("getBean by type failed: {}", e.getMessage());
-            }
-            return null;
-        }
-    }
-
-    /**
-     * 尝试从 Spring 容器获取 Bean（by name and type）
-     * <p>
-     * 通过 ApplicationContext 获取指定名称和类型的 Bean。
-     * 容器不存在或获取异常时返回 null（仅 debug 级别记录，不抛异常）。
-     * </p>
-     *
-     * @param beanName Bean 名称
-     * @param beanClass Bean 类型
-     * @return Bean 实例，失败时返回 null
-     */
-    private static <T> T tryGetSpringBean(String beanName, Class<T> beanClass) {
-        try {
-            org.springframework.context.ApplicationContext ctx = getApplicationContext();
-            return (ctx != null ? ctx.getBean(beanName, beanClass) : null);
-        } catch (Throwable e) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("getBean by name/type failed: {}", e.getMessage());
-            }
-            return null;
-        }
-    }
-
-    /**
-     * 获取 Spring ApplicationContext
-     * <p>
-     * 直接返回静态字段 applicationContext（可能为 null）。
-     * 在 Spring 环境中，会由 AppContextInjector 注入；非 Spring 环境则为 null。
-     * </p>
-     *
-     * @return ApplicationContext 实例，非 Spring 环境或未注入时返回 null
-     */
-    private static org.springframework.context.ApplicationContext getApplicationContext() {
-        return applicationContext;
-    }
-
     // ==================== 特性开关辅助方法 ====================
 
     /**
      * 检查 Facade 是否启用
      * <p>
-     * 优先级：System property > Spring bean > env > 默认值(true)
+     * 优先级：System property > env > 默认值(true)
      * 注意：System property 优先级最高，允许运行时和测试覆盖配置
      * </p>
      *
      * @return true 表示启用，false 表示禁用
      */
     private static boolean isFacadeEnabled() {
-        // 首先检查 System property（最高优先级，支持运行时覆盖）
-        String sysProp = System.getProperty("tfi.api.facade.enabled");
-        if (sysProp != null) {
-            return Boolean.parseBoolean(sysProp);
-        }
-
-        try {
-            // 其次尝试从 Spring Bean 读取（应用配置）
-            com.syy.taskflowinsight.config.TfiFeatureFlags flags = tryGetSpringBean(
-                "tfiFeatureFlags",
-                com.syy.taskflowinsight.config.TfiFeatureFlags.class
-            );
-            if (flags != null) {
-                return flags.getApi().getFacade().isEnabled();
-            }
-        } catch (Throwable ignored) {
-            // 忽略异常，继续降级
-        }
-
-        // 最后降级到静态方法（env/默认值）
+        // 委托给 TfiFeatureFlags 静态方法（System property > env > 默认值）
         return com.syy.taskflowinsight.config.TfiFeatureFlags.isFacadeEnabled();
+    }
+
+    // ==================== SPI Provider注册方法 (v4.0.0) ====================
+
+    /**
+     * 注册自定义ComparisonProvider
+     *
+     * <p>手动注册的Provider优先级高于ServiceLoader发现的Provider，
+     * 但低于Spring Bean注入的Provider。
+     *
+     * @param provider ComparisonProvider实例
+     * @since 4.0.0
+     */
+    public static void registerComparisonProvider(com.syy.taskflowinsight.spi.ComparisonProvider provider) {
+        try {
+            com.syy.taskflowinsight.spi.ProviderRegistry.register(
+                com.syy.taskflowinsight.spi.ComparisonProvider.class, provider);
+            logger.info("Registered custom ComparisonProvider: {}",
+                provider.getClass().getSimpleName());
+        } catch (Throwable t) {
+            handleInternalError("Failed to register ComparisonProvider", t);
+        }
+    }
+
+    /**
+     * 注册自定义TrackingProvider
+     *
+     * <p>手动注册的Provider优先级高于ServiceLoader发现的Provider，
+     * 但低于Spring Bean注入的Provider。
+     *
+     * @param provider TrackingProvider实例
+     * @since 4.0.0
+     */
+    public static void registerTrackingProvider(com.syy.taskflowinsight.spi.TrackingProvider provider) {
+        try {
+            com.syy.taskflowinsight.spi.ProviderRegistry.register(
+                com.syy.taskflowinsight.spi.TrackingProvider.class, provider);
+            logger.info("Registered custom TrackingProvider: {}",
+                provider.getClass().getSimpleName());
+        } catch (Throwable t) {
+            handleInternalError("Failed to register TrackingProvider", t);
+        }
+    }
+
+    /**
+     * 注册自定义FlowProvider
+     *
+     * <p>手动注册的Provider优先级高于ServiceLoader发现的Provider，
+     * 但低于Spring Bean注入的Provider。
+     *
+     * @param provider FlowProvider实例
+     * @since 4.0.0
+     */
+    public static void registerFlowProvider(com.syy.taskflowinsight.spi.FlowProvider provider) {
+        try {
+            com.syy.taskflowinsight.spi.ProviderRegistry.register(
+                com.syy.taskflowinsight.spi.FlowProvider.class, provider);
+            logger.info("Registered custom FlowProvider: {}",
+                provider.getClass().getSimpleName());
+        } catch (Throwable t) {
+            handleInternalError("Failed to register FlowProvider", t);
+        }
+    }
+
+    /**
+     * 注册自定义RenderProvider
+     *
+     * <p>手动注册的Provider优先级高于ServiceLoader发现的Provider，
+     * 但低于Spring Bean注入的Provider。
+     *
+     * @param provider RenderProvider实例
+     * @since 4.0.0
+     */
+    public static void registerRenderProvider(com.syy.taskflowinsight.spi.RenderProvider provider) {
+        try {
+            com.syy.taskflowinsight.spi.ProviderRegistry.register(
+                com.syy.taskflowinsight.spi.RenderProvider.class, provider);
+            logger.info("Registered custom RenderProvider: {}",
+                provider.getClass().getSimpleName());
+        } catch (Throwable t) {
+            handleInternalError("Failed to register RenderProvider", t);
+        }
+    }
+
+    /**
+     * 使用自定义ClassLoader加载Providers
+     *
+     * <p>用于OSGi、插件化等需要ClassLoader隔离的场景。
+     * 调用此方法后，ProviderRegistry将使用指定的ClassLoader
+     * 加载所有4种Provider类型。
+     *
+     * @param cl 自定义ClassLoader
+     * @since 4.0.0
+     */
+    public static void loadProviders(ClassLoader cl) {
+        try {
+            com.syy.taskflowinsight.spi.ProviderRegistry.loadProviders(cl);
+            logger.info("Loaded providers from custom ClassLoader: {}",
+                cl.getClass().getName());
+        } catch (Throwable t) {
+            handleInternalError("Failed to load providers from ClassLoader", t);
+        }
+    }
+
+    // ==================== Provider 获取方法（v4.0.0 内部路由）====================
+
+    /**
+     * 获取 ComparisonProvider（带缓存）
+     * <p>
+     * 优先级：Spring Bean > 手动注册 > ServiceLoader > 兜底（DefaultComparisonProvider）
+     * 缓存命中后 P95 < 100ns
+     * </p>
+     *
+     * @return ComparisonProvider 实例，never null
+     */
+    private static com.syy.taskflowinsight.spi.ComparisonProvider getComparisonProvider() {
+        if (cachedComparisonProvider != null) {
+            return cachedComparisonProvider;
+        }
+
+        synchronized (TFI.class) {
+            if (cachedComparisonProvider == null) {
+                com.syy.taskflowinsight.spi.ComparisonProvider provider =
+                    com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
+                        com.syy.taskflowinsight.spi.ComparisonProvider.class);
+
+                if (provider == null) {
+                    // 兜底：使用 DefaultComparisonProvider
+                    provider = com.syy.taskflowinsight.spi.ProviderRegistry.getDefaultComparisonProvider();
+                    logger.debug("Using default ComparisonProvider");
+                } else {
+                    logger.debug("Found ComparisonProvider: {} (priority={})",
+                        provider.getClass().getSimpleName(), provider.priority());
+                }
+
+                cachedComparisonProvider = provider;
+            }
+        }
+
+        return cachedComparisonProvider;
+    }
+
+    /**
+     * 获取 TrackingProvider（带缓存）
+     * <p>
+     * 优先级：Spring Bean > 手动注册 > ServiceLoader > 兜底（返回 null，调用方处理）
+     * </p>
+     *
+     * @return TrackingProvider 实例，可能为 null
+     */
+    private static com.syy.taskflowinsight.spi.TrackingProvider getTrackingProvider() {
+        if (cachedTrackingProvider != null) {
+            return cachedTrackingProvider;
+        }
+
+        synchronized (TFI.class) {
+            if (cachedTrackingProvider == null) {
+                cachedTrackingProvider = com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
+                    com.syy.taskflowinsight.spi.TrackingProvider.class);
+
+                if (cachedTrackingProvider != null) {
+                    logger.debug("Found TrackingProvider: {} (priority={})",
+                        cachedTrackingProvider.getClass().getSimpleName(),
+                        cachedTrackingProvider.priority());
+                }
+            }
+        }
+
+        return cachedTrackingProvider;
+    }
+
+    /**
+     * 获取 FlowProvider（带缓存）
+     * <p>
+     * 优先级：Spring Bean > 手动注册 > ServiceLoader > 兜底（返回 null，调用方处理）
+     * </p>
+     *
+     * @return FlowProvider 实例，可能为 null
+     */
+    private static com.syy.taskflowinsight.spi.FlowProvider getFlowProvider() {
+        if (cachedFlowProvider != null) {
+            return cachedFlowProvider;
+        }
+
+        synchronized (TFI.class) {
+            if (cachedFlowProvider == null) {
+                cachedFlowProvider = com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
+                    com.syy.taskflowinsight.spi.FlowProvider.class);
+
+                if (cachedFlowProvider != null) {
+                    logger.debug("Found FlowProvider: {} (priority={})",
+                        cachedFlowProvider.getClass().getSimpleName(),
+                        cachedFlowProvider.priority());
+                }
+            }
+        }
+
+        return cachedFlowProvider;
+    }
+
+    /**
+     * 获取 RenderProvider（带缓存）
+     * <p>
+     * 优先级：Spring Bean > 手动注册 > ServiceLoader > 兜底（返回 null，调用方处理）
+     * </p>
+     *
+     * @return RenderProvider 实例，可能为 null
+     */
+    private static com.syy.taskflowinsight.spi.RenderProvider getRenderProvider() {
+        if (cachedRenderProvider != null) {
+            return cachedRenderProvider;
+        }
+
+        synchronized (TFI.class) {
+            if (cachedRenderProvider == null) {
+                cachedRenderProvider = com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
+                    com.syy.taskflowinsight.spi.RenderProvider.class);
+
+                if (cachedRenderProvider != null) {
+                    logger.debug("Found RenderProvider: {} (priority={})",
+                        cachedRenderProvider.getClass().getSimpleName(),
+                        cachedRenderProvider.priority());
+                }
+            }
+        }
+
+        return cachedRenderProvider;
     }
 }

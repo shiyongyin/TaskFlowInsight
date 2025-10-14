@@ -43,12 +43,16 @@ public class TfiFeatureFlags {
      */
     private static final String FACADE_ENABLED_KEY = "tfi.api.facade.enabled";
     private static final String MASKING_ENABLED_KEY = "tfi.render.masking.enabled";
+    private static final String ROUTING_ENABLED_KEY = "tfi.api.routing.enabled";
+    private static final String ROUTING_PROVIDER_MODE_KEY = "tfi.api.routing.provider-mode";
 
     /**
      * 默认值
      */
     private static final boolean DEFAULT_FACADE_ENABLED = true;
     private static final boolean DEFAULT_MASKING_ENABLED = true;
+    private static final boolean DEFAULT_ROUTING_ENABLED = false;
+    private static final String DEFAULT_ROUTING_PROVIDER_MODE = "auto";
 
     /**
      * API 相关配置
@@ -65,6 +69,7 @@ public class TfiFeatureFlags {
      */
     public static class Api {
         private Facade facade = new Facade();
+        private Routing routing = new Routing();
 
         public Facade getFacade() {
             return facade;
@@ -72,6 +77,14 @@ public class TfiFeatureFlags {
 
         public void setFacade(Facade facade) {
             this.facade = facade;
+        }
+
+        public Routing getRouting() {
+            return routing;
+        }
+
+        public void setRouting(Routing routing) {
+            this.routing = routing;
         }
     }
 
@@ -87,6 +100,30 @@ public class TfiFeatureFlags {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+    }
+
+    /**
+     * Routing 配置
+     */
+    public static class Routing {
+        private boolean enabled = DEFAULT_ROUTING_ENABLED;
+        private String providerMode = DEFAULT_ROUTING_PROVIDER_MODE;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getProviderMode() {
+            return providerMode;
+        }
+
+        public void setProviderMode(String providerMode) {
+            this.providerMode = providerMode;
         }
     }
 
@@ -187,5 +224,63 @@ public class TfiFeatureFlags {
 
         // 使用默认值
         return DEFAULT_MASKING_ENABLED;
+    }
+
+    /**
+     * 检查 Provider 路由是否启用
+     *
+     * <p>优先级：System property > 环境变量 > 默认值</p>
+     *
+     * @return true 表示启用 Provider 路由，false 表示使用 legacy 实现
+     */
+    public static boolean isRoutingEnabled() {
+        // 尝试从 System Property 读取
+        String property = System.getProperty(ROUTING_ENABLED_KEY);
+        if (property != null) {
+            return Boolean.parseBoolean(property);
+        }
+
+        // 尝试从环境变量读取
+        String envKey = ROUTING_ENABLED_KEY.replace('.', '_').toUpperCase();
+        String env = System.getenv(envKey);
+        if (env != null) {
+            return Boolean.parseBoolean(env);
+        }
+
+        // 使用默认值
+        return DEFAULT_ROUTING_ENABLED;
+    }
+
+    /**
+     * 获取 Provider 路由模式
+     *
+     * <p>优先级：System property > 环境变量 > 默认值</p>
+     *
+     * <p>支持的模式：
+     * <ul>
+     *   <li>auto - 自动选择 (Spring Bean > 手动注册 > ServiceLoader > 兜底)</li>
+     *   <li>spring-only - 仅使用 Spring Bean (适用于 Spring 环境)</li>
+     *   <li>service-loader-only - 仅使用 ServiceLoader (适用于纯 Java 环境)</li>
+     * </ul>
+     * </p>
+     *
+     * @return Provider 路由模式，默认为 "auto"
+     */
+    public static String getRoutingProviderMode() {
+        // 尝试从 System Property 读取
+        String property = System.getProperty(ROUTING_PROVIDER_MODE_KEY);
+        if (property != null && !property.trim().isEmpty()) {
+            return property.trim();
+        }
+
+        // 尝试从环境变量读取
+        String envKey = ROUTING_PROVIDER_MODE_KEY.replace('.', '_').toUpperCase();
+        String env = System.getenv(envKey);
+        if (env != null && !env.trim().isEmpty()) {
+            return env.trim();
+        }
+
+        // 使用默认值
+        return DEFAULT_ROUTING_PROVIDER_MODE;
     }
 }
