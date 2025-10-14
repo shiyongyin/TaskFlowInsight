@@ -70,6 +70,65 @@ public interface FlowProvider {
     void message(String content, String label);
 
     /**
+     * 清空当前线程的所有上下文（会话+任务栈）
+     *
+     * <p>实现注意事项：
+     * <ul>
+     *   <li>关闭当前会话（如果存在）</li>
+     *   <li>清空任务栈</li>
+     *   <li>释放 ThreadLocal 资源</li>
+     *   <li>异常安全：捕获所有异常</li>
+     * </ul>
+     *
+     * <p>默认实现：依次结束所有任务，然后结束会话。
+     * 子类应提供更高效的批量清理实现。
+     *
+     * @since 4.0.0
+     */
+    default void clear() {
+        try {
+            // 先结束所有嵌套任务
+            while (currentTask() != null) {
+                endTask();
+            }
+            // 再结束会话
+            if (currentSession() != null) {
+                endSession();
+            }
+        } catch (Exception e) {
+            // 默认实现：忽略异常，保证清理继续
+        }
+    }
+
+    /**
+     * 获取当前线程的任务栈（从根任务到当前任务）
+     *
+     * <p>返回列表顺序：stack[0] = 根任务, stack[n-1] = 当前任务
+     *
+     * <p>实现注意事项：
+     * <ul>
+     *   <li>如果无任务，返回空列表（不返回 null）</li>
+     *   <li>返回不可变列表（防止外部修改）</li>
+     *   <li>性能优化：子类可缓存结果（当任务栈不变时）</li>
+     * </ul>
+     *
+     * <p>默认实现：递归遍历 parent 构建栈。
+     * 时间复杂度 O(depth)，空间复杂度 O(depth)。
+     *
+     * @return 任务栈列表，从根到叶，如果无任务返回空列表
+     * @since 4.0.0
+     */
+    default java.util.List<TaskNode> getTaskStack() {
+        java.util.List<TaskNode> stack = new java.util.ArrayList<>();
+        TaskNode current = currentTask();
+        while (current != null) {
+            stack.add(0, current);  // 头部插入
+            current = current.getParent();
+        }
+        return java.util.List.copyOf(stack);  // 不可变列表
+    }
+
+    /**
      * Provider优先级（数值越大优先级越高）
      * <p>Spring实现通常返回Integer.MAX_VALUE，ServiceLoader实现返回0</p>
      *
