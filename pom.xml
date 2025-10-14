@@ -292,58 +292,6 @@
                 </executions>
             </plugin>
 
-            <!-- japicmp - Binary Compatibility Check -->
-            <plugin>
-                <groupId>com.github.siom79.japicmp</groupId>
-                <artifactId>japicmp-maven-plugin</artifactId>
-                <version>0.18.6</version>
-                <configuration>
-                    <oldVersion>
-                        <dependency>
-                            <groupId>${project.groupId}</groupId>
-                            <artifactId>${project.artifactId}</artifactId>
-                            <version>3.0.0</version>
-                            <type>${project.packaging}</type>
-                        </dependency>
-                    </oldVersion>
-                    <newVersion>
-                        <file>
-                            <path>${project.build.directory}/${project.artifactId}-${project.version}.jar</path>
-                        </file>
-                    </newVersion>
-                    <parameter>
-                        <!-- Only check public API -->
-                        <accessModifier>public</accessModifier>
-                        <!-- Break build on incompatible changes -->
-                        <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
-                        <!-- Allow new methods/classes (forward compatible) -->
-                        <breakBuildOnSourceIncompatibleModifications>false</breakBuildOnSourceIncompatibleModifications>
-                        <!-- Exclude internal packages from API checks -->
-                        <excludes>
-                            <exclude>com.syy.taskflowinsight.internal</exclude>
-                            <exclude>com.syy.taskflowinsight.demo</exclude>
-                        </excludes>
-                        <!-- Include only main API package -->
-                        <includes>
-                            <include>com.syy.taskflowinsight.api.TFI</include>
-                        </includes>
-                        <!-- HTML Report generation -->
-                        <htmlStylesheet>default</htmlStylesheet>
-                        <htmlOutputFile>${project.build.directory}/japicmp/japicmp.html</htmlOutputFile>
-                        <!-- Skip missing classes -->
-                        <ignoreMissingClasses>true</ignoreMissingClasses>
-                    </parameter>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>verify-api-compatibility</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>cmp</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
         </plugins>
         <pluginManagement>
             <plugins>
@@ -363,6 +311,58 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>api-compat</id>
+            <build>
+                <plugins>
+                    <!-- japicmp - Binary Compatibility Check (enabled only when -Papi-compat) -->
+                    <plugin>
+                        <groupId>com.github.siom79</groupId>
+                        <artifactId>japicmp-maven-plugin</artifactId>
+                        <version>0.18.6</version>
+                        <configuration>
+                            <oldVersion>
+                                <dependency>
+                                    <groupId>${project.groupId}</groupId>
+                                    <artifactId>${project.artifactId}</artifactId>
+                                    <version>3.0.0</version>
+                                    <type>${project.packaging}</type>
+                                </dependency>
+                            </oldVersion>
+                            <newVersion>
+                                <file>
+                                    <path>${project.build.directory}/${project.artifactId}-${project.version}.jar</path>
+                                </file>
+                            </newVersion>
+                            <parameter>
+                                <accessModifier>public</accessModifier>
+                                <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
+                                <breakBuildOnSourceIncompatibleModifications>false</breakBuildOnSourceIncompatibleModifications>
+                                <excludes>
+                                    <exclude>com.syy.taskflowinsight.internal</exclude>
+                                    <exclude>com.syy.taskflowinsight.demo</exclude>
+                                </excludes>
+                                <includes>
+                                    <include>com.syy.taskflowinsight.api.TFI</include>
+                                </includes>
+                                <htmlStylesheet>default</htmlStylesheet>
+                                <htmlOutputFile>${project.build.directory}/japicmp/japicmp.html</htmlOutputFile>
+                                <ignoreMissingClasses>true</ignoreMissingClasses>
+                            </parameter>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>verify-api-compatibility</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>cmp</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>perf</id>
             <build>

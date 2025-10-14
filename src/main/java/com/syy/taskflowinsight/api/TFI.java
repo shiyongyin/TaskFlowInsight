@@ -59,6 +59,7 @@ public final class TFI {
     private static volatile com.syy.taskflowinsight.spi.TrackingProvider cachedTrackingProvider;
     private static volatile com.syy.taskflowinsight.spi.FlowProvider cachedFlowProvider;
     private static volatile com.syy.taskflowinsight.spi.RenderProvider cachedRenderProvider;
+    private static volatile com.syy.taskflowinsight.spi.ExportProvider cachedExportProvider;
 
     /**
      * 私有构造函数，防止实例化
@@ -114,11 +115,17 @@ public final class TFI {
         if (!isEnabled()) {
             return;
         }
-        
+
         try {
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null) {
-                context.close();
+            com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            if (provider != null) {
+                provider.clear();
+            } else {
+                // 兜底实现
+                ManagedThreadContext context = ManagedThreadContext.current();
+                if (context != null) {
+                    context.close();
+                }
             }
         } catch (Throwable t) {
             handleInternalError("Failed to clear context", t);
@@ -606,20 +613,25 @@ public final class TFI {
         if (!isEnabled()) {
             return List.of();
         }
-        
+
         try {
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null) {
-                List<TaskNode> stack = new ArrayList<>();
-                // 手动构建任务栈列表
-                TaskNode current = context.getCurrentTask();
-                while (current != null) {
-                    stack.add(0, current);
-                    current = current.getParent();
+            com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            if (provider != null) {
+                return provider.getTaskStack();
+            } else {
+                // 兜底实现
+                ManagedThreadContext context = ManagedThreadContext.current();
+                if (context != null) {
+                    List<TaskNode> stack = new ArrayList<>();
+                    TaskNode current = context.getCurrentTask();
+                    while (current != null) {
+                        stack.add(0, current);
+                        current = current.getParent();
+                    }
+                    return stack;
                 }
-                return stack;
+                return List.of();
             }
-            return List.of();
         } catch (Throwable t) {
             handleInternalError("Failed to get task stack", t);
             return List.of();
@@ -1061,23 +1073,31 @@ public final class TFI {
      */
     public static boolean exportToConsole(boolean showTimestamp) {
         if (!isEnabled()) {
-            return showTimestamp;
+            return false;
         }
 
         try {
-            Session session = getCurrentSession();
-            if (session != null) {
-                ConsoleExporter exporter = new ConsoleExporter();
-                if (showTimestamp) {
-                    exporter.print(session);
-                } else {
-                    exporter.printSimple(session);
+            com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+            if (provider != null) {
+                return provider.exportToConsole(showTimestamp);
+            } else {
+                // 兜底实现
+                Session session = getCurrentSession();
+                if (session != null) {
+                    ConsoleExporter exporter = new ConsoleExporter();
+                    if (showTimestamp) {
+                        exporter.print(session);
+                    } else {
+                        exporter.printSimple(session);
+                    }
+                    return true;
                 }
+                return false;
             }
         } catch (Throwable t) {
             handleInternalError("Failed to export to console", t);
+            return false;
         }
-        return showTimestamp;
     }
 
     /**
@@ -1087,19 +1107,25 @@ public final class TFI {
      */
     public static String exportToJson() {
         if (!isEnabled()) {
-            return null;
+            return "{}";
         }
 
         try {
-            Session session = getCurrentSession();
-            if (session != null) {
-                JsonExporter exporter = new JsonExporter();
-                return exporter.export(session);
+            com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+            if (provider != null) {
+                return provider.exportToJson();
+            } else {
+                // 兜底实现
+                Session session = getCurrentSession();
+                if (session != null) {
+                    JsonExporter exporter = new JsonExporter();
+                    return exporter.export(session);
+                }
+                return "{}";
             }
-            return null;
         } catch (Throwable t) {
             handleInternalError("Failed to export to JSON", t);
-            return null;
+            return "{}";
         }
     }
 
@@ -1112,10 +1138,16 @@ public final class TFI {
         if (!isEnabled()) {
             return Map.of();
         }
-        
+
         try {
-            Session session = getCurrentSession();
-            return session != null ? MapExporter.export(session) : Map.of();
+            com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+            if (provider != null) {
+                return provider.exportToMap();
+            } else {
+                // 兜底实现
+                Session session = getCurrentSession();
+                return session != null ? MapExporter.export(session) : Map.of();
+            }
         } catch (Throwable t) {
             handleInternalError("Failed to export to Map", t);
             return Map.of();
@@ -2011,5 +2043,34 @@ public final class TFI {
         }
 
         return cachedRenderProvider;
+    }
+
+    /**
+     * 获取 ExportProvider（带缓存）
+     * <p>
+     * 优先级：Spring Bean > 手动注册 > ServiceLoader > 兜底（返回 null，调用方处理）
+     * </p>
+     *
+     * @return ExportProvider 实例，可能为 null
+     */
+    private static com.syy.taskflowinsight.spi.ExportProvider getExportProvider() {
+        if (cachedExportProvider != null) {
+            return cachedExportProvider;
+        }
+
+        synchronized (TFI.class) {
+            if (cachedExportProvider == null) {
+                cachedExportProvider = com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
+                    com.syy.taskflowinsight.spi.ExportProvider.class);
+
+                if (cachedExportProvider != null) {
+                    logger.debug("Found ExportProvider: {} (priority={})",
+                        cachedExportProvider.getClass().getSimpleName(),
+                        cachedExportProvider.priority());
+                }
+            }
+        }
+
+        return cachedExportProvider;
     }
 }

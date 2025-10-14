@@ -7,6 +7,7 @@ import com.syy.taskflowinsight.tracking.compare.PatchFormat;
 import com.syy.taskflowinsight.tracking.compare.ReportFormat;
 import com.syy.taskflowinsight.annotation.ObjectType;
 import com.syy.taskflowinsight.annotation.ValueObjectCompareStrategy;
+import com.syy.taskflowinsight.spi.ComparisonProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,6 +67,7 @@ public class ComparatorBuilder {
     private static final Logger logger = LoggerFactory.getLogger(ComparatorBuilder.class);
 
     private final CompareService svc;
+    private final ComparisonProvider provider;
     private CompareOptions.CompareOptionsBuilder optionsBuilder;
 
     /**
@@ -74,7 +76,12 @@ public class ComparatorBuilder {
      * @param svc CompareService 实例（可为 null，会在 compare 时降级处理）
      */
     ComparatorBuilder(CompareService svc) {
+        this(svc, null);
+    }
+
+    ComparatorBuilder(CompareService svc, ComparisonProvider provider) {
         this.svc = svc;
+        this.provider = provider;
         this.optionsBuilder = CompareOptions.builder();
     }
 
@@ -418,7 +425,12 @@ public class ComparatorBuilder {
             // 构建配置
             CompareOptions options = optionsBuilder.build();
 
-            // 如果没有 CompareService，降级处理
+            // Provider-aware 路由：优先使用 ComparisonProvider（当路由开启时由 TFI 注入）
+            if (provider != null) {
+                return provider.compare(a, b, options);
+            }
+
+            // 如果没有 CompareService 和 Provider，降级处理
             if (svc == null) {
                 logger.warn("CompareService not available, using fallback comparison");
                 // 使用 TFI.compare 的降级逻辑

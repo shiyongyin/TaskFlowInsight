@@ -48,7 +48,13 @@ tfi:
   enabled: true                         # 主开关：必须显式启用（默认false确保安全）
   annotation:
     enabled: true                       # 启用 @TfiTask 注解支持
-  
+
+  # API路由配置 (v4.0.0新增，用于Provider路由)
+  api:
+    routing:
+      enabled: false                    # Provider路由开关（默认false，保持v3.0.0行为）
+      provider-mode: auto               # Provider选择模式：auto(默认)/spring-only/service-loader-only
+
   change-tracking:
     enabled: true                       # 主开关，启用变更追踪演示
     value-repr-max-length: 8192        # 值表示最大长度
