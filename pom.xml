@@ -90,6 +90,20 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- ArchUnit for architecture rules (test scope) -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.3.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- jqwik for property-based testing (test scope) -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>1.8.4</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -273,6 +287,59 @@
                         <goals>
                             <goal>integration-test</goal>
                             <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- japicmp - Binary Compatibility Check -->
+            <plugin>
+                <groupId>com.github.siom79.japicmp</groupId>
+                <artifactId>japicmp-maven-plugin</artifactId>
+                <version>0.18.6</version>
+                <configuration>
+                    <oldVersion>
+                        <dependency>
+                            <groupId>${project.groupId}</groupId>
+                            <artifactId>${project.artifactId}</artifactId>
+                            <version>3.0.0</version>
+                            <type>${project.packaging}</type>
+                        </dependency>
+                    </oldVersion>
+                    <newVersion>
+                        <file>
+                            <path>${project.build.directory}/${project.artifactId}-${project.version}.jar</path>
+                        </file>
+                    </newVersion>
+                    <parameter>
+                        <!-- Only check public API -->
+                        <accessModifier>public</accessModifier>
+                        <!-- Break build on incompatible changes -->
+                        <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
+                        <!-- Allow new methods/classes (forward compatible) -->
+                        <breakBuildOnSourceIncompatibleModifications>false</breakBuildOnSourceIncompatibleModifications>
+                        <!-- Exclude internal packages from API checks -->
+                        <excludes>
+                            <exclude>com.syy.taskflowinsight.internal</exclude>
+                            <exclude>com.syy.taskflowinsight.demo</exclude>
+                        </excludes>
+                        <!-- Include only main API package -->
+                        <includes>
+                            <include>com.syy.taskflowinsight.api.TFI</include>
+                        </includes>
+                        <!-- HTML Report generation -->
+                        <htmlStylesheet>default</htmlStylesheet>
+                        <htmlOutputFile>${project.build.directory}/japicmp/japicmp.html</htmlOutputFile>
+                        <!-- Skip missing classes -->
+                        <ignoreMissingClasses>true</ignoreMissingClasses>
+                    </parameter>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>verify-api-compatibility</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>cmp</goal>
                         </goals>
                     </execution>
                 </executions>

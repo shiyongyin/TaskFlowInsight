@@ -1,0 +1,12 @@
+# ComparisonProvider ServiceLoader配置
+#
+# 此文件告诉ServiceLoader如何发现ComparisonProvider实现类
+# 每行一个完整类名 (FQCN)
+#
+# 注意事项:
+# 1. 实现类必须有public无参构造函数
+# 2. 文件编码必须是UTF-8
+# 3. 可以有多个实现，按priority()优先级排序
+# 4. # 开头的行是注释
+
+com.syy.taskflowinsight.spi.DefaultComparisonProvider
