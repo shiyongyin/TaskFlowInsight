@@ -13,6 +13,16 @@ package com.syy.taskflowinsight.spi;
  *   <li>兜底实现（返回空字符串）</li>
  * </ul>
  *
+ * <p>使用示例：
+ * <pre>{@code
+ * // 渲染比较结果为Markdown格式
+ * CompareResult result = TFI.compare(oldOrder, newOrder);
+ * String markdown = TFI.render(result, "standard");
+ *
+ * // 自定义渲染风格
+ * String detailed = TFI.render(result, RenderStyle.DETAILED);
+ * }</pre>
+ *
  * @author TaskFlow Insight Team
  * @since 4.0.0
  */
@@ -21,10 +31,17 @@ public interface RenderProvider {
     /**
      * 渲染结果对象
      *
-     * @param result 要渲染的结果对象
+     * <p>支持的渲染风格:
+     * <ul>
+     *   <li>"simple" - 简洁模式，仅显示关键变更</li>
+     *   <li>"standard" - 标准模式，包含字段路径和新旧值</li>
+     *   <li>"detailed" - 详细模式，包含完整元数据和上下文</li>
+     * </ul>
+     *
+     * @param result 要渲染的结果对象（通常是CompareResult或Session）
      * @param style 渲染风格（可以是String类型的"simple"/"standard"/"detailed"，
      *              或具体的RenderStyle对象）
-     * @return 渲染后的字符串表示，如果失败返回降级文本
+     * @return 渲染后的字符串表示（Markdown/HTML/纯文本等），如果失败返回降级文本
      */
     String render(Object result, Object style);
 
