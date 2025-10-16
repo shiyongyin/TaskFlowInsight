@@ -615,23 +615,26 @@ public final class TFI {
         }
 
         try {
-            com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                return provider.getTaskStack();
-            } else {
-                // 兜底实现
-                ManagedThreadContext context = ManagedThreadContext.current();
-                if (context != null) {
-                    List<TaskNode> stack = new ArrayList<>();
-                    TaskNode current = context.getCurrentTask();
-                    while (current != null) {
-                        stack.add(0, current);
-                        current = current.getParent();
-                    }
-                    return stack;
+            // v4.0.0 Provider routing with grayscale control
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+                if (provider != null) {
+                    return provider.getTaskStack();
                 }
-                return List.of();
             }
+
+            // Legacy path (v3.0.0 behavior)
+            ManagedThreadContext context = ManagedThreadContext.current();
+            if (context != null) {
+                List<TaskNode> stack = new ArrayList<>();
+                TaskNode current = context.getCurrentTask();
+                while (current != null) {
+                    stack.add(0, current);
+                    current = current.getParent();
+                }
+                return stack;
+            }
+            return List.of();
         } catch (Throwable t) {
             handleInternalError("Failed to get task stack", t);
             return List.of();
@@ -702,61 +705,72 @@ public final class TFI {
         if (!checkEnabled(true)) {
             return;
         }
-        
+
         if (targets == null || targets.isEmpty()) {
             logger.debug("Invalid targets for batch tracking: null or empty");
             return;
         }
-        
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
+                if (provider != null) {
+                    provider.trackAll(targets);
+                    logger.debug("Tracked {} objects via Provider", targets.size());
+                    return;
+                }
+            }
+
+            // Legacy path with batch processing (v3.0.0 behavior)
             int batchSize = 50; // 优化的批次大小
             int totalSize = targets.size();
-            
+
             // 大批量警告
             if (totalSize > 100) {
                 logger.warn("Large batch tracking request: {} objects (will process in batches)", totalSize);
             }
-            
+
             // 分批处理优化
             if (totalSize > batchSize) {
                 long startTime = System.nanoTime();
                 int processed = 0;
                 Map<String, Object> batch = new java.util.HashMap<>(batchSize);
-                
+
                 for (Map.Entry<String, Object> entry : targets.entrySet()) {
                     batch.put(entry.getKey(), entry.getValue());
-                    
+
                     if (batch.size() >= batchSize) {
                         // 处理当前批次
                         ChangeTracker.trackAll(batch);
                         processed += batch.size();
                         batch.clear();
-                        
+
                         // 防止长时间占用CPU
                         if (processed % 200 == 0) {
                             Thread.yield();
                         }
                     }
                 }
-                
+
                 // 处理剩余的对象
                 if (!batch.isEmpty()) {
                     ChangeTracker.trackAll(batch);
                     processed += batch.size();
                 }
-                
+
                 long durationMs = (System.nanoTime() - startTime) / 1_000_000;
-                logger.info("Batch tracking completed: {} objects in {}ms ({} obj/ms)", 
-                    processed, durationMs, 
+                logger.info("Batch tracking completed: {} objects in {}ms ({} obj/ms)",
+                    processed, durationMs,
                     durationMs > 0 ? processed / durationMs : processed);
             } else {
                 // 小批量直接处理
                 ChangeTracker.trackAll(targets);
                 logger.debug("Started batch tracking for {} objects", totalSize);
             }
-            
+
         } catch (ChangeTracker.TrackingException trackingError) {
-            handleInternalError("Batch tracking failed for " + targets.size() + " objects", 
+            handleInternalError("Batch tracking failed for " + targets.size() + " objects",
                 trackingError, ErrorLevel.WARN);
         } catch (OutOfMemoryError memError) {
             handleInternalError("Out of memory during batch tracking", memError, ErrorLevel.FATAL);
@@ -784,9 +798,6 @@ public final class TFI {
      * @param options 追踪配置选项
      */
     public static void trackDeep(String name, Object target, TrackingOptions options) {
-        // TODO v4.0.1: TrackingProvider 不支持 trackDeep()，仅支持 track()
-        // 当前使用 legacy ChangeTracker，Provider 路由延后到 v4.0.1
-
         // 快速状态检查
         if (!checkEnabled(true)) {
             return;
@@ -805,10 +816,22 @@ public final class TFI {
             logger.debug("Invalid tracking options: null for name '{}'", name);
             return;
         }
-        
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
+                if (provider != null) {
+                    provider.trackDeep(name.trim(), target, options);
+                    logger.debug("Deep tracked object '{}' via Provider with depth={}, maxDepth={}",
+                        name.trim(), options.getDepth(), options.getMaxDepth());
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ChangeTracker.track(name.trim(), target, options);
-            logger.debug("Started deep tracking object '{}' with depth={}, maxDepth={}", 
+            logger.debug("Started deep tracking object '{}' with depth={}, maxDepth={}",
                 name.trim(), options.getDepth(), options.getMaxDepth());
         } catch (ChangeTracker.TrackingException trackingError) {
             handleInternalError("Deep tracking failed for object: " + name, trackingError, ErrorLevel.WARN);
@@ -906,9 +929,19 @@ public final class TFI {
         if (!isChangeTrackingEnabled()) {
             return;
         }
-        
+
         try {
-            // 手动创建变更记录
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
+                if (provider != null) {
+                    provider.recordChange(objectName, fieldName, oldValue, newValue, changeType);
+                    logger.debug("Recorded change via Provider: {}.{}", objectName, fieldName);
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior) - manual ChangeRecord construction
             ChangeRecord change = ChangeRecord.builder()
                 .objectName(objectName)
                 .fieldName(fieldName)
@@ -917,7 +950,7 @@ public final class TFI {
                 .changeType(changeType)
                 .timestamp(System.currentTimeMillis())
                 .build();
-            
+
             // 记录到当前任务
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context != null) {
@@ -937,20 +970,34 @@ public final class TFI {
     
     /**
      * 清理特定会话的追踪数据
-     * 
+     *
      * @param sessionId 会话ID
      */
     public static void clearTracking(String sessionId) {
+        // 参数验证
         if (sessionId == null || sessionId.isEmpty()) {
+            logger.debug("Invalid sessionId for clearTracking: null or empty");
             return;
         }
-        
+
         try {
-            // 清理指定会话的追踪器
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
+                if (provider != null) {
+                    provider.clearTracking(sessionId);
+                    logger.debug("Cleared tracking for session via Provider: {}", sessionId);
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             ChangeTracker.clearBySessionId(sessionId);
             logger.debug("Cleared tracking for session: {}", sessionId);
+        } catch (ChangeTracker.TrackingException trackingError) {
+            handleInternalError("Failed to clear tracking for session " + sessionId, trackingError, ErrorLevel.WARN);
         } catch (Exception e) {
-            handleInternalError("Failed to clear tracking for session " + sessionId, e, ErrorLevel.WARN);
+            handleInternalError("Unexpected error clearing tracking for session " + sessionId, e, ErrorLevel.ERROR);
         }
     }
     
@@ -990,30 +1037,84 @@ public final class TFI {
     /**
      * 便捷API：自动管理变更追踪的生命周期
      * 在lambda执行前开始追踪，执行后自动获取变更并清理
-     * 
+     *
      * @param name 对象名称
      * @param target 追踪目标对象
      * @param action 要执行的业务逻辑
      * @param fields 要追踪的字段名列表
      */
     public static void withTracked(String name, Object target, Runnable action, String... fields) {
+        // 参数验证（即使禁用追踪，也要执行业务逻辑）
         if (!isChangeTrackingEnabled()) {
-            // 即使禁用追踪，也要执行业务逻辑
             if (action != null) {
-                action.run();
+                try {
+                    action.run();
+                } catch (Throwable t) {
+                    handleInternalError("Failed to execute action in withTracked (tracking disabled)", t, ErrorLevel.WARN);
+                }
             }
             return;
         }
-        
+
+        if (name == null || name.trim().isEmpty()) {
+            logger.debug("Invalid name for withTracked: null or empty");
+            if (action != null) {
+                try {
+                    action.run();
+                } catch (Throwable t) {
+                    handleInternalError("Failed to execute action in withTracked (invalid name)", t, ErrorLevel.WARN);
+                }
+            }
+            return;
+        }
+
+        if (target == null) {
+            logger.debug("Invalid target for withTracked: null for name '{}'", name);
+            if (action != null) {
+                try {
+                    action.run();
+                } catch (Throwable t) {
+                    handleInternalError("Failed to execute action in withTracked (null target)", t, ErrorLevel.WARN);
+                }
+            }
+            return;
+        }
+
         try {
+            // v4.0.0 Provider routing
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
+                if (provider != null) {
+                    // 使用Provider的withTracked实现
+                    provider.withTracked(name.trim(), target, action, fields);
+
+                    // 获取变更并记录到当前任务
+                    List<ChangeRecord> changes = provider.changes();
+                    if (!changes.isEmpty()) {
+                        for (ChangeRecord change : changes) {
+                            String changeMessage = String.format("%s.%s: %s → %s",
+                                change.getObjectName(),
+                                change.getFieldName(),
+                                formatValueSafe(change.getOldValue()),
+                                formatValueSafe(change.getNewValue()));
+                            message(changeMessage, MessageType.CHANGE);
+                        }
+                    }
+
+                    logger.debug("Tracked {} changes via Provider for '{}'", changes.size(), name.trim());
+                    return;
+                }
+            }
+
+            // Legacy path (v3.0.0 behavior)
             // 开始追踪
             track(name, target, fields);
-            
+
             // 执行业务逻辑
             if (action != null) {
                 action.run();
             }
-            
+
             // 获取变更并记录
             List<ChangeRecord> changes = getChanges();
             if (!changes.isEmpty()) {
@@ -1027,11 +1128,27 @@ public final class TFI {
                     message(changeMessage, MessageType.CHANGE);
                 }
             }
+        } catch (ChangeTracker.TrackingException trackingError) {
+            handleInternalError("Tracking failed in withTracked for: " + name, trackingError, ErrorLevel.WARN);
+            // 即使追踪失败，也尝试执行业务逻辑（如果还没执行）
+            if (action != null) {
+                try {
+                    action.run();
+                } catch (Throwable actionError) {
+                    handleInternalError("Action execution failed after tracking error", actionError, ErrorLevel.ERROR);
+                }
+            }
+        } catch (OutOfMemoryError memError) {
+            handleInternalError("Out of memory in withTracked for: " + name, memError, ErrorLevel.FATAL);
         } catch (Throwable t) {
-            handleInternalError("Failed in withTracked", t);
+            handleInternalError("Unexpected error in withTracked for: " + name, t, ErrorLevel.ERROR);
         } finally {
             // 清理追踪数据
-            clearAllTracking();
+            try {
+                clearAllTracking();
+            } catch (Throwable cleanupError) {
+                handleInternalError("Failed to clear tracking in withTracked", cleanupError, ErrorLevel.WARN);
+            }
         }
     }
     
@@ -1077,23 +1194,26 @@ public final class TFI {
         }
 
         try {
-            com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
-            if (provider != null) {
-                return provider.exportToConsole(showTimestamp);
-            } else {
-                // 兜底实现
-                Session session = getCurrentSession();
-                if (session != null) {
-                    ConsoleExporter exporter = new ConsoleExporter();
-                    if (showTimestamp) {
-                        exporter.print(session);
-                    } else {
-                        exporter.printSimple(session);
-                    }
-                    return true;
+            // v4.0.0 Provider routing with grayscale control
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+                if (provider != null) {
+                    return provider.exportToConsole(showTimestamp);
                 }
-                return false;
             }
+
+            // Legacy path (v3.0.0 behavior)
+            Session session = getCurrentSession();
+            if (session != null) {
+                ConsoleExporter exporter = new ConsoleExporter();
+                if (showTimestamp) {
+                    exporter.print(session);
+                } else {
+                    exporter.printSimple(session);
+                }
+                return true;
+            }
+            return false;
         } catch (Throwable t) {
             handleInternalError("Failed to export to console", t);
             return false;
@@ -1111,18 +1231,21 @@ public final class TFI {
         }
 
         try {
-            com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
-            if (provider != null) {
-                return provider.exportToJson();
-            } else {
-                // 兜底实现
-                Session session = getCurrentSession();
-                if (session != null) {
-                    JsonExporter exporter = new JsonExporter();
-                    return exporter.export(session);
+            // v4.0.0 Provider routing with grayscale control
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+                if (provider != null) {
+                    return provider.exportToJson();
                 }
-                return "{}";
             }
+
+            // Legacy path (v3.0.0 behavior)
+            Session session = getCurrentSession();
+            if (session != null) {
+                JsonExporter exporter = new JsonExporter();
+                return exporter.export(session);
+            }
+            return "{}";
         } catch (Throwable t) {
             handleInternalError("Failed to export to JSON", t);
             return "{}";
@@ -1140,14 +1263,17 @@ public final class TFI {
         }
 
         try {
-            com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
-            if (provider != null) {
-                return provider.exportToMap();
-            } else {
-                // 兜底实现
-                Session session = getCurrentSession();
-                return session != null ? MapExporter.export(session) : Map.of();
+            // v4.0.0 Provider routing with grayscale control
+            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
+                com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+                if (provider != null) {
+                    return provider.exportToMap();
+                }
             }
+
+            // Legacy path (v3.0.0 behavior)
+            Session session = getCurrentSession();
+            return session != null ? MapExporter.export(session) : Map.of();
         } catch (Throwable t) {
             handleInternalError("Failed to export to Map", t);
             return Map.of();
@@ -1897,6 +2023,26 @@ public final class TFI {
                 provider.getClass().getSimpleName());
         } catch (Throwable t) {
             handleInternalError("Failed to register RenderProvider", t);
+        }
+    }
+
+    /**
+     * 注册自定义ExportProvider
+     *
+     * <p>手动注册的Provider优先级高于ServiceLoader发现的Provider，
+     * 但低于Spring Bean注入的Provider。
+     *
+     * @param provider ExportProvider实例
+     * @since 4.0.0
+     */
+    public static void registerExportProvider(com.syy.taskflowinsight.spi.ExportProvider provider) {
+        try {
+            com.syy.taskflowinsight.spi.ProviderRegistry.register(
+                com.syy.taskflowinsight.spi.ExportProvider.class, provider);
+            logger.info("Registered custom ExportProvider: {}",
+                provider.getClass().getSimpleName());
+        } catch (Throwable t) {
+            handleInternalError("Failed to register ExportProvider", t);
         }
     }
 

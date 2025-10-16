@@ -1,0 +1,41 @@
+name: TFI Routing Perf Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  perf-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Generate routing vs legacy JMH reports
+        run: |
+          ./mvnw -q -P bench -DskipTests exec:java \
+            -Dexec.mainClass=com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner
+
+      - name: Enforce <5% regression gate (strict)
+        run: |
+          ./mvnw -q -Dtest=*PerfGateIT verify -Dtfi.perf.enabled=true -Dtfi.perf.strict=true
+
+      - name: Upload perf reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tfi-routing-perf-reports
+          path: |
+            docs/task/v4.0.0/baseline/tfi_routing_enabled.json
+            docs/task/v4.0.0/baseline/tfi_routing_legacy.json
+

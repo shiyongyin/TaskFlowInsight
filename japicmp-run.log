@@ -1,0 +1,64 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ----------------------< com.syy:TaskFlowInsight >-----------------------
+[INFO] Building TaskFlowInsight 3.0.0
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.4.1:clean (default-clean) @ TaskFlowInsight ---
+[INFO] Deleting /Users/mac/work/development/project/TaskFlowInsight/target
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ TaskFlowInsight ---
+[INFO] argLine set to -javaagent:/Users/mac/.m2/repository/org/jacoco/org.jacoco.agent/0.8.12/org.jacoco.agent-0.8.12-runtime.jar=destfile=/Users/mac/work/development/project/TaskFlowInsight/target/jacoco.exec,excludes=com/syy/taskflowinsight/model/*:com/syy/taskflowinsight/demo/**
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ TaskFlowInsight ---
+[INFO] Copying 3 resources from src/main/resources to target/classes
+[INFO] Copying 8 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.14.0:compile (default-compile) @ TaskFlowInsight ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 272 source files with javac [debug parameters release 21] to target/classes
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/actuator/TfiAdvancedEndpoint.java:[27,2] org.springframework.boot.actuate.endpoint.web.annotation 中的 org.springframework.boot.actuate.endpoint.web.annotation.RestControllerEndpoint 已过时, 且标记为待删除
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/actuator/TfiAdvancedEndpoint.java:[27,2] org.springframework.boot.actuate.endpoint.web.annotation 中的 org.springframework.boot.actuate.endpoint.web.annotation.RestControllerEndpoint 已过时, 且标记为待删除
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/actuator/TfiAdvancedEndpoint.java:[27,2] org.springframework.boot.actuate.endpoint.web.annotation 中的 org.springframework.boot.actuate.endpoint.web.annotation.RestControllerEndpoint 已过时, 且标记为待删除
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/actuator/TfiAdvancedEndpoint.java:[27,2] org.springframework.boot.actuate.endpoint.web.annotation 中的 org.springframework.boot.actuate.endpoint.web.annotation.RestControllerEndpoint 已过时, 且标记为待删除
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/actuator/TfiAdvancedEndpoint.java:[27,2] org.springframework.boot.actuate.endpoint.web.annotation 中的 org.springframework.boot.actuate.endpoint.web.annotation.RestControllerEndpoint 已过时, 且标记为待删除
+[INFO] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/actuator/SecureTfiEndpoint.java: 某些输入文件使用或覆盖了已过时的 API。
+[INFO] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/actuator/SecureTfiEndpoint.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/tracking/compare/CompareService.java: 某些输入文件使用了未经检查或不安全的操作。
+[INFO] /Users/mac/work/development/project/TaskFlowInsight/src/main/java/com/syy/taskflowinsight/tracking/compare/CompareService.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ TaskFlowInsight ---
+[INFO] Copying 7 resources from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.14.0:testCompile (default-testCompile) @ TaskFlowInsight ---
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 409 source files with javac [debug parameters release 21] to target/test-classes
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/tracking/compare/list/ListCompareExecutorKPairsDegradationTests.java:[32,6] org.springframework.boot.test.mock.mockito 中的 org.springframework.boot.test.mock.mockito.MockBean 已过时, 且标记为待删除
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/tracking/compare/list/ListCompareExecutorKPairsDegradationTests.java:[32,6] org.springframework.boot.test.mock.mockito 中的 org.springframework.boot.test.mock.mockito.MockBean 已过时, 且标记为待删除
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/tracking/compare/list/ListCompareExecutorKPairsDegradationTests.java:[32,6] org.springframework.boot.test.mock.mockito 中的 org.springframework.boot.test.mock.mockito.MockBean 已过时, 且标记为待删除
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/tracking/compare/list/ListCompareExecutorKPairsDegradationTests.java:[32,6] org.springframework.boot.test.mock.mockito 中的 org.springframework.boot.test.mock.mockito.MockBean 已过时, 且标记为待删除
+[WARNING] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/tracking/compare/list/ListCompareExecutorKPairsDegradationTests.java:[32,6] org.springframework.boot.test.mock.mockito 中的 org.springframework.boot.test.mock.mockito.MockBean 已过时, 且标记为待删除
+[INFO] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/actuator/SecureTfiEndpointTest.java: 某些输入文件使用或覆盖了已过时的 API。
+[INFO] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/actuator/SecureTfiEndpointTest.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/actuator/SecureTfiEndpointTest.java: 某些输入文件使用了未经检查或不安全的操作。
+[INFO] /Users/mac/work/development/project/TaskFlowInsight/src/test/java/com/syy/taskflowinsight/actuator/SecureTfiEndpointTest.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+[INFO] 
+[INFO] --- surefire:3.5.3:test (default-test) @ TaskFlowInsight ---
+[INFO] Tests are skipped.
+[INFO] 
+[INFO] --- jacoco:0.8.12:report (report) @ TaskFlowInsight ---
+[INFO] Skipping JaCoCo execution due to missing execution data file.
+[INFO] 
+[INFO] --- jar:3.4.2:jar (default-jar) @ TaskFlowInsight ---
+[INFO] Building jar: /Users/mac/work/development/project/TaskFlowInsight/target/TaskFlowInsight-3.0.0.jar
+[INFO] 
+[INFO] --- spring-boot:3.5.5:repackage (repackage) @ TaskFlowInsight ---
+[INFO] Replacing main artifact /Users/mac/work/development/project/TaskFlowInsight/target/TaskFlowInsight-3.0.0.jar with repackaged archive, adding nested dependencies in BOOT-INF/.
+[INFO] The original artifact has been renamed to /Users/mac/work/development/project/TaskFlowInsight/target/TaskFlowInsight-3.0.0.jar.original
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  6.919 s
+[INFO] Finished at: 2025-10-16T10:43:58+08:00
+[INFO] ------------------------------------------------------------------------

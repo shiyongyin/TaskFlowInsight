@@ -262,6 +262,9 @@ public class ProviderRegistry {
             if (provider instanceof RenderProvider) {
                 return ((RenderProvider) provider).priority();
             }
+            if (provider instanceof ExportProvider) {
+                return ((ExportProvider) provider).priority();
+            }
         } catch (Throwable t) {
             logger.warn("Failed to get priority from {}: {}",
                 provider.getClass().getName(), t.getMessage());
