@@ -1,0 +1,4 @@
+Task Stack (depth: 3):
+  [0] parent
+  [1] child1
+  [2] child2

@@ -1,0 +1,3 @@
+Before session: session=null, task=TaskNode{path='task', status=COMPLETED, thread='main'}
+After session: session=null
+After task: task=task

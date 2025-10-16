@@ -1,0 +1,5 @@
+CompareResult {
+  identical: false
+  changeCount: 0
+  changes: []
+}

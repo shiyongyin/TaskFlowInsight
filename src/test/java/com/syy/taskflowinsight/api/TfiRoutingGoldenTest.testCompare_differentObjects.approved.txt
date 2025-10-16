@@ -1,0 +1,5 @@
+CompareResult {
+  identical: false
+  changeCount: 1
+  changes: [FieldChange(fieldName=age, oldValue=25, newValue=26, changeType=UPDATE, valueType=java.lang.Integer, fieldPath=age, collectionChange=false, collectionDetail=null, elementEvent=null, referenceChange=false, referenceDetail=null)]
+}

@@ -104,6 +104,13 @@
             <version>1.8.4</version>
             <scope>test</scope>
         </dependency>
+        <!-- ApprovalTests for golden/snapshot testing (test scope) -->
+        <dependency>
+            <groupId>com.approvaltests</groupId>
+            <artifactId>approvaltests</artifactId>
+            <version>24.3.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -317,9 +324,9 @@
                 <plugins>
                     <!-- japicmp - Binary Compatibility Check (enabled only when -Papi-compat) -->
                     <plugin>
-                        <groupId>com.github.siom79</groupId>
+                        <groupId>com.github.siom79.japicmp</groupId>
                         <artifactId>japicmp-maven-plugin</artifactId>
-                        <version>0.18.6</version>
+                        <version>0.24.2</version>
                         <configuration>
                             <oldVersion>
                                 <dependency>
@@ -345,8 +352,6 @@
                                 <includes>
                                     <include>com.syy.taskflowinsight.api.TFI</include>
                                 </includes>
-                                <htmlStylesheet>default</htmlStylesheet>
-                                <htmlOutputFile>${project.build.directory}/japicmp/japicmp.html</htmlOutputFile>
                                 <ignoreMissingClasses>true</ignoreMissingClasses>
                             </parameter>
                         </configuration>

@@ -1,0 +1,20 @@
+null vs object:
+CompareResult {
+  identical: false
+  changeCount: 0
+  changes: []
+}
+
+object vs null:
+CompareResult {
+  identical: false
+  changeCount: 0
+  changes: []
+}
+
+null vs null:
+CompareResult {
+  identical: true
+  changeCount: 0
+  changes: []
+}

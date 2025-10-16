@@ -1,0 +1,3 @@
+Session ID: test-session-TIMESTAMP
+Session Status: null
+Session Active: false
