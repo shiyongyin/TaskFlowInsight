@@ -1,11 +1,11 @@
 # TFI-Compare 运维文档
 
-> **文档版本**: v2.0.0  
+> **文档版本**: v5.0.0  
 > **模块版本**: 3.0.0  
 > **撰写角色**: 资深运维专家  
 > **审阅**: 项目经理协调  
 > **初版日期**: 2026-02-15  
-> **更新日期**: 2026-02-15 (v2 — compareBatch 并发模型变更)  
+> **更新日期**: 2026-02-16 (v5 — 测试覆盖率 87.8%/75.1% + 性能基线 + API 兼容性)  
 
 ---
 
@@ -137,13 +137,15 @@
 
 ### 3.4 发布检查清单
 
-- [ ] 所有测试通过: `./mvnw verify`
-- [ ] 静态分析无新增: SpotBugs、Checkstyle、PMD
-- [ ] JaCoCo 覆盖率 ≥ 50%
+- [ ] 所有测试通过: `./mvnw test -pl tfi-compare` (3,591 tests expected)
+- [ ] 静态分析无新增: SpotBugs (0 High)、Checkstyle、PMD
+- [ ] JaCoCo 覆盖率 ≥ 85% 指令 / ≥ 75% 分支: `./mvnw test jacoco:report -pl tfi-compare -Djacoco.skip=false`
+- [ ] 性能测试通过: `./mvnw test -pl tfi-compare -Dtfi.perf.enabled=true`
+- [ ] API 兼容性通过: 22 个 API surface tests in `ApiSurfaceCompatibilityTests`
 - [ ] 无 SNAPSHOT 依赖
 - [ ] CHANGELOG 更新
 - [ ] 版本号正确
-- [ ] API 兼容性检查（japicmp）
+- [ ] API 兼容性检查（japicmp）: `./mvnw verify -Papi-compat`
 
 ---
 
@@ -811,4 +813,4 @@ java -Dtfi.enabled=false -jar app.jar
 
 ---
 
-*文档由资深运维专家撰写，项目经理审阅*
+*文档由资深运维专家撰写，项目经理审阅。v5 更新于 2026-02-16。*

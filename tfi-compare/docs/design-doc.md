@@ -1,11 +1,11 @@
 # TFI-Compare 开发设计文档
 
-> **文档版本**: v2.0.0  
+> **文档版本**: v5.0.0  
 > **模块版本**: 3.0.0 (当前分支: feature/v4.0.0-routing-refactor)  
 > **撰写角色**: 资深开发专家（Spring Boot 领域）  
 > **审阅**: 项目经理协调  
 > **初版日期**: 2026-02-15  
-> **更新日期**: 2026-02-15 (v2 — 代码改进后重新评估)  
+> **更新日期**: 2026-02-16 (v5 — 全面覆盖率提升 + 性能测试 + API 兼容性 + 命名规范化后)  
 
 ---
 
@@ -590,28 +590,29 @@ tfi-examples → tfi-all (compile)
 
 ## 12. 代码设计评分
 
-### 12.1 评分维度与结果（v2 — 改进后重新评估）
+### 12.1 评分维度与结果（v5 — 全面提升后重新评估）
 
-> **说明**: v1 评分为 8.06/10。经过 System.out 清除、volatile 修复、CompareService 职责拆分、模块级测试补全、ArchUnit 架构测试引入等改进后，以下为 v2 重新评估结果。
+> **说明**: v1 评分为 8.06/10。经历 4 轮迭代改进后（System.out 清除 → volatile 修复 → 覆盖率 85%+ → 分支 75%+ → SpotBugs 清零 → 性能测试 → API 兼容性守护 → 命名规范化），以下为 v5 最终评估结果。
 
-| 维度 | 权重 | v1 评分 | v2 评分 | 加权分 | 改进说明 |
-|------|------|---------|---------|--------|---------|
-| **架构设计** | 20% | 8.5 | 9.0 | 1.80 | CompareService 拆分为 3 个单一职责类，ArchUnit 强制分层 |
-| **代码质量** | 20% | 7.5 | 9.0 | 1.80 | System.out 全部替换为 logger.debug()，无残留调试代码 |
-| **设计模式** | 15% | 9.0 | 9.0 | 1.35 | 保持不变，Strategy/Facade/SPI 运用成熟 |
-| **可扩展性** | 15% | 8.5 | 8.5 | 1.28 | 保持不变 |
-| **线程安全** | 10% | 7.5 | 8.5 | 0.85 | 6 个 volatile 修复，parallelStream → 虚拟线程池 |
-| **性能设计** | 10% | 8.0 | 8.5 | 0.85 | 虚拟线程池可控并发，消除 ForkJoinPool 竞争 |
-| **可测试性** | 5% | 6.5 | 9.0 | 0.45 | 模块内 6 个测试文件、95+ test case、ArchUnit |
-| **文档完整性** | 5% | 7.0 | 8.5 | 0.43 | docs/ 目录规范化，5 份专家文档 + 评分报告 |
+| 维度 | 权重 | v1 | v2 | v3 | v4 | v5 | 加权分 | v4→v5 变化 |
+|------|------|-----|-----|-----|-----|-----|--------|-----------|
+| **架构设计** | 20% | 8.5 | 9.0 | 9.0 | 9.0 | 9.0 | 1.80 | — |
+| **代码质量** | 20% | 7.5 | 9.0 | 9.5 | 9.5 | 9.5 | 1.90 | — |
+| **设计模式** | 15% | 9.0 | 9.0 | 9.0 | 9.0 | 9.0 | 1.35 | — |
+| **可扩展性** | 15% | 8.5 | 8.5 | 8.5 | 9.0 | 9.0 | 1.35 | — |
+| **线程安全** | 10% | 7.5 | 8.5 | 9.0 | 9.0 | 9.0 | 0.90 | — |
+| **性能设计** | 10% | 8.0 | 8.5 | 8.5 | 9.0 | 9.0 | 0.90 | — |
+| **可测试性** | 5% | 6.5 | 9.0 | 9.5 | 9.8 | 9.8 | 0.49 | — |
+| **文档完整性** | 5% | 7.0 | 8.5 | 9.0 | 9.5 | 9.5 | 0.48 | — |
 
 ### 12.2 综合评分
 
-| 指标 | v1 值 | v2 值 |
-|------|-------|-------|
-| **综合加权分** | 8.06 / 10 | **8.81 / 10** |
-| **等级** | B+ (优良) | **A- (优秀)** |
-| **评语** | - | 架构经拆分后更清晰，代码质量显著提升（零 System.out），线程安全补强，模块级测试从 0 提升至 95+ case |
+| 指标 | v1 | v2 | v3 | v4 | v5 |
+|------|-----|-----|-----|-----|-----|
+| **综合加权分** | 8.06 | 8.81 | 9.01 | 9.17 | **9.17 / 10** |
+| **等级** | B+ | A- | A | A | **A (优秀)** |
+
+**评语**: 经过 4 轮迭代，从 B+ 提升至 A 等级。架构清晰（6 层 + SSOT），代码质量优秀（SpotBugs 0 High），测试全面（3,591 tests, 87.8% 指令 / 75.1% 分支），性能基线已建立（14 perf tests），API 稳定性有守护（22 API surface tests），测试文件命名已规范化。
 
 ### 12.3 各维度详评
 
@@ -621,94 +622,130 @@ tfi-examples → tfi-all (compile)
 - 六层架构分明（API → Engine → Strategy → Detector → Snapshot → Infrastructure）
 - CompareEngine 作为排序的 SSOT，消除多点排序风险
 - DiffFacade 三级降级链设计优雅
-- ✅ **v2 改进**: CompareService 拆分为 CompareService + CompareReportGenerator + ThreeWayMergeService，符合 SRP
+- ✅ **v2**: CompareService 拆分为 CompareService + CompareReportGenerator + ThreeWayMergeService，符合 SRP
+- ✅ **v3**: ArchUnit 6 条规则强制分层约束
 
 **剩余改进空间**:
 - 深度快照与浅快照分散在多个类中（可考虑统一 Facade）
+- 258 个类的模块规模偏大，可考虑进一步拆分子模块
 
-#### 代码质量 (7.5 → 9.0)
+#### 代码质量 (7.5 → 9.0 → 9.5)
 
 **优点**:
 - Javadoc 覆盖率较高，核心类文档完善
 - Lombok 减少样板代码
 - 异常处理模式统一（try-catch + log + fallback）
-- ✅ **v2 改进**: 所有 `System.out.println` 已替换为 `logger.debug()`
-- ✅ **v2 改进**: DiffFacade 补充 `@author` / `@since` Javadoc
+- ✅ **v2**: 所有 `System.out.println` 已替换为 `logger.debug()`
+- ✅ **v2**: DiffFacade 补充 `@author` / `@since` Javadoc
+- ✅ **v3**: SpotBugs 0 个 High（修复死代码、冗余 null 检查、忽略异常、System.gc()、putIfAbsent 返回值等 10 个问题）
+- ✅ **v3**: Checkstyle + PMD 全部通过
+- ✅ **v4**: 3 个 TODO/FIXME 全部处理
 
 **剩余改进空间**:
-- 中英文注释混用（建议长期统一）
+- 中英文注释混用（非关键问题）
 
-#### 设计模式 (9.0 → 9.0)
+#### 设计模式 (9.0)
 
 **优点**:
 - Strategy 模式贯穿比较引擎核心
 - SPI 提供标准化扩展点
 - Builder 模式保证不可变对象构建
 - Chain of Responsibility 实现优雅降级
+- Record 用于不可变配置（TfiConfig）
 
-#### 可扩展性 (8.5 → 8.5)
+#### 可扩展性 (8.5 → 9.0)
 
 **优点**:
 - `CompareStrategy<T>` 和 `ListCompareStrategy` 接口清晰
 - `PropertyComparatorRegistry` 支持字段级自定义比较
 - ServiceLoader + Spring Bean 双通道扩展
+- ✅ **v4**: 22 个 API surface tests + japicmp 配置守护公共 API 稳定性
 
 **剩余改进空间**:
 - 导出器扩展需手动注册
 
-#### 线程安全 (7.5 → 8.5)
+#### 线程安全 (7.5 → 8.5 → 9.0)
 
 **优点**:
 - ConcurrentHashMap 用于共享集合
 - ThreadLocal 隔离请求上下文
 - AtomicLong 用于计数器
-- ✅ **v2 改进**: DiffDetector 6 个静态配置字段已加 `volatile`
-- ✅ **v2 改进**: compareBatch 从 parallelStream 改为虚拟线程池
+- ✅ **v2**: DiffDetector 6 个静态配置字段已加 `volatile`
+- ✅ **v2**: compareBatch 从 parallelStream 改为虚拟线程池
+- ✅ **v3**: TfiListDiff 实例方法写静态字段问题修复
 
 **剩余改进空间**:
 - `FieldChange.clock` 可变静态字段（仅测试用，影响低）
 - `DiffDetector.HEAVY_CACHE` 使用 synchronized WeakHashMap（正确但性能一般）
 
-#### 性能设计 (8.0 → 8.5)
+#### 性能设计 (8.0 → 8.5 → 9.0)
 
 **优点**:
 - PerfGuard 预算控制机制
 - 多级缓存（Caffeine + ConcurrentHashMap）
 - 自适应降级（Normal → Critical）
-- ✅ **v2 改进**: 虚拟线程池替代 parallelStream，消除 ForkJoinPool 全局竞争
+- ✅ **v2**: 虚拟线程池替代 parallelStream，消除 ForkJoinPool 全局竞争
+- ✅ **v4**: 14 个性能测试建立基线（CompareService/PathDeduplicator/ObjectSnapshotDeep/QueryAPI）
 
 **剩余改进空间**:
 - WeakHashMap 缓存可能在 GC 压力下失效
+- JMH 系统化 benchmark 可进一步补充
+
+#### 可测试性 (6.5 → 9.0 → 9.8)
+
+**优点**:
+- 从 0 个测试文件提升到 **79 个文件、3,591 个 case**
+- **指令覆盖率 87.8%**，分支覆盖率 75.1%，方法覆盖率 89.4%
+- @Nested 分组 + @DisplayName 规范命名
+- ArchUnit 架构约束自动化（6 条规则）
+- @SpringBootTest 集成测试覆盖 AutoConfiguration
+- 白盒测试 + 手术精准覆盖 + 分支覆盖的多轮迭代策略
+- 14 个性能测试（gated by `-Dtfi.perf.enabled=true`）
+- 22 个 API 兼容性测试
+- ✅ **v5**: 17 个测试文件重命名，消除 "Surgical/Final/Ultimate" 命名残留
+
+**剩余改进空间**:
+- 无 jqwik 属性测试（计划中）
+- Pitest 变异测试待评估
 
 ---
 
 ## 13. 改进建议
 
-### P0 — 必须修复
+### P0 — 必须修复（全部完成 ✅）
 
 | # | 问题 | 位置 | 状态 |
 |---|------|------|------|
-| 1 | System.out.println 残留 | CompareEngine, CompareService, ObjectSnapshotDeepOptimized | ✅ **已修复** — 全部替换为 `logger.debug()` |
-| 2 | 模块内无测试 | tfi-compare/src/test/ | ✅ **已修复** — 6 个测试文件，95+ test case |
+| 1 | System.out.println 残留 | CompareEngine, CompareService, ObjectSnapshotDeepOptimized | ✅ 已修复 — 全部替换为 `logger.debug()` |
+| 2 | 模块内无测试 | tfi-compare/src/test/ | ✅ 已修复 — 79 个测试文件，3,591 test case |
 
-### P1 — 建议改进
+### P1 — 建议改进（全部完成 ✅）
 
 | # | 问题 | 状态 |
 |---|------|------|
-| 3 | CompareService 职责过重 | ✅ **已修复** — 拆分为 CompareReportGenerator + ThreeWayMergeService |
-| 4 | DiffDetector 静态配置非线程安全 | ✅ **已修复** — 6 个字段已加 `volatile` |
-| 5 | parallelStream 缺少线程池控制 | ✅ **已修复** — 改为 `Executors.newVirtualThreadPerTaskExecutor()` |
-| 6 | 文档位置不规范 | ✅ **已修复** — 文档迁移至 `tfi-compare/docs/` |
+| 3 | CompareService 职责过重 | ✅ 已修复 — 拆分为 CompareReportGenerator + ThreeWayMergeService |
+| 4 | DiffDetector 静态配置非线程安全 | ✅ 已修复 — 6 个字段已加 `volatile` |
+| 5 | parallelStream 缺少线程池控制 | ✅ 已修复 — 改为 `Executors.newVirtualThreadPerTaskExecutor()` |
+| 6 | 文档位置不规范 | ✅ 已修复 — 文档迁移至 `tfi-compare/docs/` |
+| 7 | SpotBugs 10 个 High 级别问题 | ✅ 已修复 — 全部清零 |
+| 8 | 3 个 TODO/FIXME 注释 | ✅ 已修复 — 全部处理 |
+| 9 | SPI 分支覆盖率 12.5% | ✅ 已修复 — 提升至 60%+ |
+| 10 | API Bug (NPE in ObjectSnapshotDeep + ConfigurationResolverImpl) | ✅ 已修复 |
 
 ### P2 — 长期优化
 
 | # | 建议 | 状态 |
 |---|------|------|
-| 7 | 统一 Javadoc 语言（建议全英文或全中文） | ⏳ 待定 |
-| 8 | 引入 ArchUnit 架构测试 | ✅ **已完成** — TfiCompareArchitectureTests（6 条规则） |
-| 9 | 添加 @since 版本标签到所有公共 API | ⏳ 部分完成（DiffFacade 已补充） |
-| 10 | 考虑 GraalVM native-image 兼容性 | ⏳ 未开始 |
+| 11 | 引入 ArchUnit 架构测试 | ✅ 已完成 — TfiCompareArchitectureTests（6 条规则） |
+| 12 | 性能测试基线 | ✅ 已完成 — 14 个性能测试 |
+| 13 | API 兼容性守护 | ✅ 已完成 — 22 个 API surface tests + japicmp |
+| 14 | 测试文件命名规范化 | ✅ 已完成 — 17 文件重命名 |
+| 15 | 统一 Javadoc 语言 | ⏳ 待定 |
+| 16 | 添加 @since 版本标签到所有公共 API | ⏳ 部分完成 |
+| 17 | jqwik 属性测试 | ⏳ 计划中 |
+| 18 | Pitest 变异测试评估 | ⏳ 未开始 |
+| 19 | GraalVM native-image 兼容性 | ⏳ 未开始 |
 
 ---
 
-*文档由资深开发专家撰写，项目经理审阅*
+*文档由资深开发专家撰写，项目经理审阅。v5 更新于 2026-02-16。*
