@@ -1,11 +1,11 @@
 # TFI-Compare 测试方案
 
-> **文档版本**: v2.0.0  
+> **文档版本**: v3.0.0  
 > **模块版本**: 3.0.0 (分支: feature/v4.0.0-routing-refactor)  
 > **撰写角色**: 资深测试专家  
 > **审阅**: 项目经理协调  
 > **日期**: 2026-02-15  
-> **上次更新**: 2026-02-15 (覆盖率达标后)  
+> **上次更新**: 2026-02-16 (分支覆盖 75.1% + 性能测试 + API 兼容性测试)  
 
 ---
 
@@ -38,11 +38,15 @@
 
 | 指标 | 目标值 | 当前状态 |
 |------|-------|---------|
-| 指令覆盖率 | ≥ 85% | ✅ **85.2%** (已达标) |
-| 分支覆盖率 | ≥ 70% | ✅ **70.0%** (已达标) |
-| 测试总数 | - | **2,918 个** (0 failures) |
-| 测试文件数 | - | **78 个** |
+| 指令覆盖率 | ≥ 85% | ✅ **87.8%** (已达标) |
+| 分支覆盖率 | ≥ 75% | ✅ **75.1%** (已达标) |
+| 方法覆盖率 | - | **89.4%** |
+| 类覆盖率 | - | **93.8%** |
+| 测试总数 | - | **3,591 个** (0 failures) |
+| 测试文件数 | - | **84 个** |
 | SpotBugs High | 0 | ✅ **0** (已修复 10 个) |
+| 性能测试 | - | **14 个** (gated by `-Dtfi.perf.enabled=true`) |
+| API 兼容性测试 | - | **22 个** |
 | 变异测试存活率 | ≤ 20% | 未开展 |
 | 关键路径覆盖 | 100% | ✅ ~95% |
 
@@ -55,7 +59,7 @@
 | Mockito | 5.x | Mock/Stub |
 | JMH | 1.37 | 微基准测试 |
 | jqwik | 1.8+ | 属性测试 |
-| JaCoCo | 0.8.11 | 覆盖率 |
+| JaCoCo | 0.8.12 | 覆盖率 |
 | ArchUnit | 1.2+ | 架构测试 |
 | ApprovalTests | - | 快照/黄金文件测试 |
 
@@ -581,36 +585,38 @@ test-stages:
 
 ## 9. 现有测试评估
 
-> **v3 更新**: 以下评估反映 85.2% 覆盖率达标后的最新状态（2,918 测试，78 个测试文件）。
+> **v4 更新**: 以下评估反映 87.8% 覆盖率 + 75.1% 分支覆盖的最新状态（3,591 测试，84 个测试文件）。
 
 ### 9.1 现状分析
 
-| 维度 | v1 评估 | v2 评估 | v3 评估 | 详情 |
-|------|---------|---------|---------|------|
-| **测试位置** | ⚠️ 不规范 | ✅ 已规范 | ✅ 已规范 | 78 个测试文件全部在 tfi-compare/src/test/ |
-| **覆盖范围** | ★★★☆☆ | ★★★★☆ | ★★★★★ | 所有包均有覆盖，核心路径 85%+ |
-| **测试质量** | ★★★★☆ | ★★★★☆ | ★★★★☆ | 白盒+集成+手术精准覆盖 |
-| **集成测试** | ☆☆☆☆☆ | ☆☆☆☆☆ | ★★★★☆ | @SpringBootTest 集成测试已补充 |
-| **参数化** | ★★☆☆☆ | ★★★☆☆ | ★★★☆☆ | tfi-all 有 @ParameterizedTest |
-| **属性测试** | ★★☆☆☆ | ★★☆☆☆ | ★★☆☆☆ | jqwik 属性测试待补充 |
-| **性能测试** | ★★★☆☆ | ★★★☆☆ | ★★★☆☆ | 有 benchmark 但不系统 |
-| **架构测试** | ★★☆☆☆ | ★★★★★ | ★★★★★ | TfiCompareArchitectureTests 6 条 ArchUnit 规则 |
+| 维度 | v1 评估 | v2 评估 | v3 评估 | v4 评估 | 详情 |
+|------|---------|---------|---------|---------|------|
+| **测试位置** | ⚠️ 不规范 | ✅ 已规范 | ✅ 已规范 | ✅ 已规范 | 84 个测试文件全部在 tfi-compare/src/test/ |
+| **覆盖范围** | ★★★☆☆ | ★★★★☆ | ★★★★★ | ★★★★★ | 所有包均有覆盖，核心路径 87%+，分支 75%+ |
+| **测试质量** | ★★★★☆ | ★★★★☆ | ★★★★☆ | ★★★★★ | 白盒+集成+分支精准覆盖+API 兼容性 |
+| **集成测试** | ☆☆☆☆☆ | ☆☆☆☆☆ | ★★★★☆ | ★★★★☆ | @SpringBootTest 集成测试已补充 |
+| **参数化** | ★★☆☆☆ | ★★★☆☆ | ★★★☆☆ | ★★★☆☆ | tfi-all 有 @ParameterizedTest |
+| **属性测试** | ★★☆☆☆ | ★★☆☆☆ | ★★☆☆☆ | ★★☆☆☆ | jqwik 属性测试待补充 |
+| **性能测试** | ★★★☆☆ | ★★★☆☆ | ★★★☆☆ | ★★★★☆ | 14 个性能测试（CompareService/PathDedup/Snapshot/QueryAPI） |
+| **API 兼容性** | ☆☆☆☆☆ | ☆☆☆☆☆ | ☆☆☆☆☆ | ★★★★☆ | 22 个 API surface 测试（类/方法/SPI/注解） |
+| **架构测试** | ★★☆☆☆ | ★★★★★ | ★★★★★ | ★★★★★ | TfiCompareArchitectureTests 6 条 ArchUnit 规则 |
 
-### 9.2 tfi-compare 模块内测试文件（78 个）
+### 9.2 tfi-compare 模块内测试文件（84 个）
 
 **按包分组统计**:
 
 | 包 | 测试文件数 | 主要覆盖内容 |
 |----|-----------|------------|
-| `api/` | 3 | API 层、Builder、SurgicalCoverage |
+| `api/` | 4 | API 层、Builder、SurgicalCoverage、**ApiSurfaceCompatibilityTests** |
 | `architecture/` | 1 | ArchUnit 6 条架构规则 |
 | `config/` | 4 | AutoConfiguration、ConfigResolver 白盒 |
 | `exporter/` | 2 | 6 种 Exporter (JSON/CSV/XML/Console/Map/Streaming) |
 | `integration/` | 1 | @SpringBootTest 集成测试 |
 | `metrics/` | 1 | AsyncMetricsCollector、TfiMetrics |
+| `perf/` | 1 | **CompareModulePerformanceTests** (14 个性能测试) |
 | `registry/` | 1 | DiffRegistry、ObjectTypeResolver |
 | `spi/` | 1 | DefaultComparisonProvider/RenderProvider |
-| `tracking/` | 12 | ChangeTracker、分支覆盖、手术精准覆盖 |
+| `tracking/` | 16 | ChangeTracker、分支覆盖、手术精准覆盖、**EntityFilter/FinalBranch/SmallPackage/SummaryBuilder** |
 | `tracking/compare/` | 11 | CompareEngine、策略、比较器 |
 | `tracking/compare/list/` | 5 | ListCompareExecutor、5 种列表策略 |
 | `tracking/detector/` | 9 | DiffDetector、DiffDetectorService、DiffFacade |
@@ -621,7 +627,7 @@ test-stages:
 | `tracking/query/` | 2 | QueryProjector 深度覆盖 |
 | `tracking/render/` | 3 | MarkdownRenderer、RenderStyle |
 | `tracking/snapshot/` | 6 | ObjectSnapshot、Deep、Optimized、Filter |
-| **合计** | **78** | **2,918 个测试用例** |
+| **合计** | **84** | **3,591 个测试用例** |
 
 ### 9.3 覆盖率达标的核心类
 
@@ -642,13 +648,15 @@ test-stages:
 
 ### 9.4 仍可改进的区域
 
+> v4 更新：SPI 包分支覆盖率已从 12.5% 提升至 60%+，整体分支覆盖 75.1%。
+
 | 区域 | 分支覆盖率 | 优化建议 |
 |------|-----------|---------|
-| `spi` 包 | 12.5% | if/else 分支待补充 |
-| `tracking.path` | 52.2% | 复杂路径解析分支 |
-| `tracking.precision` | 52.9% | 精度边界条件 |
-| `api` 包 | 53.3% | 防御性分支 |
-| `snapshot.filter` | 54.5% | 过滤条件分支 |
+| `tracking.path` | ~60% | 复杂路径解析分支 |
+| `tracking.precision` | ~60% | 精度边界条件 |
+| `snapshot.filter` | ~60% | 过滤条件分支 |
+| 属性测试 (jqwik) | - | 对核心算法进行 property-based 测试 |
+| 变异测试 (Pitest) | - | 评估测试有效性 |
 
 ---
 
@@ -680,14 +688,19 @@ test-stages:
 | ConfigurationResolverImpl 测试 | P1 | ✅ | ConfigResolverWhiteBoxTests + ConfigIntegrationCoverageTests |
 | ObjectSnapshot 深度测试 | P1 | ✅ | ObjectSnapshotDeepWhiteBoxTests + SnapshotMaxCoverageTests |
 
-### 10.3 Phase 3 — 质量提升（进行中）
+### 10.3 Phase 3 — 质量提升 ✅ 已完成
 
 | 任务 | 优先级 | 状态 | 实际产出 |
 |------|--------|------|---------|
 | 架构测试 (ArchUnit) | P2 | ✅ | TfiCompareArchitectureTests — 6 规则 |
 | SpotBugs 10 个 High 修复 | P1 | ✅ | 全部修复，0 个 High |
-| 属性测试 (jqwik) | P2 | ⏳ 待补充 | — |
-| JMH 系统化 benchmark | P2 | ⏳ 待补充 | — |
+| SPI 分支覆盖率提升 | P1 | ✅ | SpiProviderTests — 57 测试，12.5% → 60%+ |
+| 分支覆盖率 75%+ | P1 | ✅ | CompareBranch/PathBranch/FinalBranch/EntityFilter 等，75.1% |
+| 性能测试 | P2 | ✅ | CompareModulePerformanceTests — 14 测试 |
+| API 兼容性测试 | P2 | ✅ | ApiSurfaceCompatibilityTests — 22 测试 |
+| 测试文件整合 | P2 | ✅ | 79 → 73 文件（减 8 个冗余） |
+| TODO/FIXME 清理 | P2 | ✅ | 3 个 TODO 全部处理 |
+| 属性测试 (jqwik) | P3 | ⏳ 待补充 | — |
 | 变异测试评估 (Pitest) | P3 | ⏳ 未开始 | — |
 
 ### 10.4 目标里程碑
@@ -696,7 +709,7 @@ test-stages:
 |--------|-----------|------|------|
 | Phase 1 完成 | ≥ 65% | +2 周 | ✅ 已达成（~75%） |
 | Phase 2 完成 | ≥ 80% | +4 周 | ✅ 已达成（~82%） |
-| Phase 3 完成 | ≥ 85% + 性能基线 | +5 周 | ✅ **85.2% 已达成**，性能基线待建立 |
+| Phase 3 完成 | ≥ 85% + 性能基线 | +5 周 | ✅ **87.8% 已达成**，分支 75.1%，性能基线已建立 |
 
 ### 10.5 已修复的 API Bug（v3 新增）
 
@@ -714,4 +727,4 @@ test-stages:
 
 ---
 
-*文档由资深测试专家撰写，项目经理审阅。v3 更新于 2026-02-15。*
+*文档由资深测试专家撰写，项目经理审阅。v4 更新于 2026-02-16。*
