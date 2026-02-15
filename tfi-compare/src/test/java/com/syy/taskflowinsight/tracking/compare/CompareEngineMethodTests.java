@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 3.0.0
  */
 @DisplayName("精准方法覆盖测试 — processChangesSimple、processChangesWithEntityKeys、diffWithMode、deduplicateByPath、collectShallowReferenceChanges、extractLeafFieldName")
-class SurgicalMethodCoverageTests {
+class CompareEngineMethodTests {
 
     // ═══════════════════════════════════════════════════════════════════════════
     //  1. MapCompareStrategy.processChangesSimple（非 Entity 路径）

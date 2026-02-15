@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since 3.0.0
  */
 @DisplayName("MapCompareStrategy 最终覆盖测试")
-class MapCompareStrategyFinalTests {
+class MapCompareStrategyExtendedTests {
 
     private MapCompareStrategy strategy;
 

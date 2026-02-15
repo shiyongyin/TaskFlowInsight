@@ -19,7 +19,7 @@ import static org.mockito.Mockito.*;
  * Surgical coverage tests for DegradationManager, DegradationDecisionEngine.
  */
 @DisplayName("Monitoring — Surgical Tests")
-class MonitoringSurgicalTests {
+class MonitoringEdgeCaseTests {
 
     private DegradationManager manager;
     private DegradationConfig config;

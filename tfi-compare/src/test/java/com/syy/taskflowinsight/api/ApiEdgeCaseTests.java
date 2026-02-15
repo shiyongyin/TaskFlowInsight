@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.*;
  * Surgical coverage tests for TrackingStatistics, DiffBuilder (deep compare).
  */
 @DisplayName("API — Surgical Coverage Tests")
-class ApiSurgicalCoverageTests {
+class ApiEdgeCaseTests {
 
     @AfterEach
     void tearDown() {

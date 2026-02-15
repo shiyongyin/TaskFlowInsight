@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * @since 3.0.0
  */
 @DisplayName("Path List Executor Final — 路径列表执行器最终覆盖测试")
-class PathListExecutorFinalTests {
+class PathListExecutorExtendedTests {
 
     private static final CompareOptions DEFAULT = CompareOptions.DEFAULT;
 

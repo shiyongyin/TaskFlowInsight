@@ -52,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 3.0.0
  */
 @DisplayName("LowCoverageMethodsFinal — 低覆盖率方法最终测试")
-class LowCoverageMethodsFinalTests {
+class LowCoverageMethodTests {
 
     @AfterEach
     void tearDown() {

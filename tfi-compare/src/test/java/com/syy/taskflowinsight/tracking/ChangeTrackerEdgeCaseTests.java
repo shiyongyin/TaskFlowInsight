@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.*;
  * CollectionSummary, PathNavigator, EntityKeyUtils.
  */
 @DisplayName("Tracking — Surgical Coverage Tests")
-class SurgicalCoverageTests {
+class ChangeTrackerEdgeCaseTests {
 
     @BeforeEach
     void setUp() {

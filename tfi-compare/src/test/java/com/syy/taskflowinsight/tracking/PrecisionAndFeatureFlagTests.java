@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since v3.0.0
  */
 @DisplayName("Final Branch Push Tests — targeting 75% branch coverage")
-class FinalBranchPushTests {
+class PrecisionAndFeatureFlagTests {
 
     // ========== PrecisionMetrics ==========
 

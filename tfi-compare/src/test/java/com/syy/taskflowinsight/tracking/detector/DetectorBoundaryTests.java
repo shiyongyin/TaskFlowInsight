@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since 3.0.0
  */
 @DisplayName("Ultimate Coverage — DiffDetectorService, DiffDetector")
-class UltimateCoverageTests {
+class DetectorBoundaryTests {
 
     private DiffDetectorService detectorService;
 

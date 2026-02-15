@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * @since 3.0.0
  */
 @DisplayName("AutoConfig Surgical — 外科式配置与列表比较覆盖测试")
-class AutoConfigSurgicalTests {
+class AutoConfigEdgeCaseTests {
 
     private int originalMaxValueLength;
 

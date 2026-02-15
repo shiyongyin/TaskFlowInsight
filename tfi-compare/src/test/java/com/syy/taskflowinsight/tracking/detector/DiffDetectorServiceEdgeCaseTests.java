@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since 3.0.0
  */
 @DisplayName("DiffDetectorService 外科式测试")
-class DiffDetectorServiceSurgicalTests {
+class DiffDetectorServiceEdgeCaseTests {
 
     private DiffDetectorService service;
 

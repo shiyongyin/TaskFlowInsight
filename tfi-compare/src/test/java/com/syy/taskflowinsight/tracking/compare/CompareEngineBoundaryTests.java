@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since 3.0.0
  */
 @DisplayName("Ultimate Coverage — MapCompareStrategy, SetCompareStrategy, CompareEngine")
-class UltimateCoverageTests {
+class CompareEngineBoundaryTests {
 
     private MapCompareStrategy mapStrategy;
     private SetCompareStrategy setStrategy;

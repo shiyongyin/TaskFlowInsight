@@ -96,7 +96,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * @since 3.0.0
  */
 @DisplayName("Comprehensive Coverage — 合并全覆盖测试")
-class ComprehensiveCoverageTests {
+class ChangeTrackerComprehensiveTests {
 
     // ═══════════════════════════════════════════════════════════════════════
     // From AllRemainingCoverageTests

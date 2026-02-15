@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since 3.0.0
  */
 @DisplayName("DiffDetector 最终覆盖测试")
-class DiffDetectorFinalTests {
+class DiffDetectorExtendedTests {
 
     @BeforeEach
     void setUp() {

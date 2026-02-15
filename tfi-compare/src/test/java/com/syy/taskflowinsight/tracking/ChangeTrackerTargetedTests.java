@@ -121,7 +121,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * @since 3.0.0
  */
 @DisplayName("Targeted Coverage — Consolidated coverage tests")
-class TargetedCoverageTests {
+class ChangeTrackerTargetedTests {
 
     // ═══════════════════════════════════════════════════════════════════════════
     // From Last311Tests
