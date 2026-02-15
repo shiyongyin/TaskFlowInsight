@@ -157,7 +157,10 @@ public class ChangeTrackingAutoConfiguration {
                 Double v = resolver.resolve(key, Double.class, defaultValue);
                 if (v != null) return v;
             }
-        } catch (Exception ignore) {}
+        } catch (Exception e) {
+            logger.warn("Failed to resolve config key '{}' via ConfigurationResolver, falling back to Environment: {}",
+                key, e.getMessage());
+        }
         return getProperty(key, Double.class, defaultValue);
     }
 
@@ -167,7 +170,10 @@ public class ChangeTrackingAutoConfiguration {
                 T v = environment.getProperty(key, type, defaultValue);
                 return v != null ? v : defaultValue;
             }
-        } catch (Exception ignore) {}
+        } catch (Exception e) {
+            logger.warn("Failed to read property '{}' from Environment, using default {}: {}",
+                key, defaultValue, e.getMessage());
+        }
         return defaultValue;
     }
     

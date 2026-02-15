@@ -1,5 +1,8 @@
 package com.syy.taskflowinsight.tracking.ssot.path;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 
@@ -13,6 +16,8 @@ import java.lang.reflect.Field;
  * - root.array[2].field
  */
 public final class PathNavigator {
+
+    private static final Logger logger = LoggerFactory.getLogger(PathNavigator.class);
 
     private PathNavigator() {}
 
@@ -56,7 +61,8 @@ public final class PathNavigator {
                 currentClass = current.getClass();
             }
             return current;
-        } catch (Throwable ignore) {
+        } catch (Exception e) {
+            logger.debug("Path resolution failed for '{}': {}", path, e.getMessage());
             return null;
         }
     }
@@ -97,7 +103,8 @@ public final class PathNavigator {
                 currentClass = current.getClass();
             }
             return false;
-        } catch (Throwable ignore) {
+        } catch (Exception e) {
+            logger.debug("Annotation check failed for path '{}': {}", path, e.getMessage());
             return false;
         }
     }
@@ -119,7 +126,8 @@ public final class PathNavigator {
                 int len = java.lang.reflect.Array.getLength(container);
                 return (idx >= 0 && idx < len) ? java.lang.reflect.Array.get(container, idx) : null;
             }
-        } catch (Throwable ignore) {
+        } catch (Exception e) {
+            logger.debug("Index navigation failed for key '{}': {}", keyText, e.getMessage());
             return null;
         }
         return null;

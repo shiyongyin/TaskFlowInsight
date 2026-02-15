@@ -215,6 +215,48 @@
       "type": "java.util.Map<java.lang.String,java.lang.String>",
       "defaultValue": {},
       "description": "Additional tags to apply to metrics."
+    },
+    {
+      "name": "tfi.change-tracking.max-tracked-objects",
+      "type": "java.lang.Integer",
+      "defaultValue": 1000,
+      "description": "Maximum number of objects that can be tracked simultaneously per context."
+    },
+    {
+      "name": "tfi.change-tracking.datetime.tolerance-ms",
+      "type": "java.lang.Long",
+      "defaultValue": 0,
+      "description": "Tolerance in milliseconds for datetime field comparisons."
+    },
+    {
+      "name": "tfi.change-tracking.datetime.default-format",
+      "type": "java.lang.String",
+      "defaultValue": "yyyy-MM-dd HH:mm:ss",
+      "description": "Default format pattern for datetime fields in change tracking."
+    },
+    {
+      "name": "tfi.change-tracking.datetime.timezone",
+      "type": "java.lang.String",
+      "defaultValue": "SYSTEM",
+      "description": "Timezone for datetime comparisons. Use 'SYSTEM' for JVM default."
+    },
+    {
+      "name": "tfi.change-tracking.degradation.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable automatic degradation for large list comparisons."
+    },
+    {
+      "name": "tfi.change-tracking.degradation.max-candidates",
+      "type": "java.lang.Integer",
+      "defaultValue": 500,
+      "description": "Maximum candidate pairs before triggering degradation in list comparison."
+    },
+    {
+      "name": "tfi.diff.pathFormat",
+      "type": "java.lang.String",
+      "defaultValue": "legacy",
+      "description": "Path format style for diff output: 'standard' (bracket notation) or 'legacy' (dot notation)."
     }
   ],
   "hints": [

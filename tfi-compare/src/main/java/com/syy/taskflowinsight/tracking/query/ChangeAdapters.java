@@ -3,6 +3,8 @@ package com.syy.taskflowinsight.tracking.query;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.FieldChange;
 
+import org.slf4j.LoggerFactory;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -142,7 +144,9 @@ public final class ChangeAdapters {
             try {
                 customizer.customize(events, source);
             } catch (Exception e) {
-                // 静默失败，不影响主流程
+                LoggerFactory.getLogger(ChangeAdapters.class)
+                    .warn("Customizer '{}' failed during event adaptation: {}",
+                        customizer.getClass().getSimpleName(), e.getMessage());
             }
         }
     }

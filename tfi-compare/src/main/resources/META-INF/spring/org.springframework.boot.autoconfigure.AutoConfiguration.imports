@@ -1,3 +1,4 @@
 com.syy.taskflowinsight.config.ChangeTrackingAutoConfiguration
 com.syy.taskflowinsight.config.DeepTrackingAutoConfiguration
+com.syy.taskflowinsight.actuator.TfiCompareHealthAutoConfiguration
 

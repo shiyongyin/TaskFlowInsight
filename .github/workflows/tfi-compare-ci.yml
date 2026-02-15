@@ -1,0 +1,125 @@
+name: tfi-compare CI
+
+on:
+  push:
+    branches: [ main, 'feature/**' ]
+    paths:
+      - 'tfi-compare/**'
+      - 'pom.xml'
+      - '.github/workflows/tfi-compare-ci.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tfi-compare/**'
+      - 'pom.xml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: [ '21' ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Compile
+        run: ./mvnw compile -pl tfi-compare -am -q
+
+      - name: Run unit tests + JaCoCo
+        run: ./mvnw test jacoco:report -pl tfi-compare -q
+
+      - name: Enforce coverage gates
+        run: ./mvnw jacoco:check -pl tfi-compare -q
+
+      - name: Upload JaCoCo report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-report-java${{ matrix.java }}
+          path: tfi-compare/target/site/jacoco/
+          retention-days: 14
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: SpotBugs
+        run: ./mvnw compile spotbugs:check -pl tfi-compare -q
+
+      - name: Checkstyle
+        run: ./mvnw checkstyle:check -pl tfi-compare -q
+        continue-on-error: true
+
+      - name: PMD
+        run: ./mvnw pmd:check -pl tfi-compare -q
+        continue-on-error: true
+
+  dependency-check:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: OWASP Dependency-Check
+        run: ./mvnw dependency-check:check -pl tfi-compare -q
+        continue-on-error: true
+
+      - name: Upload dependency-check report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-report
+          path: tfi-compare/target/dependency-check-report.html
+          retention-days: 14
+
+  api-compat:
+    name: API Compatibility
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run API surface compatibility tests
+        run: ./mvnw test -pl tfi-compare -Dtest="ApiSurfaceCompatibilityTests" -q

@@ -87,7 +87,9 @@ public class PathDeduplicator {
     @Deprecated
     public PathDeduplicator(boolean enabled, PathCache cache) {
         PathDeduplicationConfig legacyConfig = new PathDeduplicationConfig();
-        try { legacyConfig.applySystemOverrides(); } catch (Exception ignore) {}
+        try { legacyConfig.applySystemOverrides(); } catch (Exception e) {
+            logger.warn("Failed to apply system overrides for legacy PathDeduplicator config: {}", e.getMessage());
+        }
         legacyConfig.setEnabled(enabled);
         legacyConfig.setCacheEnabled(cache != null && cache.isEnabled());
         
@@ -397,7 +399,9 @@ public class PathDeduplicator {
                 PathCache.CacheStatistics stats = cache.getStatistics();
                 cacheHitRate = stats != null ? stats.getHitRate() : 0.0;
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            logger.debug("Failed to retrieve path cache statistics: {}", e.getMessage());
+        }
 
         return new DeduplicationStatistics(
             totalDeduplicationCount.get(),

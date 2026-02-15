@@ -163,8 +163,8 @@ public final class DiffBuilder {
                 .register(io.micrometer.core.instrument.Metrics.globalRegistry)
                 .record(durationMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             // 冲突计数（P0 占位：当前无冲突检测，统一记录0不增加）
-        } catch (Throwable ignored) {
-            // 指标不可用时静默
+        } catch (Exception e) {
+            logger.debug("Micrometer metrics recording skipped (non-critical): {}", e.getMessage());
         }
 
         return new TfiContext(compareService, effective);

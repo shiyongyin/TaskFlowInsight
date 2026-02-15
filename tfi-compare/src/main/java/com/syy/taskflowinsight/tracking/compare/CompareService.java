@@ -187,12 +187,16 @@ public class CompareService {
      * 使用受限虚拟线程池并行处理，避免占用 ForkJoinPool.commonPool()。
      */
     public List<CompareResult> compareBatch(List<Pair<Object, Object>> pairs, CompareOptions options) {
-        if (pairs.size() > options.getParallelThreshold()) {
+        if (pairs == null || pairs.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        final CompareOptions effectiveOpts = (options != null) ? options : CompareOptions.DEFAULT;
+        if (pairs.size() > effectiveOpts.getParallelThreshold()) {
             // 使用可控虚拟线程池替代 parallelStream（隔离 commonPool）
             try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<CompletableFuture<CompareResult>> futures = pairs.stream()
                         .map(p -> CompletableFuture.supplyAsync(
-                                () -> compare(p.getLeft(), p.getRight(), options), executor))
+                                () -> compare(p.getLeft(), p.getRight(), effectiveOpts), executor))
                         .toList();
 
                 return futures.stream()
@@ -202,7 +206,7 @@ public class CompareService {
         } else {
             // 串行处理
             return pairs.stream()
-                .map(p -> compare(p.getLeft(), p.getRight(), options))
+                .map(p -> compare(p.getLeft(), p.getRight(), effectiveOpts))
                 .collect(Collectors.toList());
         }
     }

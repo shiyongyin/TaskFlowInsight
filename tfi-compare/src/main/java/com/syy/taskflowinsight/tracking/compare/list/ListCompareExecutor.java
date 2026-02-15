@@ -123,8 +123,8 @@ public class ListCompareExecutor {
                 if (result != null && decision != null && !decision.ok && decision.reasons != null && !decision.reasons.isEmpty()) {
                     result.setDegradationReasons(new java.util.ArrayList<>(decision.reasons));
                 }
-            } catch (Exception ignore) {
-                // 透传失败不影响主流程
+            } catch (Exception e) {
+                logger.debug("PerfGuard decision propagation failed (non-critical): {}", e.getMessage());
             }
 
             // M2: 移除本地排序，交由 CompareEngine 统一排序（SSOT）
@@ -220,8 +220,8 @@ public class ListCompareExecutor {
                     recordDegradationEvent(strategyName, degradedStrategy, maxSize, DEGRADATION_REASON_K_PAIRS_EXCEEDED);
                     return strategies.get(degradedStrategy);
                 }
-            } catch (Exception ignore) {
-                // 若决策检查出现异常，则忽略K对数降级，走后续大小降级逻辑
+            } catch (Exception e) {
+                logger.warn("K-pairs degradation check failed, falling back to size-based degradation: {}", e.getMessage());
             }
         }
         
@@ -350,8 +350,8 @@ public class ListCompareExecutor {
                 metrics.recordCustomMetric("list.compare.degradation.total", 1);
                 metrics.recordCustomMetric("list.compare.degradation." + reason, 1);
                 metrics.recordCustomMetric("list.compare.degradation.size", listSize);
-            } catch (Exception ignore) {
-                // 指标失败不影响主流程
+            } catch (Exception e) {
+                logger.debug("Failed to record degradation metrics (non-critical): {}", e.getMessage());
             }
         }
     }
