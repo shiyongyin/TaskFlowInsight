@@ -371,8 +371,8 @@ public final class ChangeTracker {
                 logger.debug("Operation '{}' took {}ms", operationType, durationMs);
             }
             
-            // TODO: 在后续版本中，这里可以调用PerformanceMonitor.recordOperation()
-            // 当前阶段保持最小侵入，仅做占位
+            // PerformanceMonitor 集成点：如需精细化监控，可在此处扩展
+            // 当前通过 logger.debug 提供基本性能观测
             
         } catch (Exception e) {
             // 监控失败不应影响主业务逻辑

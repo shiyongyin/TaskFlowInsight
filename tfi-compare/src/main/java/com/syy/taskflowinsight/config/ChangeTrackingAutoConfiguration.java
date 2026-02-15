@@ -319,17 +319,8 @@ public class ChangeTrackingAutoConfiguration {
     )
     public static class ActuatorConfiguration {
         
-        /**
-         * TFI监控端点Bean
-         * Phase 2+功能，MVP阶段暂不实现
-         * 
-         * @Bean
-         * @ConditionalOnMissingBean
-         * public TfiEndpoint tfiEndpoint() {
-         *     // TODO: 实现Actuator端点
-         *     return new TfiEndpoint();
-         * }
-         */
+        // Actuator 端点由 tfi-ops-spring 模块提供（SecureTfiEndpoint / TfiAdvancedEndpoint）。
+        // tfi-compare 模块不直接暴露 Actuator Bean，保持职责清晰。
     }
 
     // ==================== 基础设施：上下文注入器（启用门面/提供器的 Spring 发现） ====================
