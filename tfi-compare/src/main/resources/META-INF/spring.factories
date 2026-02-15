@@ -1,0 +1,4 @@
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.syy.taskflowinsight.config.ChangeTrackingAutoConfiguration,\
+com.syy.taskflowinsight.config.DeepTrackingAutoConfiguration
+

@@ -1,7 +1,0 @@
-# Spring Boot 3.x 自动配置
-# 注意：Spring Boot 3.x 使用 META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
-# 这里保留spring.factories是为了向后兼容
-
-org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-com.syy.taskflowinsight.config.ContextMonitoringAutoConfiguration,\
-com.syy.taskflowinsight.config.ChangeTrackingAutoConfiguration
