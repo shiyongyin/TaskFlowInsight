@@ -13,9 +13,19 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * TFI演示控制器
- * 
- * 提供快速开始指南中使用的演示端点
+ * TFI 演示控制器。
+ *
+ * <p>提供快速开始指南中使用的 REST 演示端点，用于展示 TFI 在 Web 场景下的用法。
+ *
+ * <p><b>端点概览：</b>
+ * <ul>
+ *   <li>{@code GET /api/demo/hello/{name}} - 简单问候，演示基础 TFI 功能</li>
+ *   <li>{@code POST /api/demo/process} - 处理请求，演示采样率与标签</li>
+ *   <li>{@code POST /api/demo/async} - 异步处理，演示 TFI 上下文传播</li>
+ *   <li>{@code POST /api/demo/async-comparison} - 正确与错误异步用法对比</li>
+ * </ul>
+ *
+ * @since 3.0.0
  */
 @RestController
 @RequestMapping("/api/demo")

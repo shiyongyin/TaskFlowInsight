@@ -11,7 +11,11 @@ import java.math.BigDecimal;
 import java.util.*;
 
 /**
- * 第5章：高级API功能 - 系统控制、任务查询、自定义标签
+ * 第5章：高级 API 功能 - 系统控制、任务查询、自定义标签。
+ *
+ * <p>涵盖动态启用/禁用、任务运行时信息、TaskContext 高级用法、自定义消息标签及分布式追踪场景。
+ *
+ * @since 2.0.0
  */
 public class AdvancedApiChapter implements DemoChapter {
     @Override

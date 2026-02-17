@@ -8,7 +8,12 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * 异步上下文传播演示章节
+ * 第7章：异步上下文传播演示章节。
+ *
+ * <p>演示 SafeContextManager.executeAsync()、TFIAwareExecutor 及手动 wrapRunnable/wrapCallable
+ * 三种异步上下文传播方式，展示 TFI 上下文在异步场景下的连续性。
+ *
+ * @since 2.0.0
  */
 public class AsyncPropagationChapter implements DemoChapter {
     

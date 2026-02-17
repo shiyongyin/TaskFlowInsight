@@ -10,7 +10,11 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * 第1章：快速入门 - 5分钟了解核心功能
+ * 第1章：快速入门 - 5分钟了解核心功能。
+ *
+ * <p>涵盖 TFI.run()、TFI.call()、任务嵌套、带返回值任务及任务报告导出等核心用法。
+ *
+ * @since 2.0.0
  */
 public class QuickStartChapter implements DemoChapter {
     @Override

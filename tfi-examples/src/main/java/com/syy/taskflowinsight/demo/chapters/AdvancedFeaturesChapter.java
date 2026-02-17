@@ -13,7 +13,11 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 第3章：高级特性 - 并发、异常处理、性能优化
+ * 第3章：高级特性 - 并发、异常处理、性能优化。
+ *
+ * <p>涵盖多线程任务追踪、异常恢复、批量任务容错及传统 API 与现代 API 性能对比。
+ *
+ * @since 2.0.0
  */
 public class AdvancedFeaturesChapter implements DemoChapter {
     @Override
@@ -47,9 +51,10 @@ public class AdvancedFeaturesChapter implements DemoChapter {
 
                     Boolean result = TFI.call("用户" + userId + "下单", () -> {
                         TFI.message("用户" + userId + "开始下单", MessageType.PROCESS);
-                        int processTime = 100 + new Random().nextInt(200);
+                        ThreadLocalRandom random = ThreadLocalRandom.current();
+                        int processTime = 100 + random.nextInt(200);
                         DemoUtils.sleep(processTime);
-                        boolean success = new Random().nextDouble() > 0.3; // 70% 成功率
+                        boolean success = random.nextDouble() > 0.3; // 70% 成功率
                         if (success) {
                             String orderId = "ORD-" + System.currentTimeMillis() + "-U" + userId;
                             TFI.message("订单创建成功: " + orderId, MessageType.CHANGE);
@@ -125,7 +130,7 @@ public class AdvancedFeaturesChapter implements DemoChapter {
                 TFI.run("验证订单", () -> TFI.message("订单格式验证通过", MessageType.PROCESS));
                 TFI.run("支付处理", () -> {
                     TFI.message("调用支付网关", MessageType.PROCESS);
-                    if (new Random().nextDouble() > 0.5) {
+                    if (ThreadLocalRandom.current().nextDouble() > 0.5) {
                         throw new RuntimeException("支付网关超时");
                     }
                     TFI.message("支付成功", MessageType.CHANGE);
@@ -164,7 +169,7 @@ public class AdvancedFeaturesChapter implements DemoChapter {
                 try {
                     Boolean result = TFI.call("处理-" + taskName, () -> {
                         TFI.message("开始处理: " + taskName, MessageType.PROCESS);
-                        if (new Random().nextDouble() > 0.6) {
+                        if (ThreadLocalRandom.current().nextDouble() > 0.6) {
                             throw new RuntimeException(taskName + " 处理异常");
                         }
                         TFI.message(taskName + " 处理成功", MessageType.CHANGE);

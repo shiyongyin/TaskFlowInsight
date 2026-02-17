@@ -10,21 +10,26 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * 变更追踪功能演示章节
- * 
- * 演示内容：
- * 1. 显式API方式：TFI.start() → track() → mutate → stop()
- * 2. 便捷API方式：TFI.withTracked()
- * 3. 展示Console和JSON格式的CHANGE输出
- * 
+ * 第6章：变更追踪功能演示章节。
+ *
+ * <p>演示内容：
+ * <ul>
+ *   <li>显式 API 方式：TFI.start() → track() → mutate → stop()</li>
+ *   <li>便捷 API 方式：TFI.withTracked()</li>
+ *   <li>展示 Console 和 JSON 格式的 CHANGE 输出</li>
+ * </ul>
+ *
  * @author TaskFlow Insight Team
  * @version 2.0.0
- * @since 2025-01-10
+ * @since 2.0.0
  */
 public class ChangeTrackingChapter implements DemoChapter {
     
     /**
-     * 演示用订单模型（内联最小化版本）
+     * 演示用订单模型（内联最小化版本）。
+     *
+     * <p>不使用共享 {@code model.Order} 的原因：本章需要 {@code createdAt}
+     * 和 {@code customerName} 等共享模型未包含的字段来演示多字段追踪。</p>
      */
     static class DemoOrder {
         private String orderId;

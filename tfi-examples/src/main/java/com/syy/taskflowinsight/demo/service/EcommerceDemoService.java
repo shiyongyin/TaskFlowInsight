@@ -9,18 +9,28 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 电商业务示例服务：封装演示用的订单流程逻辑与模拟数据。
  *
- * 说明：本类包含 TFI 的消息记录调用，用于演示教学；
- * 生产环境中可考虑在调用层记录，保持服务层纯粹。
+ * <p>本类包含 TFI 的消息记录调用，用于演示教学；
+ * 生产环境中可考虑在调用层记录，保持服务层纯粹。</p>
+ *
+ * <p><b>线程安全</b>：所有静态共享状态均使用 {@link ConcurrentHashMap}
+ * 和 {@link AtomicInteger}，随机数使用 {@link ThreadLocalRandom}。</p>
+ *
+ * @since 2.0.0
  */
 public class EcommerceDemoService {
-    // 模拟数据（线程安全）
+
+    /** 模拟库存（线程安全）。 */
     private static final Map<String, Integer> INVENTORY = new ConcurrentHashMap<>();
-    private static final Map<String, BigDecimal> PRODUCT_PRICES = new HashMap<>();
+
+    /** 模拟商品价格（线程安全）。 */
+    private static final Map<String, BigDecimal> PRODUCT_PRICES = new ConcurrentHashMap<>();
+
     private static final AtomicInteger ORDER_ID_GENERATOR = new AtomicInteger(1000);
 
     static {
@@ -36,7 +46,7 @@ public class EcommerceDemoService {
     public Order createSampleOrder() {
         Order order = new Order();
         order.setOrderId("ORD-" + ORDER_ID_GENERATOR.incrementAndGet());
-        order.setUserId("USER-" + (1000 + new Random().nextInt(100)));
+        order.setUserId("USER-" + (1000 + ThreadLocalRandom.current().nextInt(100)));
         Map<String, Integer> items = new HashMap<>();
         items.put("iPhone 15 Pro", 1);
         items.put("AirPods Pro", 2);

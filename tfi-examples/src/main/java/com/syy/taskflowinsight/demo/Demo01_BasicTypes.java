@@ -36,6 +36,7 @@ import java.math.BigDecimal;
  *
  * @author TaskFlow Insight Team
  * @version 2.1.0
+ * @since 2.0.0
  */
 public class Demo01_BasicTypes {
 
@@ -52,7 +53,7 @@ public class Demo01_BasicTypes {
         // 📌 原始类型
         private int intValue = 100;
         private long longValue = 1000L;
-        private double doubleValue = 3.14159;
+        private double doubleValue = Math.PI;
         private boolean booleanValue = true;
         private String stringValue = "Hello TaskFlowInsight";
         private Status enumValue = Status.PENDING;

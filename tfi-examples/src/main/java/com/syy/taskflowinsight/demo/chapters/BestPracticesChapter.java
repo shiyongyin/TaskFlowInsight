@@ -11,7 +11,11 @@ import java.math.BigDecimal;
 import java.util.*;
 
 /**
- * 第4章：最佳实践 - API选择指南和使用建议
+ * 第4章：最佳实践 - API 选择指南和使用建议。
+ *
+ * <p>涵盖 TFI.run()/call()/传统 API 的选用场景、消息类型使用、嵌套深度控制及导出格式选择。
+ *
+ * @since 2.0.0
  */
 public class BestPracticesChapter implements DemoChapter {
     @Override

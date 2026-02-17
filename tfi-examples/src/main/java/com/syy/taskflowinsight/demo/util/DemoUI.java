@@ -5,8 +5,13 @@ import java.util.List;
 /**
  * 控制台展示工具：统一演示头、菜单、章节分隔与摘要等输出格式。
  *
- * 注意：演示模块为教学示例，刻意使用 System.out 打印到控制台，
+ * <p>提供 {@link #printHeader()}、{@link #printMenu()}、{@link #printChapterHeader(int, String, String)}
+ * 等方法，用于 TFI 演示程序的控制台交互式展示。
+ *
+ * <p><b>注意：</b>演示模块为教学示例，刻意使用 {@code System.out} 打印到控制台，
  * 以便阅读与录屏展示；生产代码请使用 SLF4J 日志接口进行记录。
+ *
+ * @since 2.0.0
  */
 public final class DemoUI {
     private DemoUI() {}
@@ -30,7 +35,9 @@ public final class DemoUI {
         System.out.println("4. 最佳实践 - API选择指南和使用建议");
         System.out.println("5. 高级API功能 - 系统控制、任务查询、自定义标签");
         System.out.println("6. 变更追踪功能 - 对象字段变更的自动追踪与记录");
-        System.out.println("7. 运行完整演示 (自动运行所有章节)");
+        System.out.println("7. 异步上下文传播 - 异步场景下自动传播TFI上下文");
+        System.out.println("8. 对象比对入门 - 使用TFI.compare()检测对象差异");
+        System.out.println("9. 运行完整演示 (自动运行所有章节)");
         System.out.println("0. 退出");
         System.out.println("h. 查看代码路径与目录结构");
         System.out.println("=".repeat(60));
@@ -86,6 +93,8 @@ public final class DemoUI {
         System.out.println("chapters/BestPracticesChapter.java    # 第4章：最佳实践");
         System.out.println("chapters/AdvancedApiChapter.java      # 第5章：高级API功能");
         System.out.println("chapters/ChangeTrackingChapter.java   # 第6章：变更追踪功能");
+        System.out.println("chapters/AsyncPropagationChapter.java # 第7章：异步上下文传播");
+        System.out.println("chapters/CompareQuickStartChapter.java# 第8章：对象比对入门");
         System.out.println("service/EcommerceDemoService.java     # 电商示例业务逻辑");
         System.out.println("model/Order.java                      # 订单模型");
         System.out.println("model/UserOrderResult.java            # 并发下单结果");

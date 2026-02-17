@@ -6,15 +6,20 @@ import com.syy.taskflowinsight.tracking.detector.DiffDetector;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshotDeep;
 import com.syy.taskflowinsight.tracking.snapshot.SnapshotConfig;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
- * Test scenario 7 sorting behavior specifically
+ * 验证深度快照 diff 的排序行为（按字段深度升序）。
+ *
+ * @since 3.0.0
  */
-public class Demo03Scenario7SortingTest {
+class Demo03Scenario7SortingTest {
 
     @ValueObject
     public static class Address {
@@ -73,8 +78,8 @@ public class Demo03Scenario7SortingTest {
     }
 
     @Test
-    public void testScenario7Sorting() {
-        // Recreate exact scenario 7 from Demo03
+    @DisplayName("深度快照 diff 结果按 depth 升序排列")
+    void testScenario7Sorting() {
         Department dept1 = new Department("DEPT001", "Engineering");
         Department dept2 = new Department("DEPT001", "Software Engineering");
 
@@ -100,49 +105,24 @@ public class Demo03Scenario7SortingTest {
 
         List<ChangeRecord> changes = DiffDetector.diff("Department", snapshot1, snapshot2);
 
-        System.out.println("=== Scenario 7 Sorting Test ===");
-        System.out.println("Expected order:");
-        System.out.println("1. deptName (depth 0)");
-        System.out.println("2. parentCompany.companyName (depth 1)");
-        System.out.println("3. parentCompany.headOfficeAddress.* (depth 2)");
+        assertThat(changes).as("应检测到变更").isNotEmpty();
 
-        System.out.println("\nActual order:");
-        for (int i = 0; i < changes.size(); i++) {
-            ChangeRecord change = changes.get(i);
-            int depth = countDots(change.getFieldName());
-            System.out.printf("%d. %s (depth %d): %s → %s%n",
-                i + 1,
-                change.getFieldName(),
-                depth,
-                change.getOldValue(),
-                change.getNewValue());
-        }
-
-        // Verify the sorting is by depth first
-        if (changes.size() >= 2) {
-            String first = changes.get(0).getFieldName();
-            String second = changes.get(1).getFieldName();
-
-            System.out.println("\nVerifying depth order:");
-            System.out.println("First: " + first + " (depth " + countDots(first) + ")");
-            System.out.println("Second: " + second + " (depth " + countDots(second) + ")");
-
-            if (countDots(first) <= countDots(second)) {
-                System.out.println("✅ Depth sorting is working!");
-            } else {
-                System.out.println("❌ Depth sorting is NOT working!");
-            }
+        // 验证按深度排序
+        for (int i = 1; i < changes.size(); i++) {
+            int prevDepth = countDots(changes.get(i - 1).getFieldName());
+            int currDepth = countDots(changes.get(i).getFieldName());
+            assertThat(prevDepth).as("变更 %d 的深度不应大于变更 %d 的深度", i - 1, i)
+                    .isLessThanOrEqualTo(currDepth);
         }
     }
 
     @Test
-    public void testScenario7SortingWithoutEnhancedDeduplication() {
-        // Temporarily disable enhanced deduplication to test if it's causing the ordering issue
+    @DisplayName("关闭增强去重后深度排序仍然正确")
+    void testSortingWithoutEnhancedDeduplication() {
         boolean originalSetting = DiffDetector.isEnhancedDeduplicationEnabled();
         DiffDetector.setEnhancedDeduplicationEnabled(false);
 
         try {
-            // Recreate exact scenario 7 from Demo03
             Department dept1 = new Department("DEPT001", "Engineering");
             Department dept2 = new Department("DEPT001", "Software Engineering");
 
@@ -168,41 +148,14 @@ public class Demo03Scenario7SortingTest {
 
             List<ChangeRecord> changes = DiffDetector.diff("Department", snapshot1, snapshot2);
 
-            System.out.println("=== Scenario 7 Without Enhanced Deduplication ==");
-            System.out.println("Expected order:");
-            System.out.println("1. deptName (depth 0)");
-            System.out.println("2. parentCompany.companyName (depth 1)");
-            System.out.println("3. parentCompany.headOfficeAddress.* (depth 2)");
+            assertThat(changes).as("应检测到变更").isNotEmpty();
 
-            System.out.println("\nActual order:");
-            for (int i = 0; i < changes.size(); i++) {
-                ChangeRecord change = changes.get(i);
-                int depth = countDots(change.getFieldName());
-                System.out.printf("%d. %s (depth %d): %s → %s%n",
-                    i + 1,
-                    change.getFieldName(),
-                    depth,
-                    change.getOldValue(),
-                    change.getNewValue());
-            }
-
-            // Verify the sorting is by depth first
-            if (changes.size() >= 2) {
-                String first = changes.get(0).getFieldName();
-                String second = changes.get(1).getFieldName();
-
-                System.out.println("\nVerifying depth order:");
-                System.out.println("First: " + first + " (depth " + countDots(first) + ")");
-                System.out.println("Second: " + second + " (depth " + countDots(second) + ")");
-
-                if (countDots(first) <= countDots(second)) {
-                    System.out.println("✅ Depth sorting is working without enhanced deduplication!");
-                } else {
-                    System.out.println("❌ Depth sorting is NOT working even without enhanced deduplication!");
-                }
+            for (int i = 1; i < changes.size(); i++) {
+                int prevDepth = countDots(changes.get(i - 1).getFieldName());
+                int currDepth = countDots(changes.get(i).getFieldName());
+                assertThat(prevDepth).isLessThanOrEqualTo(currDepth);
             }
         } finally {
-            // Restore original setting
             DiffDetector.setEnhancedDeduplicationEnabled(originalSetting);
         }
     }

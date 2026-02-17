@@ -2,6 +2,9 @@ package com.syy.taskflowinsight.demo;
 
 import com.syy.taskflowinsight.annotation.*;
 import com.syy.taskflowinsight.api.TFI;
+import com.syy.taskflowinsight.demo.model.Address;
+import com.syy.taskflowinsight.demo.model.Supplier;
+import com.syy.taskflowinsight.demo.model.Warehouse;
 import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
@@ -35,142 +38,6 @@ import java.util.stream.Collectors;
  * @since v3.0.0
  */
 public class Demo06_SetCollectionEntities {
-
-    // ========== ValueObject: 地址 ==========
-    @ValueObject
-    public static class Address {
-        private String city;
-        private String state;
-        private String street;
-
-        public Address(String city, String state, String street) {
-            this.city = city;
-            this.state = state;
-            this.street = street;
-        }
-
-        public String getCity() { return city; }
-        public void setCity(String city) { this.city = city; }
-        public String getState() { return state; }
-        public void setState(String state) { this.state = state; }
-        public String getStreet() { return street; }
-        public void setStreet(String street) { this.street = street; }
-
-        @Override
-        public String toString() {
-            return String.format("{city=\"%s\", state=\"%s\", street=\"%s\"}",
-                city, state, street);
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Address address = (Address) o;
-            return Objects.equals(city, address.city) &&
-                   Objects.equals(state, address.state) &&
-                   Objects.equals(street, address.street);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(city, state, street);
-        }
-    }
-
-    // ========== Entity: 供应商（用于深度比较） ==========
-    @Entity(name = "Supplier")
-    public static class Supplier {
-        @Key
-        private Long supplierId;
-
-        private String name;
-        private String city;
-        private String state;
-
-        public Supplier(Long supplierId, String name, String city, String state) {
-            this.supplierId = supplierId;
-            this.name = name;
-            this.city = city;
-            this.state = state;
-        }
-
-        public Long getSupplierId() { return supplierId; }
-        public void setSupplierId(Long supplierId) { this.supplierId = supplierId; }
-        public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
-        public String getCity() { return city; }
-        public void setCity(String city) { this.city = city; }
-        public String getState() { return state; }
-        public void setState(String state) { this.state = state; }
-
-        @Override
-        public String toString() {
-            return String.format("{id=%d, name=\"%s\", city=\"%s\", state=\"%s\"}",
-                supplierId, name, city, state);
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Supplier supplier = (Supplier) o;
-            return Objects.equals(supplierId, supplier.supplierId);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(supplierId);
-        }
-    }
-
-    // ========== Entity: 仓库（联合主键，用于ShallowReference） ==========
-    @Entity(name = "Warehouse")
-    public static class Warehouse {
-        @Key
-        private Long warehouseId;
-        @Key
-        private String regionCode;
-
-        private String location;
-        private Integer capacity;
-
-        public Warehouse(Long warehouseId, String regionCode, String location, Integer capacity) {
-            this.warehouseId = warehouseId;
-            this.regionCode = regionCode;
-            this.location = location;
-            this.capacity = capacity;
-        }
-
-        public Long getWarehouseId() { return warehouseId; }
-        public void setWarehouseId(Long warehouseId) { this.warehouseId = warehouseId; }
-        public String getRegionCode() { return regionCode; }
-        public void setRegionCode(String regionCode) { this.regionCode = regionCode; }
-        public String getLocation() { return location; }
-        public void setLocation(String location) { this.location = location; }
-        public Integer getCapacity() { return capacity; }
-        public void setCapacity(Integer capacity) { this.capacity = capacity; }
-
-        @Override
-        public String toString() {
-            return String.format("{id=%d, regionCode=\"%s\", location=\"%s\", capacity=%d}",
-                warehouseId, regionCode, location, capacity);
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Warehouse warehouse = (Warehouse) o;
-            return Objects.equals(warehouseId, warehouse.warehouseId) &&
-                   Objects.equals(regionCode, warehouse.regionCode);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(warehouseId, regionCode);
-        }
-    }
 
     // ========== Entity: 增强版产品 ==========
     @Entity(name = "Product")

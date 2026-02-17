@@ -1,39 +1,36 @@
 package com.syy.taskflowinsight.demo;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+
 /**
- * Execution test for Demo06 and Demo07 to verify they run without errors
+ * Demo06 / Demo07 冒烟测试：验证 main() 能完整执行不抛异常。
+ *
+ * @since 3.0.0
  */
-class jDemo06And07ExecutionTest {
+class Demo06And07ExecutionTest {
 
     @Test
+    @DisplayName("Demo06_SetCollectionEntities.main() 执行无异常")
     void testDemo06Execution() {
-        // Redirect System.out to avoid cluttering test output
         java.io.PrintStream originalOut = System.out;
         try {
             System.setOut(new java.io.PrintStream(new java.io.ByteArrayOutputStream()));
-
-            // Run Demo06
-            Demo06_SetCollectionEntities.main(new String[0]);
-
-            // If we get here, the demo ran successfully
+            assertDoesNotThrow(() -> Demo06_SetCollectionEntities.main(new String[0]));
         } finally {
             System.setOut(originalOut);
         }
     }
 
     @Test
+    @DisplayName("Demo07_MapCollectionEntities.main() 执行无异常")
     void testDemo07Execution() {
-        // Redirect System.out to avoid cluttering test output
         java.io.PrintStream originalOut = System.out;
         try {
             System.setOut(new java.io.PrintStream(new java.io.ByteArrayOutputStream()));
-
-            // Run Demo07
-            Demo07_MapCollectionEntities.main(new String[0]);
-
-            // If we get here, the demo ran successfully
+            assertDoesNotThrow(() -> Demo07_MapCollectionEntities.main(new String[0]));
         } finally {
             System.setOut(originalOut);
         }
