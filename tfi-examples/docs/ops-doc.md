@@ -2,8 +2,10 @@
 
 > **作者**: 资深运维专家  
 > **日期**: 2026-02-16  
-> **版本**: v1.0  
+> **最后更新**: 2026-02-18（v2.1: Ch9/Ch10 运维影响 + 跨文档一致性）  
+> **版本**: v2.1  
 > **范围**: 仅 tfi-examples 模块  
+> **SSOT 数据源**: [index.md §0](index.md#0-ssot-关键指标速查)  
 > **整体项目运维文档**: [project-overview/ops-doc.md](project-overview/ops-doc.md)
 
 ---
@@ -27,6 +29,35 @@
 
 ## 1. 模块运维概述
 
+### 运维架构图
+
+```mermaid
+graph TB
+    subgraph "tfi-examples 运行时"
+        SB["Spring Boot<br/>:19090"]
+        CLI["CLI Demo<br/>exec:java"]
+    end
+
+    subgraph "监控端点"
+        ACT["/actuator/taskflow"]
+        HEALTH["/actuator/health"]
+        METRICS["/actuator/metrics"]
+        PROM["/actuator/prometheus"]
+    end
+
+    subgraph "REST API"
+        API1["GET /api/demo/hello/{name}"]
+        API2["POST /api/demo/process"]
+        API3["POST /api/demo/async"]
+        API4["POST /api/demo/async-comparison"]
+    end
+
+    SB --> ACT & HEALTH & METRICS & PROM
+    SB --> API1 & API2 & API3 & API4
+    CLI --> |"无网络依赖"| TFI["TFI Facade"]
+    SB --> TFI
+```
+
 `tfi-examples` 是 TFI 的演示应用，运维定位为 **开发/演示环境专用**，非生产服务。
 
 | 维度 | 说明 |
@@ -36,6 +67,8 @@
 | 部署模式 | 独立运行或容器化 |
 | 数据存储 | 无（纯内存） |
 | 外部依赖 | 无（自包含） |
+| 源文件规模 | 38 个 Java 文件, ~7,100 行 |
+| 测试规模 | 17 个测试文件, ~2,080 行 |
 
 ---
 
@@ -90,7 +123,7 @@ Actuator: `http://localhost:19090/actuator/health`
   -Dexec.mainClass="com.syy.taskflowinsight.demo.TaskFlowInsightDemo" \
   -Dexec.args="1"
 
-# 运行全部章节
+# 运行全部 10 章
 ./mvnw exec:java -pl tfi-examples \
   -Dexec.mainClass="com.syy.taskflowinsight.demo.TaskFlowInsightDemo" \
   -Dexec.args="all"
@@ -190,33 +223,35 @@ SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run -pl tfi-examples
 
 ### 5.1 端点清单
 
-| 端点 | 方法 | 参数 | 说明 |
-|------|------|------|------|
-| `/api/hello` | GET | name (query, 可选) | 问候演示 |
-| `/api/process` | POST | Map JSON body | 订单处理演示 |
-| `/api/async` | POST | Map JSON body | 异步演示 |
-| `/api/async-comparison` | POST | Map JSON body | 异步比较演示 |
+| 端点 | 方法 | 参数 | 说明 | 测试覆盖 |
+|------|------|------|------|:--------:|
+| `/api/demo/hello/{name}` | GET | name (路径) | 问候演示 | ✅ |
+| `/api/demo/process` | POST | Map JSON body | 订单处理演示 | ✅ |
+| `/api/demo/async` | POST | Map JSON body | 异步演示 | ✅ |
+| `/api/demo/async-comparison` | POST | Map JSON body | 异步比较演示 | ✅ |
+
+> **改善**: 全部 4 个端点已被 DemoControllerTest (MockMvc) 覆盖。
 
 ### 5.2 调用示例
 
 ```bash
 # hello
-curl http://localhost:19090/api/hello?name=TFI
+curl http://localhost:19090/api/demo/hello/TFI
 
 # process
-curl -X POST http://localhost:19090/api/process \
+curl -X POST http://localhost:19090/api/demo/process \
   -H 'Content-Type: application/json' \
-  -d '{"orderId":"ORD-001","amount":299.00}'
+  -d '{"data":"test-payload"}'
 
 # async
-curl -X POST http://localhost:19090/api/async \
+curl -X POST http://localhost:19090/api/demo/async \
   -H 'Content-Type: application/json' \
-  -d '{"task":"demo"}'
+  -d '{"data":"demo"}'
 ```
 
 ### 5.3 安全警告
 
-> ⚠️ **DemoController 端点无认证、无限流、无输入校验**，仅适用于演示环境。严禁在公网暴露。
+> **DemoController 端点无认证、无限流、无输入校验**，仅适用于演示环境。严禁在公网暴露。
 
 ---
 
@@ -262,20 +297,6 @@ scrape_configs:
 ```bash
 # 快速检查
 curl -s localhost:19090/actuator/health | python3 -m json.tool
-
-# 预期:
-# {
-#   "status": "UP",
-#   "components": {
-#     "tfi": {
-#       "status": "UP",
-#       "details": {
-#         "healthScore": 95,
-#         "trackedObjects": 0
-#       }
-#     }
-#   }
-# }
 ```
 
 ---
@@ -316,13 +337,6 @@ curl -s localhost:19090/actuator/health | python3 -m json.tool
 MAVEN_OPTS="-Xmx2g -XX:+UseG1GC" \
   ./mvnw -P bench exec:java -pl tfi-examples ...
 ```
-
-### 7.4 结果输出
-
-| Runner | 输出路径 |
-|--------|----------|
-| TfiRoutingBenchmarkRunner | `docs/task/v4.0.0/baseline/tfi_routing_enabled.json` |
-| SpiBenchmarkRunner | 可配置 `-Dspi.perf.out=path` |
 
 ---
 
@@ -404,7 +418,7 @@ curl -X POST localhost:19090/actuator/loggers/com.syy.taskflowinsight \
 
 | 维度 | 评分 | 说明 |
 |------|:----:|------|
-| REST 端点认证 | **1/10** | **无任何认证** |
+| REST 端点认证 | **1/10** | **无任何认证（Demo 定位可接受）** |
 | 输入校验 | **2/10** | **直接接收 Map，无校验** |
 | 限流 | **1/10** | **无限流** |
 | 敏感字段保护 | 8/10 | exclude-patterns 完善 |
@@ -468,10 +482,11 @@ curl -X POST localhost:19090/actuator/loggers/com.syy.taskflowinsight \
 | 维度 | 评分 | 说明 |
 |------|:----:|------|
 | 构建可重复性 | 9/10 | Maven 构建稳定 |
-| 启动文档 | 5/10 | 5 种方式但未统一文档 |
+| 启动文档 | 7/10 | 5 种方式已文档化 |
 | 配置完整性 | 9/10 | YAML 详尽，Profile 分离 |
-| **端点安全** | **2/10** | **无认证/限流/校验** |
+| **端点安全** | **2/10** | **无认证/限流/校验（Demo 定位可接受）** |
 | 监控集成 | 7/10 | Actuator + Prometheus |
 | 基准测试运维 | 7/10 | JMH 可用，缺自动化报告 |
-| 容器化 | 0/10 | 无 Dockerfile |
-| **综合** | **5.6/10** | **Demo 定位，需标注非生产用途** |
+| 测试覆盖 | 7/10 | 4 端点 + 10 章节已覆盖 |
+| 容器化 | 0/10 | 无 Dockerfile（推荐方案已提供） |
+| **综合** | **5.9/10** | **Demo 定位，整体可用** |

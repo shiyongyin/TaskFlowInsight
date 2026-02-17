@@ -5,12 +5,14 @@ import com.syy.taskflowinsight.core.TfiCore;
 import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.demo.chapters.AdvancedApiChapter;
 import com.syy.taskflowinsight.demo.chapters.AdvancedFeaturesChapter;
+import com.syy.taskflowinsight.demo.chapters.AnnotationSystemChapter;
 import com.syy.taskflowinsight.demo.chapters.AsyncPropagationChapter;
 import com.syy.taskflowinsight.demo.chapters.BestPracticesChapter;
 import com.syy.taskflowinsight.demo.chapters.BusinessScenarioChapter;
 import com.syy.taskflowinsight.demo.chapters.ChangeTrackingChapter;
 import com.syy.taskflowinsight.demo.chapters.CompareQuickStartChapter;
 import com.syy.taskflowinsight.demo.chapters.QuickStartChapter;
+import com.syy.taskflowinsight.demo.chapters.SpringIntegrationChapter;
 import com.syy.taskflowinsight.demo.core.DemoChapter;
 import com.syy.taskflowinsight.demo.core.DemoRegistry;
 import com.syy.taskflowinsight.demo.util.DemoUI;
@@ -50,14 +52,16 @@ TaskFlowInsightDemo {
                 .register(new AdvancedApiChapter())
                 .register(new ChangeTrackingChapter())
                 .register(new AsyncPropagationChapter())
-                .register(new CompareQuickStartChapter());
+                .register(new CompareQuickStartChapter())
+                .register(new AnnotationSystemChapter())
+                .register(new SpringIntegrationChapter());
 
         try {
             // 手动初始化TfiCore以支持独立运行
             initializeTfiCore();
             TFI.enable();
 
-            // 支持命令行直达：1..7 | all | help
+            // 支持命令行直达：1..10 | all | help
             if (args != null && args.length > 0) {
                 String arg = args[0].trim().toLowerCase();
                 if ("help".equals(arg)) {
@@ -66,7 +70,7 @@ TaskFlowInsightDemo {
                 } else if ("all".equals(arg)) {
                     runAll(registry);
                     return;
-                } else if (arg.matches("[1-8]")) {
+                } else if (arg.matches("([1-9]|10)")) {
                     int n = Integer.parseInt(arg);
                     Optional<DemoChapter> ch = registry.find(n);
                     ch.ifPresent(DemoChapter::run);
@@ -91,7 +95,9 @@ TaskFlowInsightDemo {
                         case "6": registry.find(6).ifPresent(DemoChapter::run); break;
                         case "7": registry.find(7).ifPresent(DemoChapter::run); break;
                         case "8": registry.find(8).ifPresent(DemoChapter::run); break;
-                        case "9": runAll(registry); break;
+                        case "9": registry.find(9).ifPresent(DemoChapter::run); break;
+                        case "10": registry.find(10).ifPresent(DemoChapter::run); break;
+                        case "11": runAll(registry); break;
                         case "h":
                         case "H":
                             DemoUI.printCodeMap();
@@ -104,7 +110,8 @@ TaskFlowInsightDemo {
                             System.out.println("无效选择，请重新输入。");
                     }
                     if (!exit && !"5".equals(choice) && !"6".equals(choice)
-                            && !"7".equals(choice) && !"8".equals(choice)) {
+                            && !"7".equals(choice) && !"8".equals(choice)
+                            && !"9".equals(choice) && !"10".equals(choice)) {
                         DemoUI.pauseForEnter();
                     }
                 }
@@ -132,15 +139,17 @@ TaskFlowInsightDemo {
     }
 
     private static void printUsage() {
-        System.out.println("用法: TaskFlowInsightDemo [1|2|3|4|5|6|7|8|all|help]");
-        System.out.println("  1: 快速入门");
-        System.out.println("  2: 实际业务场景");
-        System.out.println("  3: 高级特性");
-        System.out.println("  4: 最佳实践");
-        System.out.println("  5: 高级API功能");
-        System.out.println("  6: 变更追踪功能");
-        System.out.println("  7: 异步上下文传播");
-        System.out.println("  8: 对象比对入门");
+        System.out.println("用法: TaskFlowInsightDemo [1|2|...|10|all|help]");
+        System.out.println("  1:  快速入门");
+        System.out.println("  2:  实际业务场景");
+        System.out.println("  3:  高级特性");
+        System.out.println("  4:  最佳实践");
+        System.out.println("  5:  高级API功能");
+        System.out.println("  6:  变更追踪功能");
+        System.out.println("  7:  异步上下文传播");
+        System.out.println("  8:  对象比对入门");
+        System.out.println("  9:  注解系统");
+        System.out.println("  10: Spring 集成");
         System.out.println("  all: 依次运行所有章节");
         System.out.println("  help: 显示帮助");
         System.out.println();

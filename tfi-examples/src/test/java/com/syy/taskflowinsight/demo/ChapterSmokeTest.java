@@ -1,7 +1,16 @@
 package com.syy.taskflowinsight.demo;
 
 import com.syy.taskflowinsight.api.TFI;
-import com.syy.taskflowinsight.demo.chapters.*;
+import com.syy.taskflowinsight.demo.chapters.AdvancedApiChapter;
+import com.syy.taskflowinsight.demo.chapters.AdvancedFeaturesChapter;
+import com.syy.taskflowinsight.demo.chapters.AnnotationSystemChapter;
+import com.syy.taskflowinsight.demo.chapters.AsyncPropagationChapter;
+import com.syy.taskflowinsight.demo.chapters.BestPracticesChapter;
+import com.syy.taskflowinsight.demo.chapters.BusinessScenarioChapter;
+import com.syy.taskflowinsight.demo.chapters.ChangeTrackingChapter;
+import com.syy.taskflowinsight.demo.chapters.CompareQuickStartChapter;
+import com.syy.taskflowinsight.demo.chapters.QuickStartChapter;
+import com.syy.taskflowinsight.demo.chapters.SpringIntegrationChapter;
 import com.syy.taskflowinsight.demo.core.DemoChapter;
 import com.syy.taskflowinsight.demo.core.DemoRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -37,7 +46,9 @@ class ChapterSmokeTest {
                 .register(new AdvancedApiChapter())
                 .register(new ChangeTrackingChapter())
                 .register(new AsyncPropagationChapter())
-                .register(new CompareQuickStartChapter());
+                .register(new CompareQuickStartChapter())
+                .register(new AnnotationSystemChapter())
+                .register(new SpringIntegrationChapter());
 
         // 静默控制台输出
         originalOut = System.out;
@@ -51,7 +62,7 @@ class ChapterSmokeTest {
     }
 
     @ParameterizedTest(name = "第 {0} 章应无异常运行")
-    @ValueSource(ints = {1, 2, 3, 4, 5, 6, 7, 8})
+    @ValueSource(ints = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
     @DisplayName("章节冒烟测试")
     void chapterShouldRunWithoutException(int chapterNumber) {
         DemoChapter chapter = registry.find(chapterNumber).orElseThrow(
