@@ -1,0 +1,68 @@
+{
+  "properties": [
+    {
+      "name": "tfi.annotation.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable TFI annotation processing (@TfiTask AOP aspect)."
+    },
+    {
+      "name": "tfi.context.max-age-millis",
+      "type": "java.lang.Long",
+      "defaultValue": 3600000,
+      "description": "Maximum age of context entries in milliseconds (default: 1 hour)."
+    },
+    {
+      "name": "tfi.context.leak-detection-enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable leak detection for context entries. Recommended for production with thread pools."
+    },
+    {
+      "name": "tfi.context.leak-detection-interval-millis",
+      "type": "java.lang.Long",
+      "defaultValue": 60000,
+      "description": "Interval between leak detection checks in milliseconds."
+    },
+    {
+      "name": "tfi.context.cleanup-enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enable automatic cleanup of expired context entries. Recommended for thread-pool-intensive environments."
+    },
+    {
+      "name": "tfi.context.cleanup-interval-millis",
+      "type": "java.lang.Long",
+      "defaultValue": 60000,
+      "description": "Interval between cleanup operations in milliseconds."
+    },
+    {
+      "name": "tfi.security.spel-max-length",
+      "type": "java.lang.Integer",
+      "defaultValue": 1000,
+      "description": "Maximum allowed SpEL expression length. Expressions exceeding this limit are rejected."
+    },
+    {
+      "name": "tfi.security.spel-max-nesting",
+      "type": "java.lang.Integer",
+      "defaultValue": 10,
+      "description": "Maximum allowed bracket nesting depth in SpEL expressions."
+    },
+    {
+      "name": "tfi.security.spel-cache-max-size",
+      "type": "java.lang.Integer",
+      "defaultValue": 500,
+      "description": "Maximum number of compiled SpEL expressions to cache (LRU eviction)."
+    },
+    {
+      "name": "tfi.security.spel-blocked-patterns",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "Blocked keyword patterns in SpEL expressions. Expressions containing any of these patterns are rejected."
+    },
+    {
+      "name": "tfi.security.sensitive-keywords",
+      "type": "java.util.Set<java.lang.String>",
+      "description": "Sensitive field name keywords for data masking. Fields matching any keyword will be automatically masked."
+    }
+  ]
+}
