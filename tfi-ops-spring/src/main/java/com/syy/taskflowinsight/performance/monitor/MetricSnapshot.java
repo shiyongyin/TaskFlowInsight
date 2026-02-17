@@ -4,12 +4,14 @@ import lombok.Builder;
 import lombok.Data;
 
 /**
- * 性能指标快照
- * 记录某一时刻的性能指标数据
- * 
+ * 性能指标快照 DTO。
+ * <p>
+ * 记录某一时刻的性能指标数据，使用 Lombok {@code @Builder} 构建。
+ * 字段包括：操作数、成功率、延迟分位数（P50/P95/P99）、吞吐量等。
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.1
- * @since 2025-01-13
+ * @version 3.0.0
+ * @since 3.0.0
  */
 @Data
 @Builder
@@ -27,7 +29,9 @@ public class MetricSnapshot {
     private double p99Micros;
     
     /**
-     * 获取错误率
+     * 获取错误率。
+     *
+     * @return 错误率（0-1），无操作时返回 0
      */
     public double getErrorRate() {
         if (totalOps == 0) return 0;
@@ -35,7 +39,9 @@ public class MetricSnapshot {
     }
     
     /**
-     * 获取成功率
+     * 获取成功率。
+     *
+     * @return 成功率（0-1），无操作时返回 0
      */
     public double getSuccessRate() {
         if (totalOps == 0) return 0;
@@ -43,7 +49,9 @@ public class MetricSnapshot {
     }
     
     /**
-     * 获取吞吐量（ops/s）
+     * 获取吞吐量（基于 P50 计算）。
+     *
+     * @return 吞吐量（ops/s），P50 为 0 时返回 0
      */
     public double getThroughput() {
         if (p50Micros == 0) return 0;
@@ -51,7 +59,11 @@ public class MetricSnapshot {
     }
     
     /**
-     * 创建空快照
+     * 创建空快照。
+     *
+     * @param name 指标名称
+     * @param timestamp 时间戳（毫秒）
+     * @return 全零的空快照
      */
     public static MetricSnapshot empty(String name, long timestamp) {
         return builder()
@@ -69,7 +81,9 @@ public class MetricSnapshot {
     }
     
     /**
-     * 格式化输出
+     * 格式化输出。
+     *
+     * @return 包含 ops、success、p50、p95、p99、throughput 的字符串
      */
     public String format() {
         return String.format(

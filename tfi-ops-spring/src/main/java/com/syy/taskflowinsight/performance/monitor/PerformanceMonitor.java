@@ -11,23 +11,24 @@ import java.lang.management.MemoryMXBean;
 import java.lang.management.ThreadMXBean;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * 实时性能监控器
- * 提供实时性能指标收集、监控和告警
- * 
+ * 实时性能监控器。
+ * <p>
+ * 提供实时性能指标收集、SLA 监控和告警。
+ * <p>
  * 核心功能：
- * - 实时指标收集（TPS、延迟、内存、CPU）
- * - 性能SLA监控
- * - 告警触发机制
- * - 指标聚合和报告
- * 
+ * <ul>
+ *   <li>实时指标收集（TPS、延迟、内存、CPU）</li>
+ *   <li>性能 SLA 监控</li>
+ *   <li>告警触发机制</li>
+ *   <li>指标聚合和报告</li>
+ * </ul>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.1
- * @since 2025-01-13
+ * @version 3.0.0
+ * @since 3.0.0
  */
 @Component
 public class PerformanceMonitor {
@@ -56,7 +57,7 @@ public class PerformanceMonitor {
     private final Map<String, SLAConfig> slaConfigs = new ConcurrentHashMap<>();
     
     // 告警管理
-    private final List<AlertListener> alertListeners = new ArrayList<>();
+    private final List<AlertListener> alertListeners = new CopyOnWriteArrayList<>();
     private final Map<String, Alert> activeAlerts = new ConcurrentHashMap<>();
     
     @PostConstruct
@@ -100,10 +101,13 @@ public class PerformanceMonitor {
     }
     
     /**
-     * 记录操作开始
+     * 记录操作开始，返回计时器。
+     *
+     * @param operation 操作名称
+     * @return 计时器，close 时自动记录
      */
-    public Timer startTimer(String operation) {
-        return new Timer(operation, this);
+    public OperationTimer startTimer(String operation) {
+        return new OperationTimer(operation, this);
     }
     
     /**
@@ -162,8 +166,8 @@ public class PerformanceMonitor {
         // CPU使用率（简化版）
         double cpuUsage = getCpuUsage();
         
-        logger.debug("System metrics - Heap: {:.2f}%, Threads: {}, CPU: {:.2f}%",
-            heapUsagePercent, threadCount, cpuUsage);
+        logger.debug("System metrics - Heap: {}%, Threads: {}, CPU: {}%",
+            String.format("%.2f", heapUsagePercent), threadCount, String.format("%.2f", cpuUsage));
         
         // 检查系统资源告警
         if (heapUsagePercent > 90) {
@@ -258,7 +262,9 @@ public class PerformanceMonitor {
     }
     
     /**
-     * 获取当前性能报告
+     * 获取当前性能报告。
+     *
+     * @return 包含操作指标、系统指标、活跃告警的报告
      */
     public PerformanceReport getReport() {
         PerformanceReport report = new PerformanceReport();
@@ -281,14 +287,18 @@ public class PerformanceMonitor {
     }
     
     /**
-     * 获取历史指标
+     * 获取历史指标。
+     *
+     * @return 操作名到快照列表的映射（副本）
      */
     public Map<String, List<MetricSnapshot>> getHistory() {
         return new HashMap<>(history);
     }
     
     /**
-     * 清理告警
+     * 清理指定告警。
+     *
+     * @param key 告警键
      */
     public void clearAlert(String key) {
         activeAlerts.remove(key);
@@ -302,21 +312,28 @@ public class PerformanceMonitor {
     }
     
     /**
-     * 注册告警监听器
+     * 注册告警监听器。
+     *
+     * @param listener 告警监听器
      */
     public void registerAlertListener(AlertListener listener) {
         alertListeners.add(listener);
     }
     
     /**
-     * 配置SLA
+     * 配置 SLA。
+     *
+     * @param operation 操作名称
+     * @param config SLA 配置
      */
     public void configureSLA(String operation, SLAConfig config) {
         slaConfigs.put(operation, config);
     }
     
     /**
-     * 重置指标
+     * 重置指定操作的指标。
+     *
+     * @param operation 操作名称
      */
     public void reset(String operation) {
         collectors.remove(operation);
@@ -332,92 +349,4 @@ public class PerformanceMonitor {
         activeAlerts.clear();
     }
     
-    /**
-     * 计时器类
-     */
-    public static class Timer implements AutoCloseable {
-        private final String operation;
-        private final PerformanceMonitor monitor;
-        private final long startNanos;
-        private boolean success = true;
-        
-        Timer(String operation, PerformanceMonitor monitor) {
-            this.operation = operation;
-            this.monitor = monitor;
-            this.startNanos = System.nanoTime();
-        }
-        
-        public void setSuccess(boolean success) {
-            this.success = success;
-        }
-        
-        @Override
-        public void close() {
-            long duration = System.nanoTime() - startNanos;
-            monitor.recordOperation(operation, duration, success);
-        }
-    }
-    
-    /**
-     * 指标收集器
-     */
-    static class MetricCollector {
-        private final String name;
-        private final LongAdder totalOps = new LongAdder();
-        private final LongAdder successOps = new LongAdder();
-        private final LongAdder errorOps = new LongAdder();
-        private final List<Long> recentLatencies = Collections.synchronizedList(new ArrayList<>());
-        private static final int SAMPLE_SIZE = 1000;
-        
-        MetricCollector(String name) {
-            this.name = name;
-        }
-        
-        void record(long durationNanos, boolean success) {
-            totalOps.increment();
-            
-            if (success) {
-                successOps.increment();
-            } else {
-                errorOps.increment();
-            }
-            
-            // 保留最近的延迟样本
-            recentLatencies.add(durationNanos);
-            if (recentLatencies.size() > SAMPLE_SIZE) {
-                recentLatencies.remove(0);
-            }
-        }
-        
-        MetricSnapshot snapshot(long timestamp) {
-            List<Long> latenciesCopy = new ArrayList<>(recentLatencies);
-            Collections.sort(latenciesCopy);
-            
-            if (latenciesCopy.isEmpty()) {
-                return MetricSnapshot.empty(name, timestamp);
-            }
-            
-            return MetricSnapshot.builder()
-                .name(name)
-                .timestamp(timestamp)
-                .totalOps(totalOps.sum())
-                .successOps(successOps.sum())
-                .errorOps(errorOps.sum())
-                .minMicros(latenciesCopy.get(0) / 1000.0)
-                .maxMicros(latenciesCopy.get(latenciesCopy.size() - 1) / 1000.0)
-                .p50Micros(percentile(latenciesCopy, 0.50) / 1000.0)
-                .p95Micros(percentile(latenciesCopy, 0.95) / 1000.0)
-                .p99Micros(percentile(latenciesCopy, 0.99) / 1000.0)
-                .build();
-        }
-        
-        MetricSnapshot currentStats() {
-            return snapshot(System.currentTimeMillis());
-        }
-        
-        private double percentile(List<Long> sorted, double p) {
-            int index = (int) (sorted.size() * p);
-            return sorted.get(Math.min(index, sorted.size() - 1));
-        }
-    }
 }

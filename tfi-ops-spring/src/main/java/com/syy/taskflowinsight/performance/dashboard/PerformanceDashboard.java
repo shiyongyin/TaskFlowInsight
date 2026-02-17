@@ -20,20 +20,23 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
- * 性能监控Dashboard
- * 提供性能监控的Web端点和可视化数据
- * 
+ * 性能监控 Dashboard。
+ * <p>
+ * 提供性能监控的 Web 端点和可视化数据，需配置 {@code tfi.performance.dashboard.enabled=true}。
+ * <p>
  * 访问路径：
- * - GET  /api/performance                   - 获取性能概览
- * - GET  /api/performance/report/{type}     - 获取详细报告
- * - GET  /api/performance/history/{metric}  - 获取历史数据
- * - GET  /api/performance/alerts            - 获取告警信息
- * - POST /api/performance/benchmark/{type}  - 运行基准测试
- * - POST /api/performance/sla/{operation}   - 配置SLA
- * 
+ * <ul>
+ *   <li>GET  /api/performance - 获取性能概览</li>
+ *   <li>GET  /api/performance/report/{type} - 获取详细报告（full/benchmark/realtime）</li>
+ *   <li>GET  /api/performance/history/{metric} - 获取历史数据</li>
+ *   <li>GET  /api/performance/alerts - 获取告警信息</li>
+ *   <li>POST /api/performance/benchmark/{type} - 运行基准测试</li>
+ *   <li>POST /api/performance/sla/{operation} - 配置 SLA</li>
+ * </ul>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.1
- * @since 2025-01-13
+ * @version 3.0.0
+ * @since 3.0.0
  */
 @RestController
 @RequestMapping("/api/performance")
@@ -64,7 +67,9 @@ public class PerformanceDashboard implements AlertListener {
     }
     
     /**
-     * 获取性能概览
+     * 获取性能概览。
+     *
+     * @return 包含 status、timestamp、metrics_summary、alerts_summary、system_health 的 Map
      */
     @GetMapping
     public Map<String, Object> overview() {
@@ -81,7 +86,10 @@ public class PerformanceDashboard implements AlertListener {
     }
     
     /**
-     * 获取详细性能报告
+     * 获取详细性能报告。
+     *
+     * @param type 报告类型：full、benchmark、realtime
+     * @return 报告 Map，未知类型时返回 error
      */
     @GetMapping("/report/{type}")
     public Map<String, Object> report(@PathVariable String type) {
@@ -97,7 +105,10 @@ public class PerformanceDashboard implements AlertListener {
     }
     
     /**
-     * 获取历史数据
+     * 获取历史数据。
+     *
+     * @param metric 指标名，或 "all" 获取全部
+     * @return 历史快照 Map
      */
     @GetMapping("/history/{metric}")
     public Map<String, Object> history(@PathVariable String metric) {
@@ -120,7 +131,9 @@ public class PerformanceDashboard implements AlertListener {
     }
     
     /**
-     * 获取告警信息
+     * 获取告警信息。
+     *
+     * @return 包含 total_alerts、recent_alerts、active_alerts、alerts_by_level 的 Map
      */
     @GetMapping("/alerts")
     public Map<String, Object> alerts() {
@@ -140,7 +153,10 @@ public class PerformanceDashboard implements AlertListener {
     }
     
     /**
-     * 运行基准测试
+     * 运行基准测试。
+     *
+     * @param type 测试类型：all、snapshot、tracking、path、collection、concurrent
+     * @return 包含 status、report/result 的 Map
      */
     @PostMapping("/benchmark/{type}")
     public Map<String, Object> benchmark(@PathVariable String type) {
@@ -186,7 +202,13 @@ public class PerformanceDashboard implements AlertListener {
     }
     
     /**
-     * 配置SLA
+     * 配置 SLA。
+     *
+     * @param operation 操作名称
+     * @param maxLatencyMs 最大延迟（毫秒），可选
+     * @param minThroughput 最小吞吐量（ops/s），可选
+     * @param maxErrorRate 最大错误率（0-1），可选
+     * @return 配置结果 Map
      */
     @PostMapping("/sla/{operation}")
     public Map<String, Object> configureSLA(
@@ -216,7 +238,10 @@ public class PerformanceDashboard implements AlertListener {
     }
     
     /**
-     * 清理告警
+     * 清理告警。
+     *
+     * @param key 告警键，或 "all" 清理全部
+     * @return 操作结果 Map
      */
     @DeleteMapping("/alerts/{key}")
     public Map<String, Object> clearAlerts(@PathVariable String key) {

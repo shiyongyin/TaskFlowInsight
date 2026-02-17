@@ -19,19 +19,23 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
- * 性能基准测试运行器
- * 提供内置的性能基准测试，可通过配置或API触发
- * 
+ * 性能基准测试运行器。
+ * <p>
+ * 提供内置的性能基准测试，可通过配置或 API 触发。
+ * 需配置 {@code tfi.performance.enabled=true} 启用。
+ * <p>
  * 核心功能：
- * - 变更追踪性能测试
- * - 快照生成性能测试
- * - 路径匹配性能测试
- * - 集合摘要性能测试
- * - 并发性能测试
- * 
+ * <ul>
+ *   <li>变更追踪性能测试</li>
+ *   <li>快照生成性能测试</li>
+ *   <li>路径匹配性能测试</li>
+ *   <li>集合摘要性能测试</li>
+ *   <li>并发性能测试</li>
+ * </ul>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.0
- * @since 2025-01-13
+ * @version 3.0.0
+ * @since 3.0.0
  */
 @Component
 @ConditionalOnProperty(name = "tfi.performance.enabled", havingValue = "true", matchIfMissing = false)
@@ -61,7 +65,9 @@ public class BenchmarkRunner {
     }
     
     /**
-     * 运行所有基准测试
+     * 运行所有基准测试。
+     *
+     * @return 包含各测试结果的 BenchmarkReport
      */
     public BenchmarkReport runAll() {
         logger.info("Starting TFI performance benchmarks...");
@@ -86,7 +92,9 @@ public class BenchmarkRunner {
     }
     
     /**
-     * 变更追踪性能测试
+     * 变更追踪性能测试。
+     *
+     * @return 变更追踪 benchmark 结果
      */
     public BenchmarkResult benchmarkChangeTracking() {
         // 由于ChangeTracker使用静态方法，我们模拟测试其行为
@@ -146,7 +154,9 @@ public class BenchmarkRunner {
     }
     
     /**
-     * 对象快照性能测试
+     * 对象快照性能测试。
+     *
+     * @return 对象快照 benchmark 结果
      */
     public BenchmarkResult benchmarkObjectSnapshot() {
         logger.debug("Benchmarking object snapshot...");
@@ -172,10 +182,12 @@ public class BenchmarkRunner {
     }
     
     /**
-     * 路径匹配性能测试
+     * 路径匹配性能测试。
+     *
+     * @return 路径匹配 benchmark 结果，PathMatcher 不可用时返回 error 状态
      */
     public BenchmarkResult benchmarkPathMatching() {
-        if (pathMatcher == null) {
+        if (pathMatcher.isEmpty()) {
             logger.warn("PathMatcherCacheInterface not injected, skipping path matching benchmark");
             return BenchmarkResult.error("path_matching", "PathMatcherCacheInterface not available");
         }
@@ -203,7 +215,7 @@ public class BenchmarkRunner {
         
         // 测试
         List<Long> durations = new ArrayList<>();
-        Random random = new Random(42);
+        SplittableRandom random = new SplittableRandom(42);
         
         for (int i = 0; i < measurementIterations; i++) {
             String path = paths.get(random.nextInt(paths.size()));
@@ -219,7 +231,9 @@ public class BenchmarkRunner {
     }
     
     /**
-     * 集合摘要性能测试
+     * 集合摘要性能测试。
+     *
+     * @return 集合摘要 benchmark 结果
      */
     public BenchmarkResult benchmarkCollectionSummary() {
         if (collectionSummary.isEmpty()) {
@@ -251,7 +265,9 @@ public class BenchmarkRunner {
     }
     
     /**
-     * 并发追踪性能测试
+     * 并发追踪性能测试。
+     *
+     * @return 并发追踪 benchmark 结果
      */
     public BenchmarkResult benchmarkConcurrentTracking() {
         // 移除对changeTracker的检查，使用try-catch处理

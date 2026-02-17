@@ -5,54 +5,77 @@ import lombok.Data;
 import java.util.*;
 
 /**
- * 性能报告
- * 汇总当前系统的性能状态
- * 
+ * 性能报告 DTO。
+ *
+ * <p>汇总当前系统的性能状态，包括各操作指标快照、JVM 堆/线程信息和活跃告警。
+ * 由 {@link PerformanceMonitor#getReport()} 生成。</p>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.1
- * @since 2025-01-13
+ * @since 3.0.0
  */
 @Data
 public class PerformanceReport {
-    
+
+    /** 报告生成时间（epoch millis） */
     private long timestamp;
+
+    /** 按操作名索引的指标快照 */
     private Map<String, MetricSnapshot> metrics = new HashMap<>();
+
+    /** JVM 堆已用内存（MB） */
     private long heapUsedMB;
+
+    /** JVM 堆最大内存（MB） */
     private long heapMaxMB;
+
+    /** JVM 线程数 */
     private int threadCount;
+
+    /** 当前活跃告警列表 */
     private List<Alert> activeAlerts = new ArrayList<>();
-    
+
     /**
-     * 添加指标
+     * 添加操作指标快照。
+     *
+     * @param name     操作名称
+     * @param snapshot 指标快照
      */
     public void addMetric(String name, MetricSnapshot snapshot) {
         metrics.put(name, snapshot);
     }
-    
+
     /**
-     * 获取堆内存使用率
+     * 获取堆内存使用百分比。
+     *
+     * @return 堆使用率百分比（0-100），{@code heapMaxMB == 0} 时返回 0
      */
     public double getHeapUsagePercent() {
         if (heapMaxMB == 0) return 0;
         return (double) heapUsedMB / heapMaxMB * 100;
     }
-    
+
     /**
-     * 是否有严重告警
+     * 判断是否存在 {@link AlertLevel#CRITICAL} 级别的告警。
+     *
+     * @return 存在严重告警时返回 {@code true}
      */
     public boolean hasCriticalAlerts() {
         return activeAlerts.stream().anyMatch(Alert::isCritical);
     }
-    
+
     /**
-     * 获取告警数量
+     * 获取活跃告警数量。
+     *
+     * @return 告警数量
      */
     public int getAlertCount() {
         return activeAlerts.size();
     }
-    
+
     /**
-     * 获取按级别分组的告警
+     * 按级别分组告警。
+     *
+     * @return 告警级别到告警列表的映射
      */
     public Map<AlertLevel, List<Alert>> getAlertsByLevel() {
         Map<AlertLevel, List<Alert>> grouped = new EnumMap<>(AlertLevel.class);
@@ -61,9 +84,11 @@ public class PerformanceReport {
         }
         return grouped;
     }
-    
+
     /**
-     * 生成摘要
+     * 生成纯文本报告摘要。
+     *
+     * @return 包含时间、堆使用、线程数、指标和告警的文本
      */
     public String generateSummary() {
         StringBuilder sb = new StringBuilder();
@@ -95,7 +120,9 @@ public class PerformanceReport {
     }
     
     /**
-     * 转换为JSON友好的Map
+     * 转换为 JSON 友好的 Map。
+     *
+     * @return 包含 timestamp、heap、thread_count、metrics、active_alerts 的 Map
      */
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();

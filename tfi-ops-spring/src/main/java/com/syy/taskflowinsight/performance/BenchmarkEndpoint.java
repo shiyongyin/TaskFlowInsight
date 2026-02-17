@@ -7,6 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.syy.taskflowinsight.actuator.support.TfiErrorResponse;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -15,12 +17,24 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 性能基准测试REST端点
- * 提供通过HTTP API触发和查询基准测试的能力
- * 
+ * 性能基准测试 REST 端点。
+ *
+ * <p>提供通过 HTTP API 触发、查询和比较基准测试的能力。
+ * 需配置 {@code tfi.performance.endpoint.enabled=true} 启用。</p>
+ *
+ * <p>主要端点：</p>
+ * <ul>
+ *   <li>POST /tfi/benchmark/run — 运行所有基准测试（同步或异步）</li>
+ *   <li>POST /tfi/benchmark/run/{testName} — 运行特定基准测试</li>
+ *   <li>GET  /tfi/benchmark/status — 查询运行状态</li>
+ *   <li>GET  /tfi/benchmark/report — 获取报告（JSON/text/markdown）</li>
+ *   <li>GET  /tfi/benchmark/compare — 比较两个报告</li>
+ *   <li>GET  /tfi/benchmark/list — 列出所有缓存报告</li>
+ *   <li>DELETE /tfi/benchmark/clear — 清除缓存报告</li>
+ * </ul>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.0
- * @since 2025-01-13
+ * @since 3.0.0
  */
 @RestController
 @RequestMapping("/tfi/benchmark")
@@ -42,16 +56,20 @@ public class BenchmarkEndpoint {
     }
     
     /**
-     * 运行所有基准测试
+     * 运行所有基准测试。
+     *
+     * @param async 是否异步执行，默认 false
+     * @param tag   报告标签，默认 "default"
+     * @return 同步时返回完整报告 JSON；异步时返回 202 Accepted
      */
     @PostMapping("/run")
-    public ResponseEntity<Map<String, Object>> runBenchmarks(
+    public ResponseEntity<?> runBenchmarks(
             @RequestParam(defaultValue = "false") boolean async,
             @RequestParam(defaultValue = "default") String tag) {
         
         if (runner.isEmpty()) {
-            return ResponseEntity.status(503)
-                .body(Map.of("error", "Benchmark runner not available"));
+            return ResponseEntity.status(503).body(
+                    TfiErrorResponse.unavailable("BenchmarkRunner", "set tfi.performance.enabled=true"));
         }
         
         if (async) {
@@ -87,15 +105,18 @@ public class BenchmarkEndpoint {
     }
     
     /**
-     * 运行特定的基准测试
+     * 运行特定的基准测试。
+     *
+     * @param testName 测试名：change_tracking / object_snapshot / path_matching / collection_summary / concurrent_tracking
+     * @return 测试结果或 400（未知测试名）
      */
     @PostMapping("/run/{testName}")
-    public ResponseEntity<Map<String, Object>> runSpecificBenchmark(
+    public ResponseEntity<?> runSpecificBenchmark(
             @PathVariable String testName) {
         
         if (runner.isEmpty()) {
-            return ResponseEntity.status(503)
-                .body(Map.of("error", "Benchmark runner not available"));
+            return ResponseEntity.status(503).body(
+                    TfiErrorResponse.unavailable("BenchmarkRunner", "set tfi.performance.enabled=true"));
         }
         
         BenchmarkResult result;
@@ -136,7 +157,10 @@ public class BenchmarkEndpoint {
     }
     
     /**
-     * 获取测试状态
+     * 获取指定标签的测试状态。
+     *
+     * @param tag 报告标签
+     * @return 状态信息：running / completed / not_found / failed
      */
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getStatus(
@@ -185,7 +209,11 @@ public class BenchmarkEndpoint {
     }
     
     /**
-     * 获取报告
+     * 获取已完成的报告。
+     *
+     * @param tag    报告标签
+     * @param format 输出格式：json / text / markdown
+     * @return 报告内容，未找到返回 404
      */
     @GetMapping("/report")
     public ResponseEntity<?> getReport(
@@ -221,7 +249,11 @@ public class BenchmarkEndpoint {
     }
     
     /**
-     * 比较两个报告
+     * 比较两个已缓存的报告（均值、P95、吞吐量变化百分比）。
+     *
+     * @param baseline 基线报告标签
+     * @param current  当前报告标签
+     * @return 比较结果文本
      */
     @GetMapping("/compare")
     public ResponseEntity<String> compareReports(
@@ -248,7 +280,9 @@ public class BenchmarkEndpoint {
     }
     
     /**
-     * 列出所有可用的报告
+     * 列出所有已缓存的报告和正在运行的任务。
+     *
+     * @return 包含 reports 和 running 的 Map
      */
     @GetMapping("/list")
     public ResponseEntity<Map<String, Object>> listReports() {
@@ -271,7 +305,10 @@ public class BenchmarkEndpoint {
     }
     
     /**
-     * 清除缓存的报告
+     * 清除缓存的报告。
+     *
+     * @param tag 指定标签（可选），为空时清除全部
+     * @return 操作结果
      */
     @DeleteMapping("/clear")
     public ResponseEntity<Map<String, Object>> clearReports(

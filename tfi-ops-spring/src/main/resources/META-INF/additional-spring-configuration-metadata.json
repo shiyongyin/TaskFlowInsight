@@ -1,0 +1,82 @@
+{
+  "properties": [
+    {
+      "name": "tfi.metrics.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enable metrics collection and export."
+    },
+    {
+      "name": "tfi.metrics.tags",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "defaultValue": {},
+      "description": "Additional tags to apply to metrics."
+    },
+    {
+      "name": "tfi.security.enable-data-masking",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enable data masking for sensitive fields."
+    },
+    {
+      "name": "tfi.actuator.cache.ttl-ms",
+      "type": "java.lang.Long",
+      "defaultValue": 5000,
+      "description": "Response cache TTL in milliseconds for the secure TFI endpoint."
+    },
+    {
+      "name": "tfi.actuator.access-log.max-size",
+      "type": "java.lang.Integer",
+      "defaultValue": 1000,
+      "description": "Maximum number of access log entries to retain."
+    },
+    {
+      "name": "tfi.actuator.access-log.retention-minutes",
+      "type": "java.lang.Integer",
+      "defaultValue": 10,
+      "description": "Retention period in minutes for access log entries."
+    },
+    {
+      "name": "tfi.health.memory-threshold",
+      "type": "java.lang.Double",
+      "defaultValue": 0.8,
+      "description": "JVM memory usage ratio threshold for health score penalty."
+    },
+    {
+      "name": "tfi.health.max-active-contexts",
+      "type": "java.lang.Integer",
+      "defaultValue": 100,
+      "description": "Maximum active thread contexts before health score penalty."
+    },
+    {
+      "name": "tfi.health.max-sessions-warning",
+      "type": "java.lang.Integer",
+      "defaultValue": 500,
+      "description": "Maximum active sessions before health warning."
+    },
+    {
+      "name": "tfi.limits.max-tracked-objects",
+      "type": "java.lang.Integer",
+      "defaultValue": 1000,
+      "description": "Maximum number of tracked objects (sessions)."
+    },
+    {
+      "name": "tfi.limits.max-changes",
+      "type": "java.lang.Integer",
+      "defaultValue": 10000,
+      "description": "Maximum number of change history entries to retain."
+    },
+    {
+      "name": "tfi.limits.max-value-length",
+      "type": "java.lang.Integer",
+      "defaultValue": 8192,
+      "description": "Maximum length of tracked value strings."
+    },
+    {
+      "name": "tfi.endpoint.advanced.enabled",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Enable the TFI advanced REST endpoint."
+    }
+  ]
+}

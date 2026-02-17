@@ -1,11 +1,18 @@
 package com.syy.taskflowinsight.actuator;
 
-import com.syy.taskflowinsight.api.TFI;
+import com.syy.taskflowinsight.actuator.support.SessionIdMasker;
+import com.syy.taskflowinsight.actuator.support.TfiErrorResponse;
+import com.syy.taskflowinsight.actuator.support.TfiHealthCalculator;
+import com.syy.taskflowinsight.actuator.support.TfiStatsAggregator;
+import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.context.ThreadContext;
 import com.syy.taskflowinsight.tracking.SessionAwareChangeTracker;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.endpoint.web.annotation.RestControllerEndpoint;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,51 +21,86 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * TFI高级管理端点
- * 提供完整的RESTful API管理接口
- * 
- * 端点路径: /actuator/tfi
- * 
+ * TFI 高级管理端点。
+ * <p>
+ * 提供完整的 RESTful API 管理接口，路径：/actuator/tfi-advanced。
+ * 需配置 {@code tfi.endpoint.advanced.enabled=true} 启用。
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.0
- * @since 2025-01-13
+ * @version 3.0.0
+ * @since 3.0.0
  */
 @Component
 @RestControllerEndpoint(id = "tfi-advanced")
+@ConditionalOnProperty(name = "tfi.endpoint.advanced.enabled", havingValue = "true", matchIfMissing = true)
 public class TfiAdvancedEndpoint {
-    
-    /**
-     * 获取系统概览
-     * GET /actuator/tfi
-     */
-    @GetMapping
-    public ResponseEntity<Map<String, Object>> overview() {
-        Map<String, Object> overview = new HashMap<>();
-        
-        // 版本信息
-        overview.put("version", "2.1.0-MVP");
-        overview.put("timestamp", Instant.now().toString());
-        
-        // 系统状态
-        Map<String, Object> status = new HashMap<>();
-        status.put("changeTrackingEnabled", TFI.isChangeTrackingEnabled());
-        status.put("activeContexts", ThreadContext.getActiveContextCount());
-        status.put("totalChanges", SessionAwareChangeTracker.getAllChanges().size());
-        status.put("activeSessions", SessionAwareChangeTracker.getAllSessionMetadata().size());
-        overview.put("status", status);
-        
-        // 健康检查
-        overview.put("health", performHealthCheck());
-        
-        // 可用端点
-        overview.put("endpoints", getAvailableEndpoints());
-        
-        return ResponseEntity.ok(overview);
+
+    @Nullable
+    private final TfiConfig tfiConfig;
+    private final TfiHealthCalculator healthCalculator;
+    private final TfiStatsAggregator statsAggregator;
+    private final EndpointPerformanceOptimizer performanceOptimizer;
+
+    @Value("${tfi.limits.max-tracked-objects:1000}")
+    private int maxTrackedObjects;
+
+    @Value("${tfi.limits.max-changes:10000}")
+    private int maxChanges;
+
+    @Value("${tfi.limits.max-value-length:8192}")
+    private int maxValueLength;
+
+    public TfiAdvancedEndpoint(@Nullable TfiConfig tfiConfig,
+                               TfiHealthCalculator healthCalculator,
+                               TfiStatsAggregator statsAggregator,
+                               EndpointPerformanceOptimizer performanceOptimizer) {
+        this.tfiConfig = tfiConfig;
+        this.healthCalculator = healthCalculator;
+        this.statsAggregator = statsAggregator;
+        this.performanceOptimizer = performanceOptimizer;
     }
     
     /**
-     * 获取所有会话
-     * GET /actuator/tfi/sessions
+     * 获取系统概览。
+     *
+     * @return 包含 version、status、health、endpoints 的 ResponseEntity
+     */
+    @SuppressWarnings("unchecked")
+    @GetMapping
+    public ResponseEntity<Map<String, Object>> overview() {
+        Map<String, Object> result = (Map<String, Object>) performanceOptimizer.getCachedData(
+                "tfi-advanced-overview", () -> {
+                    Map<String, Object> overview = new HashMap<>();
+
+                    // 版本信息
+                    overview.put("version", "3.0.0");
+                    overview.put("timestamp", Instant.now().toString());
+
+                    // 系统状态
+                    Map<String, Object> status = new HashMap<>();
+                    status.put("changeTrackingEnabled", isChangeTrackingEnabled());
+                    status.put("activeContexts", ThreadContext.getActiveContextCount());
+                    status.put("totalChanges", statsAggregator.getTotalChangesCount());
+                    status.put("activeSessions", statsAggregator.getActiveSessionCount());
+                    overview.put("status", status);
+
+                    // 健康检查
+                    overview.put("health", healthCalculator.performHealthCheck());
+
+                    // 可用端点
+                    overview.put("endpoints", getAvailableEndpoints());
+
+                    return overview;
+                });
+        return ResponseEntity.ok(result);
+    }
+    
+    /**
+     * 获取所有会话。
+     *
+     * @param limit 限制数量，可选
+     * @param sort 排序：age、changes 或默认（最近活动）
+     * @return 包含 total、sessions、timestamp 的 ResponseEntity
      */
     @GetMapping("/sessions")
     public ResponseEntity<Map<String, Object>> getSessions(
@@ -88,7 +130,7 @@ public class TfiAdvancedEndpoint {
         List<Map<String, Object>> sessions = new ArrayList<>();
         for (SessionAwareChangeTracker.SessionMetadata metadata : sorted) {
             Map<String, Object> session = new HashMap<>();
-            session.put("sessionId", metadata.getSessionId());
+            session.put("sessionId", SessionIdMasker.mask(metadata.getSessionId()));
             session.put("changeCount", metadata.getChangeCount());
             session.put("age", formatDuration(metadata.getAge()));
             session.put("idleTime", formatDuration(metadata.getIdleTime()));
@@ -104,20 +146,23 @@ public class TfiAdvancedEndpoint {
     }
     
     /**
-     * 获取特定会话详情
-     * GET /actuator/tfi/sessions/{sessionId}
+     * 获取特定会话详情。
+     *
+     * @param sessionId 会话 ID
+     * @return 包含 sessionId、metadata、changes 的 ResponseEntity，未找到返回 404
      */
     @GetMapping("/sessions/{sessionId}")
-    public ResponseEntity<Map<String, Object>> getSession(@PathVariable String sessionId) {
+    public ResponseEntity<?> getSession(@PathVariable String sessionId) {
         SessionAwareChangeTracker.SessionMetadata metadata = 
             SessionAwareChangeTracker.getSessionMetadata(sessionId);
         
         if (metadata == null) {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.status(404).body(
+                    TfiErrorResponse.notFound("Session", "check /actuator/tfi-advanced/sessions"));
         }
         
         Map<String, Object> response = new HashMap<>();
-        response.put("sessionId", sessionId);
+        response.put("sessionId", SessionIdMasker.mask(sessionId));
         response.put("metadata", metadata);
         response.put("changes", SessionAwareChangeTracker.getSessionChanges(sessionId));
         response.put("timestamp", Instant.now().toString());
@@ -126,15 +171,17 @@ public class TfiAdvancedEndpoint {
     }
     
     /**
-     * 删除特定会话
-     * DELETE /actuator/tfi/sessions/{sessionId}
+     * 删除特定会话。
+     *
+     * @param sessionId 会话 ID
+     * @return 包含 clearedChanges、message 的 ResponseEntity
      */
     @DeleteMapping("/sessions/{sessionId}")
     public ResponseEntity<Map<String, Object>> deleteSession(@PathVariable String sessionId) {
         int cleared = SessionAwareChangeTracker.clearSession(sessionId);
         
         Map<String, Object> response = new HashMap<>();
-        response.put("sessionId", sessionId);
+        response.put("sessionId", SessionIdMasker.mask(sessionId));
         response.put("clearedChanges", cleared);
         response.put("message", cleared > 0 ? "Session cleared successfully" : "Session not found");
         response.put("timestamp", Instant.now().toString());
@@ -143,8 +190,14 @@ public class TfiAdvancedEndpoint {
     }
     
     /**
-     * 查询变更记录
-     * GET /actuator/tfi/changes
+     * 查询变更记录。
+     *
+     * @param sessionId 按会话过滤，可选
+     * @param objectName 按对象名过滤，可选
+     * @param changeType 按变更类型过滤，可选
+     * @param limit 分页大小，可选
+     * @param offset 分页偏移，默认 0
+     * @return 包含 total、offset、limit、changes 的 ResponseEntity
      */
     @GetMapping("/changes")
     public ResponseEntity<Map<String, Object>> getChanges(
@@ -191,15 +244,16 @@ public class TfiAdvancedEndpoint {
     }
     
     /**
-     * 配置管理
-     * GET /actuator/tfi/config
+     * 获取配置。
+     *
+     * @return 包含 changeTracking、threadContext、limits 的 ResponseEntity
      */
     @GetMapping("/config")
     public ResponseEntity<Map<String, Object>> getConfig() {
         Map<String, Object> config = new HashMap<>();
         
         config.put("changeTracking", Map.of(
-            "enabled", TFI.isChangeTrackingEnabled(),
+            "enabled", isChangeTrackingEnabled(),
             "maxTrackedObjects", com.syy.taskflowinsight.tracking.ChangeTracker.getMaxTrackedObjects()
         ));
         
@@ -210,17 +264,19 @@ public class TfiAdvancedEndpoint {
         ));
         
         config.put("limits", Map.of(
-            "maxSessions", 1000,
-            "maxHistorySize", 10000,
-            "maxValueLength", 8192
+            "maxSessions", maxTrackedObjects,
+            "maxHistorySize", maxChanges,
+            "maxValueLength", maxValueLength
         ));
         
         return ResponseEntity.ok(config);
     }
     
     /**
-     * 更新配置
-     * PATCH /actuator/tfi/config
+     * 更新配置（运行时切换部分不支持）。
+     *
+     * @param updates 待更新配置 Map
+     * @return 操作结果 ResponseEntity
      */
     @PatchMapping("/config")
     public ResponseEntity<Map<String, Object>> updateConfig(@RequestBody Map<String, Object> updates) {
@@ -228,9 +284,8 @@ public class TfiAdvancedEndpoint {
         
         // 处理变更追踪开关
         if (updates.containsKey("changeTrackingEnabled")) {
-            boolean enabled = (Boolean) updates.get("changeTrackingEnabled");
-            TFI.setChangeTrackingEnabled(enabled);
-            response.put("changeTrackingEnabled", enabled);
+            response.put("changeTrackingEnabled", isChangeTrackingEnabled());
+            response.put("warning", "Runtime toggling is not supported. Use application properties: tfi.change-tracking.enabled");
         }
         
         response.put("message", "Configuration updated");
@@ -238,10 +293,23 @@ public class TfiAdvancedEndpoint {
         
         return ResponseEntity.ok(response);
     }
+
+    private boolean isChangeTrackingEnabled() {
+        if (tfiConfig == null) {
+            return true;
+        }
+        try {
+            return tfiConfig.changeTracking().enabled();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
     
     /**
-     * 清理过期会话
-     * POST /actuator/tfi/cleanup
+     * 清理过期会话。
+     *
+     * @param maxAgeMillis 最大存活时间（毫秒），默认 3600000
+     * @return 包含 cleanedSessions、message 的 ResponseEntity
      */
     @PostMapping("/cleanup")
     public ResponseEntity<Map<String, Object>> cleanup(
@@ -259,84 +327,22 @@ public class TfiAdvancedEndpoint {
     }
     
     /**
-     * 统计信息
-     * GET /actuator/tfi/stats
+     * 获取统计信息。
+     *
+     * @return 聚合统计的 ResponseEntity
      */
+    @SuppressWarnings("unchecked")
     @GetMapping("/stats")
     public ResponseEntity<Map<String, Object>> getStatistics() {
-        Map<String, Object> stats = new HashMap<>();
-        
-        // 会话统计
-        Map<String, SessionAwareChangeTracker.SessionMetadata> sessions = 
-            SessionAwareChangeTracker.getAllSessionMetadata();
-        
-        stats.put("sessionCount", sessions.size());
-        stats.put("totalChanges", SessionAwareChangeTracker.getAllChanges().size());
-        
-        // 计算平均值
-        if (!sessions.isEmpty()) {
-            double avgChangesPerSession = sessions.values().stream()
-                .mapToInt(SessionAwareChangeTracker.SessionMetadata::getChangeCount)
-                .average()
-                .orElse(0);
-            
-            double avgSessionAge = sessions.values().stream()
-                .mapToLong(SessionAwareChangeTracker.SessionMetadata::getAge)
-                .average()
-                .orElse(0);
-            
-            stats.put("avgChangesPerSession", avgChangesPerSession);
-            stats.put("avgSessionAge", formatDuration((long) avgSessionAge));
-        }
-        
-        // 对象统计
-        Map<String, Long> objectStats = SessionAwareChangeTracker.getAllChanges().stream()
-            .collect(Collectors.groupingBy(
-                ChangeRecord::getObjectName,
-                Collectors.counting()
-            ));
-        stats.put("changesByObject", objectStats);
-        
-        // 变更类型统计
-        Map<String, Long> typeStats = SessionAwareChangeTracker.getAllChanges().stream()
-            .collect(Collectors.groupingBy(
-                c -> c.getChangeType().name(),
-                Collectors.counting()
-            ));
-        stats.put("changesByType", typeStats);
-        
-        stats.put("timestamp", Instant.now().toString());
-        
-        return ResponseEntity.ok(stats);
+        Map<String, Object> result = (Map<String, Object>) performanceOptimizer.getCachedData(
+                "tfi-advanced-stats", () -> statsAggregator.aggregateStats());
+        return ResponseEntity.ok(result);
     }
     
     /**
-     * 执行健康检查
-     */
-    private Map<String, Object> performHealthCheck() {
-        Map<String, Object> health = new HashMap<>();
-        
-        ThreadContext.ContextStatistics stats = ThreadContext.getStatistics();
-        boolean hasLeak = stats.potentialLeak;
-        boolean tooManyContexts = stats.activeContexts > 100;
-        boolean tooManySessions = SessionAwareChangeTracker.getAllSessionMetadata().size() > 500;
-        
-        String status = (!hasLeak && !tooManyContexts && !tooManySessions) ? "UP" : "DOWN";
-        health.put("status", status);
-        
-        if ("DOWN".equals(status)) {
-            List<String> issues = new ArrayList<>();
-            if (hasLeak) issues.add("Potential memory leak detected");
-            if (tooManyContexts) issues.add("Too many active contexts");
-            if (tooManySessions) issues.add("Too many active sessions");
-            health.put("issues", issues);
-        }
-        
-        return health;
-    }
-    
-    /**
-     * 获取可用端点列表
+     * 获取可用端点列表。
+     *
+     * @return 端点描述列表
      */
     private List<Map<String, String>> getAvailableEndpoints() {
         List<Map<String, String>> endpoints = new ArrayList<>();
@@ -375,7 +381,10 @@ public class TfiAdvancedEndpoint {
     }
     
     /**
-     * 格式化时长
+     * 格式化时长。
+     *
+     * @param millis 毫秒数
+     * @return 如 "100ms"、"30s"、"5m"、"2h"
      */
     private String formatDuration(long millis) {
         if (millis < 1000) {

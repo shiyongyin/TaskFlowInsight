@@ -58,7 +58,9 @@ public class AnnotationPerformanceMonitor {
     }
     
     /**
-     * 记录零采样路径执行时间
+     * 记录零采样路径执行时间。
+     *
+     * @param operation 要执行的逻辑
      */
     public void recordZeroSamplingPath(Runnable operation) {
         try {
@@ -73,7 +75,12 @@ public class AnnotationPerformanceMonitor {
     }
     
     /**
-     * 记录切面开销时间
+     * 记录切面开销时间。
+     *
+     * @param operation 要执行的逻辑
+     * @param <T> 返回类型
+     * @return 操作返回值
+     * @throws RuntimeException 操作执行失败时
      */
     public <T> T recordAspectOverhead(java.util.concurrent.Callable<T> operation) {
         try {
@@ -87,7 +94,12 @@ public class AnnotationPerformanceMonitor {
     }
     
     /**
-     * 记录SpEL评估时间
+     * 记录 SpEL 评估时间。
+     *
+     * @param operation 要执行的 SpEL 评估
+     * @param <T> 返回类型
+     * @return 评估结果
+     * @throws RuntimeException 评估失败时
      */
     public <T> T recordSpELEvaluation(java.util.concurrent.Callable<T> operation) {
         try {
@@ -98,7 +110,11 @@ public class AnnotationPerformanceMonitor {
     }
     
     /**
-     * 记录采样决策时间
+     * 记录采样决策时间。
+     *
+     * @param decisionSupplier 采样决策逻辑
+     * @return 是否采样
+     * @throws RuntimeException 决策执行失败时
      */
     public boolean recordSamplingDecision(java.util.function.Supplier<Boolean> decisionSupplier) {
         try {
@@ -115,7 +131,11 @@ public class AnnotationPerformanceMonitor {
     }
     
     /**
-     * 记录方法级别性能统计
+     * 记录方法级别性能统计。
+     *
+     * @param methodSignature 方法签名
+     * @param durationNanos 耗时（纳秒）
+     * @param sampled 是否被采样
      */
     public void recordMethodPerformance(String methodSignature, long durationNanos, boolean sampled) {
         methodStats.computeIfAbsent(methodSignature, k -> new MethodPerformanceStats())
@@ -123,7 +143,9 @@ public class AnnotationPerformanceMonitor {
     }
     
     /**
-     * 获取性能统计摘要
+     * 获取性能统计摘要。
+     *
+     * @return 包含调用数、采样率、各计时器 P99 的摘要
      */
     public PerformanceSummary getPerformanceSummary() {
         long total = totalInvocations.get();
@@ -142,14 +164,18 @@ public class AnnotationPerformanceMonitor {
     }
     
     /**
-     * 获取方法级别性能统计
+     * 获取方法级别性能统计。
+     *
+     * @return 方法签名到统计的映射（副本）
      */
     public java.util.Map<String, MethodPerformanceStats> getMethodStats() {
         return new java.util.HashMap<>(methodStats);
     }
     
     /**
-     * 检查性能目标是否达成
+     * 检查性能目标是否达成。
+     *
+     * @return 各目标达成情况及实际 P99 值
      */
     public PerformanceAssessment assessPerformance() {
         PerformanceSummary summary = getPerformanceSummary();
@@ -201,7 +227,14 @@ public class AnnotationPerformanceMonitor {
     }
     
     // 内部类
-    
+
+    /**
+     * 方法级别性能统计。
+     * <p>
+     * 记录调用次数、采样次数、最小/最大/平均耗时。
+     *
+     * @since 3.0.0
+     */
     public static class MethodPerformanceStats {
         private final AtomicLong totalCalls = new AtomicLong(0);
         private final AtomicLong sampledCalls = new AtomicLong(0);
@@ -209,6 +242,12 @@ public class AnnotationPerformanceMonitor {
         private volatile long maxDuration = 0;
         private volatile double avgDuration = 0.0;
         
+        /**
+         * 记录一次调用。
+         *
+         * @param durationNanos 耗时（纳秒）
+         * @param sampled 是否被采样
+         */
         public void record(long durationNanos, boolean sampled) {
             totalCalls.incrementAndGet();
             if (sampled) {
@@ -233,6 +272,13 @@ public class AnnotationPerformanceMonitor {
         public double getAvgDuration() { return avgDuration; }
     }
     
+    /**
+     * 性能统计摘要。
+     * <p>
+     * 包含总调用数、采样数、零采样路径数、各计时器的 P99 等。
+     *
+     * @since 3.0.0
+     */
     public static class PerformanceSummary {
         public final long totalInvocations;
         public final long sampledInvocations;
@@ -260,6 +306,13 @@ public class AnnotationPerformanceMonitor {
         }
     }
     
+    /**
+     * 计时器摘要。
+     * <p>
+     * 包含 count、mean、max、p99。
+     *
+     * @since 3.0.0
+     */
     public static class TimerSummary {
         public final String name;
         public final long count;
@@ -276,6 +329,13 @@ public class AnnotationPerformanceMonitor {
         }
     }
     
+    /**
+     * 性能评估结果。
+     * <p>
+     * 包含各目标是否达成及实际 P99 值。
+     *
+     * @since 3.0.0
+     */
     public static class PerformanceAssessment {
         public final boolean zeroPathTarget;
         public final boolean aspectTarget;

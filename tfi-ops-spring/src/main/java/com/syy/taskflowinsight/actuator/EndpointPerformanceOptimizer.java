@@ -25,7 +25,11 @@ public class EndpointPerformanceOptimizer {
     private static final int MAX_CACHE_SIZE = 50;
     
     /**
-     * 获取缓存的概览数据
+     * 获取缓存的概览数据。
+     *
+     * @param supplier 数据提供者，缓存未命中时调用
+     * @param <T> 返回类型
+     * @return 缓存的或新生成的数据
      */
     @SuppressWarnings("unchecked")
     public <T> T getCachedOverview(Supplier<T> supplier) {
@@ -33,7 +37,11 @@ public class EndpointPerformanceOptimizer {
     }
     
     /**
-     * 获取缓存数据
+     * 获取缓存数据。
+     *
+     * @param key 缓存键
+     * @param supplier 数据提供者，缓存未命中时调用
+     * @return 缓存的或新生成的数据
      */
     public Object getCachedData(String key, Supplier<Object> supplier) {
         requestCount.incrementAndGet();
@@ -57,7 +65,9 @@ public class EndpointPerformanceOptimizer {
     }
     
     /**
-     * 获取性能统计
+     * 获取性能统计。
+     *
+     * @return 包含总请求数、缓存命中数、命中率、缓存大小的统计
      */
     public PerformanceStats getStats() {
         long total = requestCount.get();
@@ -85,7 +95,11 @@ public class EndpointPerformanceOptimizer {
     }
     
     /**
-     * 缓存数据结构
+     * 缓存数据结构。
+     * <p>
+     * 持有缓存值和时间戳，用于 TTL 判断。
+     *
+     * @since 3.0.0
      */
     private static class CachedData {
         final Object data;
@@ -98,7 +112,11 @@ public class EndpointPerformanceOptimizer {
     }
     
     /**
-     * 性能统计
+     * 性能统计 DTO。
+     * <p>
+     * 包含总请求数、缓存命中数、命中率、当前缓存大小。
+     *
+     * @since 3.0.0
      */
     public static class PerformanceStats {
         private final long totalRequests;

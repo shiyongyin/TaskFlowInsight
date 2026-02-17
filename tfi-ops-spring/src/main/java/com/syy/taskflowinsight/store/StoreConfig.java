@@ -8,7 +8,12 @@ import com.github.benmanes.caffeine.cache.CacheLoader;
 import java.time.Duration;
 
 /**
- * 存储配置
+ * 存储配置。
+ * <p>
+ * 使用 Lombok {@code @Builder} 和 {@code @ConfigurationProperties}，
+ * 通过 {@code tfi.store.caffeine} 前缀配置 Caffeine 缓存行为。
+ *
+ * @since 3.0.0
  */
 @Data
 @Builder
@@ -87,14 +92,18 @@ public class StoreConfig {
     }
     
     /**
-     * 缓存驱逐策略枚举
+     * 缓存驱逐策略枚举。
+     * <p>
+     * 控制缓存满时如何选择要驱逐的条目。
+     *
+     * @since 3.0.0
      */
     public enum EvictionStrategy {
-        /** 最近最少使用（默认） */
+        /** LRU（Least Recently Used）：最近最少使用，默认策略 */
         LRU,
-        /** 先进先出 */
+        /** FIFO（First In First Out）：先进先出 */
         FIFO,
-        /** 混合策略（LRU+FIFO） */
+        /** MIXED：混合策略（LRU+FIFO），适用于分层缓存场景 */
         MIXED
     }
 }

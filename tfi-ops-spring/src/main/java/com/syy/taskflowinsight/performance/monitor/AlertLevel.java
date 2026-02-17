@@ -1,11 +1,13 @@
 package com.syy.taskflowinsight.performance.monitor;
 
 /**
- * 告警级别
- * 
+ * 告警级别枚举。
+ *
+ * <p>按严重程度从低到高排列：{@link #INFO} → {@link #WARNING} → {@link #ERROR} → {@link #CRITICAL}。
+ * 用于 {@link Alert} 的级别分类和 {@link PerformanceMonitor} 的日志级别映射。</p>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.1
- * @since 2025-01-13
+ * @since 3.0.0
  */
 public enum AlertLevel {
     /**

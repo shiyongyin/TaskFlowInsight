@@ -1,8 +1,10 @@
 package com.syy.taskflowinsight.actuator;
 
-import com.syy.taskflowinsight.api.TFI;
+import com.syy.taskflowinsight.api.TfiFlow;
+import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.context.ThreadContext;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.tracking.ChangeTracker;
+import com.syy.taskflowinsight.tracking.SessionAwareChangeTracker;
 import org.springframework.boot.actuate.endpoint.annotation.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.lang.Nullable;
@@ -10,37 +12,44 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
- * TFI管理端点
- * 提供变更追踪和上下文管理的监控和管理功能
- * 
- * 端点路径: /actuator/basic-tfi
- * 
+ * TFI 基础管理端点。
+ * <p>
+ * 提供变更追踪和上下文管理的监控和管理功能，路径：/actuator/basic-tfi。
+ * 需配置 {@code tfi.endpoint.basic.enabled=true} 启用。
+ * <p>
+ * 注意：此端点与 SecureTfiEndpoint 冲突，需通过配置选择启用。
+ * <p>
  * 功能：
- * - 查看系统状态和统计信息
- * - 查询变更记录
- * - 管理追踪开关
- * - 清理过期数据
- * 
- * 注意：此端点与SecureTfiEndpoint冲突，需通过配置选择启用
- * 
+ * <ul>
+ *   <li>查看系统状态和统计信息</li>
+ *   <li>查询变更记录</li>
+ *   <li>管理追踪开关</li>
+ *   <li>清理过期数据</li>
+ * </ul>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.0
- * @since 2025-01-13
+ * @version 3.0.0
+ * @since 3.0.0
  */
 @Component
 @Endpoint(id = "basic-tfi")
 @ConditionalOnProperty(name = "tfi.endpoint.basic.enabled", havingValue = "true", matchIfMissing = false)
 public class TfiEndpoint {
+
+    @Nullable
+    private final TfiConfig tfiConfig;
+
+    public TfiEndpoint(@Nullable TfiConfig tfiConfig) {
+        this.tfiConfig = tfiConfig;
+    }
     
     /**
-     * 获取TFI系统状态和统计信息
-     * GET /actuator/basic-tfi
-     * 
-     * @return 系统状态信息
+     * 获取 TFI 系统状态和统计信息。
+     *
+     * @return 包含 version、changeTracking、threadContext、health 的 Map
      */
     @ReadOperation
     public Map<String, Object> info() {
@@ -52,9 +61,9 @@ public class TfiEndpoint {
         
         // 必需字段 2: 变更追踪状态
         Map<String, Object> changeTracking = new HashMap<>();
-        changeTracking.put("enabled", TFI.isChangeTrackingEnabled());
-        changeTracking.put("globalEnabled", TFI.isEnabled());
-        changeTracking.put("totalChanges", TFI.getAllChanges().size());
+        changeTracking.put("enabled", isChangeTrackingEnabled());
+        changeTracking.put("globalEnabled", TfiFlow.isEnabled());
+        changeTracking.put("totalChanges", safeAllChangesCount());
         changeTracking.put("activeTrackers", getActiveTrackerCount());
         info.put("changeTracking", changeTracking);
         
@@ -68,19 +77,19 @@ public class TfiEndpoint {
         info.put("threadContext", threadContext);
         
         // 必需字段 4: 健康状态
-        boolean isHealthy = !stats.potentialLeak && stats.activeContexts < 1000 && TFI.isEnabled();
+        boolean globalEnabled = TfiFlow.isEnabled();
+        boolean isHealthy = globalEnabled && !stats.potentialLeak && stats.activeContexts < 1000;
         Map<String, Object> health = new HashMap<>();
         health.put("status", isHealthy ? "UP" : "DOWN");
         health.put("healthy", isHealthy);
         if (!isHealthy) {
-            if (stats.potentialLeak) {
-                health.put("issue", "Potential memory leak detected");
-            }
-            if (stats.activeContexts >= 1000) {
-                health.put("issue", "Too many active contexts");
-            }
-            if (!TFI.isEnabled()) {
+            // Issue precedence: disabled > leak > activeContexts
+            if (!globalEnabled) {
                 health.put("issue", "TFI system is disabled");
+            } else if (stats.potentialLeak) {
+                health.put("issue", "Potential memory leak detected");
+            } else if (stats.activeContexts >= 1000) {
+                health.put("issue", "Too many active contexts");
             }
         }
         info.put("health", health);
@@ -89,47 +98,69 @@ public class TfiEndpoint {
     }
     
     /**
-     * 启用/禁用变更追踪
-     * POST /actuator/basic-tfi
-     * 
-     * @param enabled 是否启用
-     * @return 操作结果
+     * 启用/禁用变更追踪（运行时切换不支持，需通过配置）。
+     *
+     * @param enabled 是否启用，可为 null
+     * @return 包含 previousState、currentState、message 的 Map
      */
     @WriteOperation
     public Map<String, Object> toggleTracking(@Nullable Boolean enabled) {
         Map<String, Object> result = new HashMap<>();
-        
-        boolean previousState = TFI.isChangeTrackingEnabled();
-        boolean newState = enabled != null ? enabled : !previousState;
-        
-        TFI.setChangeTrackingEnabled(newState);
-        
-        result.put("previousState", previousState);
-        result.put("currentState", newState);
-        result.put("message", newState ? "Change tracking enabled" : "Change tracking disabled");
+
+        boolean current = isChangeTrackingEnabled();
+        result.put("previousState", current);
+        result.put("currentState", current);
+        result.put("message", "Runtime toggling is not supported. Use application properties: tfi.change-tracking.enabled");
         result.put("timestamp", Instant.now().toString());
         
         return result;
     }
     
     /**
-     * 清理所有追踪数据
-     * DELETE /actuator/basic-tfi
-     * 
-     * @return 清理结果
+     * 清理所有追踪数据。
+     *
+     * @return 包含 clearedChanges、message 的 Map
      */
     @DeleteOperation
     public Map<String, Object> clearAll() {
         Map<String, Object> result = new HashMap<>();
         
-        int previousCount = TFI.getAllChanges().size();
-        TFI.clearAllTracking();
+        int previousCount = safeAllChangesCount();
+        try {
+            SessionAwareChangeTracker.clearAll();
+        } catch (Throwable ignored) {
+            // ignore
+        }
+        try {
+            ChangeTracker.clearAllTracking();
+        } catch (Throwable ignored) {
+            // ignore
+        }
         
         result.put("clearedChanges", previousCount);
         result.put("message", "All tracking data cleared");
         result.put("timestamp", Instant.now().toString());
         
         return result;
+    }
+
+    private boolean isChangeTrackingEnabled() {
+        if (tfiConfig == null) {
+            return true;
+        }
+        try {
+            return tfiConfig.changeTracking().enabled();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private int safeAllChangesCount() {
+        try {
+            return SessionAwareChangeTracker.getAllChanges().size();
+        } catch (Throwable t) {
+            return 0;
+        }
     }
     
     /**

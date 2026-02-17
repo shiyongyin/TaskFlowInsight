@@ -4,7 +4,22 @@ import lombok.Builder;
 import lombok.Data;
 
 /**
- * 存储统计信息
+ * 存储统计信息 DTO。
+ * <p>
+ * 使用 Lombok {@code @Builder} 构建，包含命中率、驱逐数、加载时间等指标。
+ * 字段说明：
+ * <ul>
+ *   <li>{@code hitCount} - 命中次数</li>
+ *   <li>{@code missCount} - 未命中次数</li>
+ *   <li>{@code loadSuccessCount} - 加载成功次数</li>
+ *   <li>{@code loadFailureCount} - 加载失败次数</li>
+ *   <li>{@code evictionCount} - 驱逐次数</li>
+ *   <li>{@code totalLoadTime} - 总加载时间（纳秒）</li>
+ *   <li>{@code estimatedSize} - 预估存储项数量</li>
+ *   <li>{@code hitRate} / {@code missRate} - 命中率/未命中率（0-1）</li>
+ * </ul>
+ *
+ * @since 3.0.0
  */
 @Data
 @Builder

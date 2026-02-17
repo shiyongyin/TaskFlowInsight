@@ -3,7 +3,6 @@ package com.syy.taskflowinsight.store;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
-import com.syy.taskflowinsight.config.resolver.ConfigDefaults;
 import com.syy.taskflowinsight.metrics.TfiMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;

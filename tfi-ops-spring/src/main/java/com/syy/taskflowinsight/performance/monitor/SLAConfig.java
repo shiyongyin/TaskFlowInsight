@@ -4,12 +4,14 @@ import lombok.Builder;
 import lombok.Data;
 
 /**
- * SLA（服务级别协议）配置
- * 定义性能指标的预期标准
- * 
+ * SLA（Service Level Agreement）配置。
+ *
+ * <p>定义单个操作的性能预期标准，包括最大延迟、最小吞吐量和最大错误率。
+ * 通过 {@link PerformanceMonitor#configureSLA(String, SLAConfig)} 注册后，
+ * 每次操作完成时自动检查是否违规。</p>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.1
- * @since 2025-01-13
+ * @since 3.0.0
  */
 @Data
 @Builder

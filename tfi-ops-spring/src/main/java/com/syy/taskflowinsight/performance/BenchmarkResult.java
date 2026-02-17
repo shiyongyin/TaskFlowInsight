@@ -7,32 +7,70 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 基准测试结果
- * 
+ * 基准测试结果 DTO。
+ *
+ * <p>包含单项 benchmark 的统计数据：样本数、最小/最大/均值/中位数延迟、
+ * P50/P95/P99 分位数、标准差和吞吐量。</p>
+ *
+ * <p>结果状态：</p>
+ * <ul>
+ *   <li>{@code SUCCESS} — 测试正常完成</li>
+ *   <li>{@code SKIPPED} — 测试被跳过（依赖不可用）</li>
+ *   <li>{@code ERROR} — 测试出错</li>
+ * </ul>
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.0
- * @since 2025-01-13
+ * @since 3.0.0
  */
 @Data
 @Builder
 public class BenchmarkResult {
-    
+
+    /** 测试名称 */
     private String name;
+
+    /** 样本数 */
     private long count;
+
+    /** 最小延迟（纳秒） */
     private double minNanos;
+
+    /** 最大延迟（纳秒） */
     private double maxNanos;
+
+    /** 平均延迟（纳秒） */
     private double meanNanos;
+
+    /** 中位数延迟（纳秒） */
     private double medianNanos;
+
+    /** P50 延迟（纳秒） */
     private double p50Nanos;
+
+    /** P95 延迟（纳秒） */
     private double p95Nanos;
+
+    /** P99 延迟（纳秒） */
     private double p99Nanos;
+
+    /** 标准差（纳秒） */
     private double stdDevNanos;
-    private double throughput; // ops/sec
-    private String status; // SUCCESS, SKIPPED, ERROR
+
+    /** 吞吐量（ops/sec） */
+    private double throughput;
+
+    /** 结果状态：SUCCESS / SKIPPED / ERROR */
+    private String status;
+
+    /** 附加消息（状态非 SUCCESS 时的说明） */
     private String message;
-    
+
     /**
-     * 从持续时间列表创建结果
+     * 从原始延迟样本列表计算统计结果。
+     *
+     * @param name      测试名称
+     * @param durations 延迟样本（纳秒），{@code null} 或空列表返回 ERROR
+     * @return 计算后的测试结果
      */
     public static BenchmarkResult fromDurations(String name, List<Long> durations) {
         if (durations == null || durations.isEmpty()) {
@@ -87,7 +125,10 @@ public class BenchmarkResult {
     }
     
     /**
-     * 创建跳过的结果
+     * 创建状态为 SKIPPED 的结果。
+     *
+     * @param message 跳过原因
+     * @return 跳过状态的结果
      */
     public static BenchmarkResult skipped(String message) {
         return BenchmarkResult.builder()
@@ -97,7 +138,11 @@ public class BenchmarkResult {
     }
     
     /**
-     * 创建错误结果
+     * 创建状态为 ERROR 的结果。
+     *
+     * @param name    测试名称
+     * @param message 错误描述
+     * @return 错误状态的结果
      */
     public static BenchmarkResult error(String name, String message) {
         return BenchmarkResult.builder()
@@ -108,7 +153,9 @@ public class BenchmarkResult {
     }
     
     /**
-     * 格式化输出
+     * 格式化为人可读的文本。
+     *
+     * @return 包含样本数、延迟分位数和吞吐量的格式化字符串
      */
     public String format() {
         if ("SKIPPED".equals(status)) {
@@ -134,7 +181,9 @@ public class BenchmarkResult {
     }
     
     /**
-     * 转换为微秒
+     * 转换为微秒单位的结果。
+     *
+     * @return 所有延迟字段从纳秒转换为微秒的 DTO
      */
     public BenchmarkResultMicros toMicros() {
         return BenchmarkResultMicros.builder()
@@ -153,7 +202,9 @@ public class BenchmarkResult {
     }
     
     /**
-     * 结果（微秒）
+     * 微秒单位的基准测试结果 DTO（JSON 序列化友好）。
+     *
+     * @since 3.0.0
      */
     @Data
     @Builder

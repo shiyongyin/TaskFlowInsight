@@ -2,15 +2,19 @@ package com.syy.taskflowinsight.performance;
 
 import lombok.Data;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
- * 基准测试报告
- * 
+ * 基准测试报告。
+ * <p>
+ * 汇总各 benchmark 结果，支持文本、JSON、Markdown 输出及报告对比。
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.0
- * @since 2025-01-13
+ * @version 3.0.0
+ * @since 3.0.0
  */
 @Data
 public class BenchmarkReport {
@@ -26,14 +30,17 @@ public class BenchmarkReport {
     }
     
     /**
-     * 添加测试结果
+     * 添加测试结果。
+     *
+     * @param name 测试名称
+     * @param result 测试结果
      */
     public void addResult(String name, BenchmarkResult result) {
         results.put(name, result);
     }
     
     /**
-     * 计算统计信息
+     * 计算统计信息（总时长、成功/跳过/失败数、平均吞吐量等）。
      */
     public void calculateStatistics() {
         long totalDuration = endTime - startTime;
@@ -85,7 +92,9 @@ public class BenchmarkReport {
     }
     
     /**
-     * 生成文本报告
+     * 生成文本报告。
+     *
+     * @return 格式化的文本报告
      */
     public String generateTextReport() {
         StringBuilder report = new StringBuilder();
@@ -99,10 +108,11 @@ public class BenchmarkReport {
         report.append("  ").append(environment).append("\n\n");
         
         // 时间信息
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+            .withZone(ZoneId.systemDefault());
         report.append("Execution:\n");
-        report.append("  Start: ").append(sdf.format(new Date(startTime))).append("\n");
-        report.append("  End:   ").append(sdf.format(new Date(endTime))).append("\n");
+        report.append("  Start: ").append(dtf.format(Instant.ofEpochMilli(startTime))).append("\n");
+        report.append("  End:   ").append(dtf.format(Instant.ofEpochMilli(endTime))).append("\n");
         report.append("  Duration: ").append(summary.get("total_duration_ms")).append(" ms\n\n");
         
         // 汇总统计
@@ -133,7 +143,9 @@ public class BenchmarkReport {
     }
     
     /**
-     * 生成JSON报告
+     * 生成 JSON 报告。
+     *
+     * @return 包含 environment、summary、results 的 Map
      */
     public Map<String, Object> toJson() {
         Map<String, Object> json = new HashMap<>();
@@ -161,14 +173,18 @@ public class BenchmarkReport {
     }
     
     /**
-     * 转换为Map（兼容Dashboard）
+     * 转换为 Map（兼容 Dashboard）。
+     *
+     * @return 与 {@link #toJson()} 相同的 Map
      */
     public Map<String, Object> toMap() {
         return toJson();
     }
     
     /**
-     * 生成Markdown报告
+     * 生成 Markdown 报告。
+     *
+     * @return Markdown 格式的报告字符串
      */
     public String generateMarkdownReport() {
         StringBuilder md = new StringBuilder();
@@ -178,10 +194,11 @@ public class BenchmarkReport {
         md.append("## Environment\n");
         md.append("```\n").append(environment).append("\n```\n\n");
         
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+            .withZone(ZoneId.systemDefault());
         md.append("## Execution\n");
-        md.append("- **Start**: ").append(sdf.format(new Date(startTime))).append("\n");
-        md.append("- **End**: ").append(sdf.format(new Date(endTime))).append("\n");
+        md.append("- **Start**: ").append(dtf.format(Instant.ofEpochMilli(startTime))).append("\n");
+        md.append("- **End**: ").append(dtf.format(Instant.ofEpochMilli(endTime))).append("\n");
         md.append("- **Duration**: ").append(summary.get("total_duration_ms")).append(" ms\n\n");
         
         md.append("## Summary\n");
@@ -229,7 +246,11 @@ public class BenchmarkReport {
     }
     
     /**
-     * 比较两个报告
+     * 比较两个报告（均值、P95、吞吐量变化百分比）。
+     *
+     * @param baseline 基线报告
+     * @param current 当前报告
+     * @return 比较结果文本
      */
     public static String compare(BenchmarkReport baseline, BenchmarkReport current) {
         StringBuilder comparison = new StringBuilder();

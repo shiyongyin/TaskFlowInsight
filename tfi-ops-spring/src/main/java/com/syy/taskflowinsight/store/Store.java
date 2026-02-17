@@ -3,9 +3,14 @@ package com.syy.taskflowinsight.store;
 import java.util.Optional;
 
 /**
- * 通用存储接口
+ * 通用键值存储接口。
+ * <p>
+ * 提供基础的 put/get/remove/clear 操作，以及可选的统计信息。
+ * 实现类可基于内存缓存（如 Caffeine）或持久化存储。
+ *
  * @param <K> 键类型
  * @param <V> 值类型
+ * @since 3.0.0
  */
 public interface Store<K, V> {
     

@@ -14,15 +14,18 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * TFI健康检查指标器
- * 
+ * TFI 健康检查指标器。
+ * <p>
+ * 实现 Spring Boot {@link org.springframework.boot.actuate.health.HealthIndicator}，
  * 提供企业级健康检查：
- * - 内存使用状态（<10MB增量）
- * - CPU占用状态（<0.1%）
- * - 缓存命中率（>95%）
- * - 错误率监控
- * - 组件状态检查
- * 
+ * <ul>
+ *   <li>内存使用状态（&lt;10MB 增量）</li>
+ *   <li>CPU 占用状态（&lt;0.1%）</li>
+ *   <li>缓存命中率（&gt;95%）</li>
+ *   <li>错误率监控</li>
+ *   <li>组件状态检查</li>
+ * </ul>
+ *
  * @since 3.0.0
  */
 @Component
@@ -42,6 +45,11 @@ public class TfiHealthIndicator implements HealthIndicator {
         this.baselineMemory = getCurrentMemoryUsage();
     }
     
+    /**
+     * 执行健康检查。
+     *
+     * @return 包含内存、CPU、缓存、错误率、健康分数等详情的 Health
+     */
     @Override
     public Health health() {
         Map<String, Object> details = new HashMap<>();

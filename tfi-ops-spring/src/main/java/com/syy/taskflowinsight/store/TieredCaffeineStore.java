@@ -8,9 +8,15 @@ import org.springframework.stereotype.Component;
 import java.util.Optional;
 
 /**
- * 分层缓存存储实现
+ * 分层缓存存储实现（L1 + L2）。
+ * <p>
+ * 读路径：先查 L1，未命中再查 L2，L2 命中时提升到 L1。
+ * 写路径：同时写入 L1 和 L2。
+ * 需配置 {@code tfi.store.caffeine.tiered.enabled=true} 启用。
+ *
  * @param <K> 键类型
  * @param <V> 值类型
+ * @since 3.0.0
  */
 @Slf4j
 @Component
@@ -84,8 +90,9 @@ public class TieredCaffeineStore<K, V> implements Store<K, V> {
     
     @Override
     public long size() {
-        // 返回去重后的总大小（近似值）
-        return l1Cache.size() + l2Cache.size();
+        // L2 is a superset of L1 (both caches receive every put),
+        // so L2's estimated size is the best de-duplicated approximation.
+        return l2Cache.size();
     }
     
     @Override
