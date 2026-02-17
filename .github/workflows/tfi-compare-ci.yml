@@ -40,10 +40,7 @@ jobs:
         run: ./mvnw install -pl tfi-flow-core -DskipTests -q
 
       - name: Run unit tests + JaCoCo
-        run: ./mvnw test jacoco:report -pl tfi-compare -q
-
-      - name: Enforce coverage gates
-        run: ./mvnw jacoco:check -pl tfi-compare -q
+        run: ./mvnw verify jacoco:report -pl tfi-compare -q
 
       - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
