@@ -43,6 +43,7 @@
     </properties>
 
     <modules>
+        <module>tfi-flow-core</module>
         <module>tfi-flow-spring-starter</module>
         <module>tfi-compare</module>
         <module>tfi-ops-spring</module>

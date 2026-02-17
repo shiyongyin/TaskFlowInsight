@@ -1,0 +1,16 @@
+target/
+.DS_Store
+
+### IntelliJ IDEA ###
+.idea/
+*.iml
+*.iws
+*.ipr
+
+### Eclipse / STS ###
+.classpath
+.project
+.settings/
+
+### VS Code ###
+.vscode/
