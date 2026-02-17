@@ -21,6 +21,9 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Install all modules
+        run: ./mvnw install -DskipTests -q
+
       - name: Generate routing vs legacy JMH reports
         run: |
           ./mvnw -q -P bench -DskipTests exec:java \

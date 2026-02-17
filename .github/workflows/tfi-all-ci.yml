@@ -36,8 +36,8 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: maven
 
-      - name: Compile all modules
-        run: ./mvnw compile -pl tfi-all -am -q
+      - name: Install dependency modules
+        run: ./mvnw install -pl tfi-flow-core,tfi-flow-spring-starter,tfi-compare,tfi-ops-spring -am -DskipTests -q
 
       - name: Run unit tests + JaCoCo
         run: ./mvnw test jacoco:report -pl tfi-all -q
@@ -68,8 +68,11 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Install dependency modules
+        run: ./mvnw install -pl tfi-flow-core,tfi-flow-spring-starter,tfi-compare,tfi-ops-spring -am -DskipTests -q
+
       - name: SpotBugs
-        run: ./mvnw compile spotbugs:check -pl tfi-all -am -q
+        run: ./mvnw compile spotbugs:check -pl tfi-all -q
 
       - name: Checkstyle
         run: ./mvnw checkstyle:check -pl tfi-all -q
@@ -93,6 +96,9 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+
+      - name: Install dependency modules
+        run: ./mvnw install -pl tfi-flow-core,tfi-flow-spring-starter,tfi-compare,tfi-ops-spring -am -DskipTests -q
 
       - name: Run API compatibility check (japicmp)
         run: ./mvnw verify -pl tfi-all -Papi-compat -DskipTests -q

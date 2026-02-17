@@ -36,8 +36,8 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: maven
 
-      - name: Compile
-        run: ./mvnw compile -pl tfi-compare -am -q
+      - name: Install dependency modules
+        run: ./mvnw install -pl tfi-flow-core -DskipTests -q
 
       - name: Run unit tests + JaCoCo
         run: ./mvnw test jacoco:report -pl tfi-compare -q
@@ -67,6 +67,9 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+
+      - name: Install dependency modules
+        run: ./mvnw install -pl tfi-flow-core -DskipTests -q
 
       - name: SpotBugs
         run: ./mvnw compile spotbugs:check -pl tfi-compare -q
