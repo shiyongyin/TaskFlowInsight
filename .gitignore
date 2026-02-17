@@ -33,3 +33,9 @@ build/
 .vscode/
 .DS_Store
 /src/main/java/com/syy/taskflowinsight/tracking/.claude/
+
+# Phase 2: extracted as standalone repository (not built in this reactor)
+tfi-flow-core/
+
+# jqwik property-based testing database
+.jqwik-database

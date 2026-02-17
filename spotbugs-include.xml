@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+  <!--
+    Include-all filter to keep SpotBugs configuration stable across modules.
+    (An empty Match selects all bug instances.)
+  -->
+  <Match/>
+</FindBugsFilter>
