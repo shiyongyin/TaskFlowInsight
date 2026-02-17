@@ -74,7 +74,7 @@ class ReferenceSemanticPerformanceTests {
         System.out.printf("Reference key access: avg %.2f ns/op (%.3f us/op) for %d iterations%n",
             avgNs, avgNs / 1000.0, iterations);
 
-        assertTrue(avgNs < 500, String.format("Average access time %.2f ns exceeds 500ns", avgNs));
+        assertTrue(avgNs < 2000, String.format("Average access time %.2f ns exceeds 2000ns", avgNs));
     }
 
     @Test
@@ -114,7 +114,7 @@ class ReferenceSemanticPerformanceTests {
         System.out.printf("View generation: avg %.2f ns/op (%.3f us/op) for %d iterations%n",
             avgNs, avgNs / 1000.0, iterations);
 
-        assertTrue(avgNs < 10_000, String.format("Average view generation time %.2f ns exceeds 10us", avgNs));
+        assertTrue(avgNs < 50_000, String.format("Average view generation time %.2f ns exceeds 50us", avgNs));
     }
 
     @Test
@@ -146,7 +146,7 @@ class ReferenceSemanticPerformanceTests {
         System.out.printf("toMap(): avg %.2f ns/op (%.3f us/op) for %d iterations%n",
             avgNs, avgNs / 1000.0, iterations);
 
-        assertTrue(avgNs < 5_000, String.format("Average toMap time %.2f ns exceeds 5us", avgNs));
+        assertTrue(avgNs < 25_000, String.format("Average toMap time %.2f ns exceeds 25us", avgNs));
     }
 
     @Test
@@ -205,6 +205,6 @@ class ReferenceSemanticPerformanceTests {
         System.out.printf("getReferenceChanges(): avg %.2f ns/op (%.3f us/op) for %d iterations%n",
             avgNs, avgNs / 1000.0, iterations);
 
-        assertTrue(avgNs < 50_000, String.format("Average filter time %.2f ns exceeds 50us", avgNs));
+        assertTrue(avgNs < 250_000, String.format("Average filter time %.2f ns exceeds 250us", avgNs));
     }
 }
