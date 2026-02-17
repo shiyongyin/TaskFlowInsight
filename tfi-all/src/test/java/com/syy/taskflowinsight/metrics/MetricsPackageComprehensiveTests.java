@@ -11,7 +11,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.time.Duration;
 import java.util.Map;
@@ -36,7 +35,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * - 并发环境下的指标准确性
  * - 不同业务场景的指标收集
  */
-@SpringBootTest
 @DisplayName("Metrics Package Comprehensive Tests")
 class MetricsPackageComprehensiveTests {
 

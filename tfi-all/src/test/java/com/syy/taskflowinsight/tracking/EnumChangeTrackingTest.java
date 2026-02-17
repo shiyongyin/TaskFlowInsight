@@ -6,7 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.List;
 
@@ -16,7 +15,6 @@ import static org.assertj.core.api.Assertions.*;
  * 枚举变更跟踪测试
  * 验证当前项目对枚举对象变更的处理方式
  */
-@SpringBootTest
 public class EnumChangeTrackingTest {
 
     private static final Logger logger = LoggerFactory.getLogger(EnumChangeTrackingTest.class);

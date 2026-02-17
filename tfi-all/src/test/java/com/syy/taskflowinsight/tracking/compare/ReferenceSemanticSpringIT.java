@@ -1,6 +1,6 @@
 package com.syy.taskflowinsight.tracking.compare;
 
-import com.syy.taskflowinsight.TaskFlowInsightApplication;
+import com.syy.taskflowinsight.TestApplication;
 import com.syy.taskflowinsight.annotation.Entity;
 import com.syy.taskflowinsight.annotation.Key;
 import com.syy.taskflowinsight.annotation.ShallowReference;
@@ -11,7 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest(classes = TaskFlowInsightApplication.class)
+@SpringBootTest(classes = TestApplication.class)
 class ReferenceSemanticSpringIT {
 
     @Entity

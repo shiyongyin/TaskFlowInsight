@@ -1,8 +1,9 @@
 package com.syy.taskflowinsight.actuator;
 
+import com.syy.taskflowinsight.actuator.support.TfiHealthCalculator;
+import com.syy.taskflowinsight.actuator.support.TfiStatsAggregator;
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.config.TfiConfig;
-import com.syy.taskflowinsight.masking.UnifiedDataMasker;
 import com.syy.taskflowinsight.tracking.path.PathMatcherCacheInterface;
 import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
 import java.util.Set;
@@ -41,12 +43,8 @@ class SecureTfiEndpointComprehensiveTest {
     private SecureTfiEndpoint endpoint;
     private MeterRegistry meterRegistry;
     
-    @Mock
     private TfiConfig tfiConfig;
-    
-    @Mock
-    private UnifiedDataMasker dataMasker;
-    
+
     @Mock
     private PathMatcherCacheInterface pathMatcherCache;
 
@@ -55,23 +53,13 @@ class SecureTfiEndpointComprehensiveTest {
         MockitoAnnotations.openMocks(this);
         meterRegistry = new SimpleMeterRegistry();
         
-        // 设置合理的mock返回值 - 使用TfiConfig record的实际方法
-        // TfiConfig是record类型，使用nested record模式访问配置
         TfiConfig.ChangeTracking changeTracking = new TfiConfig.ChangeTracking(
             true, 8192, 5, null, null, null, 1024, null);
         TfiConfig.Context context = new TfiConfig.Context(
             3600000L, false, 60000L, false, 60000L);
         TfiConfig.Metrics metrics = new TfiConfig.Metrics(true, Map.of(), "PT1M");
         TfiConfig.Security security = new TfiConfig.Security(true, Set.of());
-        
-        when(tfiConfig.enabled()).thenReturn(true);
-        when(tfiConfig.changeTracking()).thenReturn(changeTracking);
-        when(tfiConfig.context()).thenReturn(context);
-        when(tfiConfig.metrics()).thenReturn(metrics);
-        when(tfiConfig.security()).thenReturn(security);
-        
-        // UnifiedDataMasker有maskValue方法，不是maskSessionId
-        when(dataMasker.maskValue("sessionId", "test-session")).thenReturn("sess-****");
+        tfiConfig = new TfiConfig(true, changeTracking, context, metrics, security);
         
         // PathMatcherCacheInterface通过getStats()获取统计信息
         PathMatcherCacheInterface.CacheStats stats = PathMatcherCacheInterface.CacheStats.builder()
@@ -81,7 +69,13 @@ class SecureTfiEndpointComprehensiveTest {
             .build();
         when(pathMatcherCache.getStats()).thenReturn(stats);
         
-        endpoint = new SecureTfiEndpoint(tfiConfig, meterRegistry, dataMasker, pathMatcherCache);
+        TfiHealthCalculator healthCalculator = new TfiHealthCalculator();
+        ReflectionTestUtils.setField(healthCalculator, "memoryThreshold", 0.8);
+        ReflectionTestUtils.setField(healthCalculator, "maxActiveContexts", 100);
+        ReflectionTestUtils.setField(healthCalculator, "maxSessionsWarning", 500);
+
+        endpoint = new SecureTfiEndpoint(tfiConfig, meterRegistry, pathMatcherCache,
+            healthCalculator, new TfiStatsAggregator());
         
         // 初始化TFI状态
         TFI.clear();
@@ -175,19 +169,14 @@ class SecureTfiEndpointComprehensiveTest {
         @DisplayName("端点响应应该实现缓存机制")
         void endpointResponseShouldImplementCaching() {
             // 第一次调用
-            long start1 = System.currentTimeMillis();
             Map<String, Object> response1 = endpoint.taskflow();
-            long duration1 = System.currentTimeMillis() - start1;
-            
-            // 立即第二次调用（应该从缓存返回）
-            long start2 = System.currentTimeMillis();
+
+            // 立即第二次调用（应该从缓存返回同一个对象实例）
             Map<String, Object> response2 = endpoint.taskflow();
-            long duration2 = System.currentTimeMillis() - start2;
-            
+
             assertThat(response1).isNotNull();
             assertThat(response2).isNotNull();
-            // 缓存的响应应该更快
-            assertThat(duration2).isLessThanOrEqualTo(duration1);
+            assertThat(response2).isSameAs(response1);
         }
         
         @Test
@@ -279,18 +268,7 @@ class SecureTfiEndpointComprehensiveTest {
             TFI.endSession();
         }
         
-        @Test
-        @DisplayName("敏感数据应该通过统一脱敏器处理")
-        void sensitiveDataShouldBeProcessedByUnifiedMasker() {
-            when(dataMasker.maskValue("sessionId", "test-session")).thenReturn("masked-session");
-            
-            TFI.startSession("test-session");
-            Map<String, Object> response = endpoint.taskflow();
-            
-            assertThat(response).isNotNull();
-            
-            TFI.endSession();
-        }
+        // Note: data masking is now handled internally in endpoint without UnifiedDataMasker dependency.
     }
 
     @Nested
@@ -300,13 +278,15 @@ class SecureTfiEndpointComprehensiveTest {
         @Test
         @DisplayName("禁用状态下端点应该正常响应")
         void endpointShouldRespondNormallyWhenDisabled() {
-            TFI.disable();
+            com.syy.taskflowinsight.api.TfiFlow.disable();
             
             Map<String, Object> response = endpoint.taskflow();
             
             assertThat(response).isNotNull();
             // TFI.disable()后，返回的response中enabled应该为false
             assertThat(response.get("enabled")).isEqualTo(false);
+
+            com.syy.taskflowinsight.api.TfiFlow.enable();
         }
         
         @Test
@@ -317,10 +297,19 @@ class SecureTfiEndpointComprehensiveTest {
                 false, 10, 1, null, null, null, 1, null);
             TfiConfig.Context emptyContext = new TfiConfig.Context(
                 1000L, false, 1000L, false, 1000L);
-            when(tfiConfig.changeTracking()).thenReturn(emptyChangeTracking);
-            when(tfiConfig.context()).thenReturn(emptyContext);
-            
-            Map<String, Object> response = endpoint.taskflow();
+            TfiConfig.Metrics metrics = new TfiConfig.Metrics(true, Map.of(), "PT1M");
+            TfiConfig.Security security = new TfiConfig.Security(true, Set.of());
+            TfiConfig emptyConfig = new TfiConfig(true, emptyChangeTracking, emptyContext, metrics, security);
+
+            TfiHealthCalculator healthCalculator = new TfiHealthCalculator();
+            ReflectionTestUtils.setField(healthCalculator, "memoryThreshold", 0.8);
+            ReflectionTestUtils.setField(healthCalculator, "maxActiveContexts", 100);
+            ReflectionTestUtils.setField(healthCalculator, "maxSessionsWarning", 500);
+
+            SecureTfiEndpoint localEndpoint = new SecureTfiEndpoint(
+                emptyConfig, meterRegistry, pathMatcherCache, healthCalculator, new TfiStatsAggregator());
+
+            Map<String, Object> response = localEndpoint.taskflow();
             
             assertThat(response).isNotNull();
             @SuppressWarnings("unchecked")

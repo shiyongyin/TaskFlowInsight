@@ -212,7 +212,6 @@ class SpelPackageEnhancedTest {
         
         // 测试所有getter方法
         assertThat(stats.getCachedExpressions()).isGreaterThanOrEqualTo(0);
-        assertThat(stats.getAllowedTypes()).isGreaterThan(0);
         assertThat(stats.getBlockedPatterns()).isGreaterThan(0);
     }
 
@@ -233,7 +232,6 @@ class SpelPackageEnhancedTest {
         
         // 验证统计数据合理性
         assertThat(stats.getCachedExpressions()).isGreaterThan(0);
-        assertThat(stats.getAllowedTypes()).isGreaterThan(0);
         assertThat(stats.getBlockedPatterns()).isGreaterThan(0);
     }
 

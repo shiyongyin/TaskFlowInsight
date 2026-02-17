@@ -12,11 +12,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.test.context.TestPropertySource;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * 综合性能测试套件 - TFI性能监控与基准测试完整验证
@@ -118,7 +120,7 @@ public class PerformanceTestSuite {
         
         // 执行一些操作并监控
         for (int i = 0; i < 100; i++) {
-            try (PerformanceMonitor.Timer timer = performanceMonitor.get().startTimer("test_operation")) {
+            try (OperationTimer timer = performanceMonitor.get().startTimer("test_operation")) {
                 Thread.sleep(1); // 模拟操作
                 if (i % 10 == 9) {
                     timer.setSuccess(false); // 模拟10%失败率
@@ -126,17 +128,14 @@ public class PerformanceTestSuite {
             }
         }
         
-        // 等待监控收集数据
-        Thread.sleep(1500);
-        
-        // 获取报告
-        PerformanceReport report = performanceMonitor.get().getReport();
-        assertThat(report).isNotNull();
-        assertThat(report.getMetrics()).containsKey("test_operation");
-        
-        MetricSnapshot snapshot = report.getMetrics().get("test_operation");
-        assertThat(snapshot.getTotalOps()).isGreaterThanOrEqualTo(100);
-        assertThat(snapshot.getErrorRate()).isBetween(0.08, 0.12); // 约10%
+        await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
+            PerformanceReport report = performanceMonitor.get().getReport();
+            assertThat(report).isNotNull();
+            assertThat(report.getMetrics()).containsKey("test_operation");
+            MetricSnapshot snapshot = report.getMetrics().get("test_operation");
+            assertThat(snapshot.getTotalOps()).isGreaterThanOrEqualTo(100);
+            assertThat(snapshot.getErrorRate()).isBetween(0.08, 0.12); // 约10%
+        });
     }
     
     @Test
@@ -161,16 +160,14 @@ public class PerformanceTestSuite {
         
         // 执行会违反SLA的操作
         for (int i = 0; i < 50; i++) {
-            try (PerformanceMonitor.Timer timer = performanceMonitor.get().startTimer("slow_operation")) {
+            try (OperationTimer timer = performanceMonitor.get().startTimer("slow_operation")) {
                 Thread.sleep(5); // 5ms，超过SLA
             }
         }
         
-        // 等待告警触发
-        Thread.sleep(1000);
-        
-        // 验证告警
-        assertThat(receivedAlerts).isNotEmpty();
+        await().atMost(Duration.ofSeconds(3)).untilAsserted(() ->
+            assertThat(receivedAlerts).isNotEmpty()
+        );
         assertThat(receivedAlerts).anyMatch(a -> a.getKey().contains("slow_operation.latency"));
     }
     
@@ -189,7 +186,7 @@ public class PerformanceTestSuite {
             for (int i = 0; i < 100; i++) {
                 memoryHog.add(new byte[1024 * 1024]); // 1MB块
                 
-                try (PerformanceMonitor.Timer timer = performanceMonitor.get().startTimer("memory_test")) {
+                try (OperationTimer timer = performanceMonitor.get().startTimer("memory_test")) {
                     // 操作
                 }
             }
@@ -197,11 +194,10 @@ public class PerformanceTestSuite {
             // 预期可能发生
         }
         
-        // 等待监控检测
-        Thread.sleep(1500);
-        
-        PerformanceReport report = performanceMonitor.get().getReport();
-        assertThat(report.getHeapUsagePercent()).isGreaterThan(0);
+        await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
+            PerformanceReport report = performanceMonitor.get().getReport();
+            assertThat(report.getHeapUsagePercent()).isGreaterThan(0);
+        });
         
         // 清理
         memoryHog.clear();
@@ -353,7 +349,7 @@ public class PerformanceTestSuite {
                 try {
                     for (int i = 0; i < operationsPerThread; i++) {
                         String operation = "thread_" + threadId;
-                        try (PerformanceMonitor.Timer timer = performanceMonitor.get().startTimer(operation)) {
+                        try (OperationTimer timer = performanceMonitor.get().startTimer(operation)) {
                             // 模拟操作
                             Thread.sleep(0, 100000); // 0.1ms
                         }
@@ -370,16 +366,15 @@ public class PerformanceTestSuite {
         assertThat(completed).isTrue();
         executor.shutdown();
         
-        // 验证所有线程的操作都被记录
-        Thread.sleep(1500); // 等待监控收集
-        PerformanceReport report = performanceMonitor.get().getReport();
-        
-        for (int t = 0; t < threadCount; t++) {
-            String operation = "thread_" + t;
-            assertThat(report.getMetrics()).containsKey(operation);
-            MetricSnapshot snapshot = report.getMetrics().get(operation);
-            assertThat(snapshot.getTotalOps()).isGreaterThanOrEqualTo(operationsPerThread);
-        }
+        await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
+            PerformanceReport report = performanceMonitor.get().getReport();
+            for (int t = 0; t < threadCount; t++) {
+                String operation = "thread_" + t;
+                assertThat(report.getMetrics()).containsKey(operation);
+                MetricSnapshot snapshot = report.getMetrics().get(operation);
+                assertThat(snapshot.getTotalOps()).isGreaterThanOrEqualTo(operationsPerThread);
+            }
+        });
     }
     
     @Test

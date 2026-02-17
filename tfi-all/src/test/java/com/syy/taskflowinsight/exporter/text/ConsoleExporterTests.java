@@ -20,7 +20,7 @@ class ConsoleExporterTests {
         ConsoleExporter exporter = new ConsoleExporter();
 
         // act
-        String out = exporter.export(session);
+        String out = exporter.exportSimple(session, true);
 
         // assert header contains session id and session thread info
         assertThat(out).contains("Session: " + session.getSessionId());
@@ -31,7 +31,7 @@ class ConsoleExporterTests {
         assertThat(out).contains("root-task");
         assertThat(out).contains("[业务流程 @");
         assertThat(out).contains("hello-info");
-        assertThat(out).contains("异常提示 @");
+        assertThat(out).contains("⚠️异常提示 @");
         assertThat(out).contains("oops-error");
         // assert self/acc durations are printed
         assertThat(out).contains("self ");

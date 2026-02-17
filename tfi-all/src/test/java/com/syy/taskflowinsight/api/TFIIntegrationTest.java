@@ -7,8 +7,6 @@ import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +78,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @version 1.0.0
  * @since 2025-01-06
  */
-@SpringBootTest
 class TFIIntegrationTest {
     
     @BeforeEach

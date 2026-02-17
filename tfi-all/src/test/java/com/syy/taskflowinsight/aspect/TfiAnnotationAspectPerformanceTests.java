@@ -5,7 +5,6 @@ import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.config.resolver.ConfigurationResolver;
 import com.syy.taskflowinsight.masking.UnifiedDataMasker;
 import com.syy.taskflowinsight.spel.SafeSpELEvaluator;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,9 +62,7 @@ class TfiAnnotationAspectPerformanceTests {
         AspectJProxyFactory factory = new AspectJProxyFactory(target);
         factory.addAspect(new TfiAnnotationAspect(
             new SafeSpELEvaluator(),
-            new UnifiedDataMasker(),
-            new SimpleMeterRegistry(),
-            new NoopConfigurationResolver()
+            new UnifiedDataMasker()
         ));
         return factory.getProxy();
     }

@@ -1,9 +1,6 @@
 package com.syy.taskflowinsight.context;
 
 import org.junit.jupiter.api.*;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 
 import java.lang.ref.WeakReference;
 import java.time.Duration;
@@ -17,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -40,8 +38,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 2.1.0
  * @since 2025-01-13
  */
-@ExtendWith(SpringExtension.class)
-@SpringBootTest
 @DisplayName("ZeroLeakThreadLocalManager全面测试")
 class ZeroLeakThreadLocalManagerComprehensiveTest {
 
@@ -369,15 +365,10 @@ class ZeroLeakThreadLocalManagerComprehensiveTest {
             
             manager.registerContext(currentThread, context);
             
-            // 等待超过超时时间
-            Thread.sleep(100);
-            
-            int leaksDetected = manager.detectLeaks();
-            
-            // 应该检测到至少1个泄漏
-            assertThat(leaksDetected).isGreaterThanOrEqualTo(1);
-            
-            // 恢复默认超时时间
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                int leaksDetected = manager.detectLeaks();
+                assertThat(leaksDetected).isGreaterThanOrEqualTo(1);
+            });
             manager.setContextTimeoutMillis(3600000);
         }
 
@@ -409,13 +400,10 @@ class ZeroLeakThreadLocalManagerComprehensiveTest {
             canExit.countDown();
             testThread.join();
             
-            // 等待一点时间让系统检测到线程死亡
-            Thread.sleep(100);
-
-            int leaksDetected = manager.detectLeaks();
-            
-            // 应该检测到泄漏
-            assertThat(leaksDetected).isGreaterThanOrEqualTo(1);
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                int leaksDetected = manager.detectLeaks();
+                assertThat(leaksDetected).isGreaterThanOrEqualTo(1);
+            });
         }
 
         @Test
@@ -458,18 +446,13 @@ class ZeroLeakThreadLocalManagerComprehensiveTest {
                 thread.join();
             }
             
-            // 等待一些时间让弱引用队列处理
-            Thread.sleep(200);
-            
-            // 执行泄漏检测（这会触发清理）
-            int leaksDetected = manager.detectLeaks();
-            
-            Map<String, Object> diagnosticsAfter = manager.getDiagnostics();
-            int activeContextsAfter = (Integer) diagnosticsAfter.get("contexts.active");
-            
-            // 验证一些上下文被清理了
-            assertThat(activeContextsAfter).isLessThanOrEqualTo(activeContextsBefore);
-            assertThat(leaksDetected).isGreaterThanOrEqualTo(0);
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                int leaksDetected = manager.detectLeaks();
+                Map<String, Object> diagnosticsAfter = manager.getDiagnostics();
+                int activeContextsAfter = (Integer) diagnosticsAfter.get("contexts.active");
+                assertThat(activeContextsAfter).isLessThanOrEqualTo(activeContextsBefore);
+                assertThat(leaksDetected).isGreaterThanOrEqualTo(0);
+            });
         }
     }
 
@@ -584,11 +567,9 @@ class ZeroLeakThreadLocalManagerComprehensiveTest {
             Object context = new TestContext("periodic-test");
             manager.registerContext(currentThread, context);
             
-            // 等待几个清理周期
-            Thread.sleep(350);
-            
-            // 验证清理任务在运行（通过检查是否没有异常）
-            assertDoesNotThrow(() -> manager.getDiagnostics());
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+                assertDoesNotThrow(() -> manager.getDiagnostics())
+            );
             
             manager.setCleanupEnabled(false);
             manager.unregisterContext(currentThread.threadId());
@@ -598,12 +579,11 @@ class ZeroLeakThreadLocalManagerComprehensiveTest {
         @DisplayName("禁用清理任务应该停止定期检测")
         void disableCleanup_shouldStopPeriodicDetection() throws InterruptedException {
             manager.setCleanupEnabled(true);
-            Thread.sleep(100);
+            await().atMost(Duration.ofSeconds(2)).pollDelay(Duration.ofMillis(100)).until(() -> true);
             
             manager.setCleanupEnabled(false);
-            Thread.sleep(100);
+            await().atMost(Duration.ofSeconds(2)).pollDelay(Duration.ofMillis(100)).until(() -> true);
             
-            // 验证没有异常发生
             assertDoesNotThrow(() -> manager.getDiagnostics());
         }
 
@@ -613,15 +593,13 @@ class ZeroLeakThreadLocalManagerComprehensiveTest {
             manager.setCleanupEnabled(true);
             manager.setCleanupIntervalMillis(500);
             
-            Thread.sleep(100);
+            await().atMost(Duration.ofSeconds(2)).pollDelay(Duration.ofMillis(100)).until(() -> true);
             
-            // 修改间隔
             manager.setCleanupIntervalMillis(100);
             
-            Thread.sleep(200);
-            
-            // 验证调度器仍在工作
-            assertDoesNotThrow(() -> manager.getDiagnostics());
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+                assertDoesNotThrow(() -> manager.getDiagnostics())
+            );
             
             manager.setCleanupEnabled(false);
         }
@@ -637,18 +615,14 @@ class ZeroLeakThreadLocalManagerComprehensiveTest {
             Object context = new TestContext("auto-cleanup-test");
             manager.registerContext(currentThread, context);
             
-            // 记录初始泄漏清理数量
             Map<String, Object> diagnosticsBefore = manager.getDiagnostics();
             long leaksCleanedBefore = (Long) diagnosticsBefore.get("leaks.cleaned");
             
-            // 等待超过超时时间 + 几个清理周期
-            Thread.sleep(300);
-            
-            Map<String, Object> diagnosticsAfter = manager.getDiagnostics();
-            long leaksCleanedAfter = (Long) diagnosticsAfter.get("leaks.cleaned");
-            
-            // 验证自动清理发生了
-            assertThat(leaksCleanedAfter).isGreaterThanOrEqualTo(leaksCleanedBefore);
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                Map<String, Object> diagnosticsAfter = manager.getDiagnostics();
+                long leaksCleanedAfter = (Long) diagnosticsAfter.get("leaks.cleaned");
+                assertThat(leaksCleanedAfter).isGreaterThanOrEqualTo(leaksCleanedBefore);
+            });
             
             manager.setCleanupEnabled(false);
             manager.setContextTimeoutMillis(3600000); // 恢复默认
@@ -690,10 +664,9 @@ class ZeroLeakThreadLocalManagerComprehensiveTest {
             
             manager.setCleanupIntervalMillis(newInterval);
             
-            // 等待一点时间验证调度器仍在工作
-            Thread.sleep(100);
-            
-            assertDoesNotThrow(() -> manager.getDiagnostics());
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+                assertDoesNotThrow(() -> manager.getDiagnostics())
+            );
             
             manager.setCleanupEnabled(false);
             manager.setCleanupIntervalMillis(originalInterval);

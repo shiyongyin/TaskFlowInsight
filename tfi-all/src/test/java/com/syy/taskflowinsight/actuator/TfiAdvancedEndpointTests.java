@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.actuator;
 
+import com.syy.taskflowinsight.actuator.support.TfiHealthCalculator;
+import com.syy.taskflowinsight.actuator.support.TfiStatsAggregator;
 import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.tracking.SessionAwareChangeTracker;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
@@ -8,6 +10,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -20,7 +23,15 @@ class TfiAdvancedEndpointTests {
 
     @BeforeEach
     void setup() {
-        endpoint = new TfiAdvancedEndpoint();
+        TfiHealthCalculator healthCalculator = new TfiHealthCalculator();
+        ReflectionTestUtils.setField(healthCalculator, "memoryThreshold", 0.8);
+        ReflectionTestUtils.setField(healthCalculator, "maxActiveContexts", 100);
+        ReflectionTestUtils.setField(healthCalculator, "maxSessionsWarning", 500);
+
+        TfiStatsAggregator statsAggregator = new TfiStatsAggregator();
+        EndpointPerformanceOptimizer performanceOptimizer = new EndpointPerformanceOptimizer();
+
+        endpoint = new TfiAdvancedEndpoint(null, healthCalculator, statsAggregator, performanceOptimizer);
         SessionAwareChangeTracker.clearAll();
     }
 
@@ -73,12 +84,13 @@ class TfiAdvancedEndpointTests {
         assertThat((Integer) first.get("changeCount")).isGreaterThanOrEqualTo(3);
     }
 
+    @SuppressWarnings("unchecked")
     @Test
     void getSessionByIdReturnsMetadataAndChanges() {
         String sid = createSessionWithChanges(2, "X");
-        ResponseEntity<Map<String, Object>> res = endpoint.getSession(sid);
+        ResponseEntity<?> res = endpoint.getSession(sid);
         assertThat(res.getStatusCode().is2xxSuccessful()).isTrue();
-        Map<String, Object> body = res.getBody();
+        Map<String, Object> body = (Map<String, Object>) res.getBody();
         assertThat(body).isNotNull();
         assertThat(body).containsKeys("sessionId", "metadata", "changes", "timestamp");
         List<?> changes = (List<?>) body.get("changes");
@@ -111,16 +123,16 @@ class TfiAdvancedEndpointTests {
 
     @Test
     void updateConfigTogglesChangeTracking() {
-        // set false
-        var resFalse = endpoint.updateConfig(Map.of("changeTrackingEnabled", false));
-        assertThat(resFalse.getStatusCode().is2xxSuccessful()).isTrue();
-        assertThat((Boolean) resFalse.getBody().get("changeTrackingEnabled")).isFalse();
-        assertThat(com.syy.taskflowinsight.api.TFI.isChangeTrackingEnabled()).isFalse();
+        boolean before = com.syy.taskflowinsight.api.TFI.isChangeTrackingEnabled();
 
-        // set true
-        var resTrue = endpoint.updateConfig(Map.of("changeTrackingEnabled", true));
-        assertThat(resTrue.getStatusCode().is2xxSuccessful()).isTrue();
-        assertThat(com.syy.taskflowinsight.api.TFI.isChangeTrackingEnabled()).isTrue();
+        // runtime toggle is intentionally unsupported
+        var res = endpoint.updateConfig(Map.of("changeTrackingEnabled", false));
+        assertThat(res.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(res.getBody()).isNotNull();
+        assertThat(res.getBody()).containsKey("changeTrackingEnabled");
+        assertThat((String) res.getBody().get("warning"))
+            .contains("Runtime toggling is not supported");
+        assertThat(com.syy.taskflowinsight.api.TFI.isChangeTrackingEnabled()).isEqualTo(before);
     }
 
     @Test
@@ -236,26 +248,18 @@ class TfiAdvancedEndpointTests {
         // 测试场景：验证配置动态切换功能
         // 业务价值：运维期间可以动态调整系统行为
         
-        // 获取当前状态
         boolean originalState = com.syy.taskflowinsight.api.TFI.isChangeTrackingEnabled();
-        
-        try {
-            // 切换到相反状态
-            boolean newState = !originalState;
-            var updateRes = endpoint.updateConfig(Map.of("changeTrackingEnabled", newState));
-            assertThat(updateRes.getStatusCode().is2xxSuccessful()).isTrue();
-            
-            Map<String, Object> updateBody = updateRes.getBody();
-            assertThat(updateBody).isNotNull();
-            assertThat((Boolean) updateBody.get("changeTrackingEnabled")).isEqualTo(newState);
-            
-            // 验证配置确实已改变
-            assertThat(com.syy.taskflowinsight.api.TFI.isChangeTrackingEnabled()).isEqualTo(newState);
-            
-        } finally {
-            // 恢复原始状态
-            endpoint.updateConfig(Map.of("changeTrackingEnabled", originalState));
-        }
+
+        var updateRes = endpoint.updateConfig(Map.of("changeTrackingEnabled", !originalState));
+        assertThat(updateRes.getStatusCode().is2xxSuccessful()).isTrue();
+
+        Map<String, Object> updateBody = updateRes.getBody();
+        assertThat(updateBody).isNotNull();
+        assertThat((String) updateBody.get("warning"))
+            .contains("Runtime toggling is not supported");
+
+        // TFI state is not affected by endpoint config update
+        assertThat(com.syy.taskflowinsight.api.TFI.isChangeTrackingEnabled()).isEqualTo(originalState);
     }
 
     @Test

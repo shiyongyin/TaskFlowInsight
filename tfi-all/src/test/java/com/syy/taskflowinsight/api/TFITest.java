@@ -6,8 +6,6 @@ import com.syy.taskflowinsight.model.TaskNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -66,7 +64,6 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
  * @version 1.0.0
  * @since 2025-01-06
  */
-@SpringBootTest
 class TFITest {
     
     @BeforeEach

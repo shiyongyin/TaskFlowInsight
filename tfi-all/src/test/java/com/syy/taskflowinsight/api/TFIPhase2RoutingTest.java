@@ -29,7 +29,6 @@ class TFIPhase2RoutingTest {
     private static TestTrackingProvider testTrackingProvider;
     private static TestFlowProvider testFlowProvider;
     private static TestExportProvider testExportProvider;
-    private static boolean providersRegistered = false;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -39,23 +38,27 @@ class TFIPhase2RoutingTest {
         // 2. 清除 Provider 缓存（在注册前）
         clearProviderCache();
 
-        // 3. 创建并注册真实的 TestProvider（只注册一次）
-        if (!providersRegistered) {
+        // 3. 清除 ProviderRegistry 中的旧注册（其他测试类可能已污染）
+        try {
+            Class<?> registryClass = Class.forName("com.syy.taskflowinsight.spi.ProviderRegistry");
+            java.lang.reflect.Method clearMethod = registryClass.getMethod("clearAll");
+            clearMethod.invoke(null);
+        } catch (Exception ignored) { }
+
+        // 4. 每次都创建（或重置）并重新注册 TestProvider
+        if (testTrackingProvider == null) {
             testTrackingProvider = new TestTrackingProvider();
             testFlowProvider = new TestFlowProvider();
             testExportProvider = new TestExportProvider();
-
-            TFI.registerTrackingProvider(testTrackingProvider);
-            TFI.registerFlowProvider(testFlowProvider);
-            TFI.registerExportProvider(testExportProvider);
-
-            providersRegistered = true;
         } else {
-            // 重置已有实例的状态
             testTrackingProvider.reset();
             testFlowProvider.reset();
             testExportProvider.reset();
         }
+
+        TFI.registerTrackingProvider(testTrackingProvider);
+        TFI.registerFlowProvider(testFlowProvider);
+        TFI.registerExportProvider(testExportProvider);
 
         // 4. 创建真实的 TfiConfig
         TfiConfig config = new TfiConfig(

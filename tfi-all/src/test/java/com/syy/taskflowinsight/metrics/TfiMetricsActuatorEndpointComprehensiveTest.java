@@ -4,8 +4,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.util.Map;
@@ -17,7 +15,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * TfiMetricsActuatorEndpoint综合测试
  * 测试覆盖率目标：从0%提升到100%
  */
-@SpringBootTest
 @DisplayName("TfiMetricsActuatorEndpoint综合测试")
 class TfiMetricsActuatorEndpointComprehensiveTest {
 

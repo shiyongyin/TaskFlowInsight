@@ -6,8 +6,6 @@ import com.syy.taskflowinsight.tracking.monitoring.DegradationDecisionEngine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,12 +20,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @author TaskFlow Insight Team
  * @version 3.0.0
  */
-@SpringBootTest
-@TestPropertySource(properties = {
-    "tfi.change-tracking.degradation.enabled=true",
-    "tfi.change-tracking.degradation.k-pairs-threshold=10000",
-    "logging.level.com.syy.taskflowinsight.tracking.compare.list=INFO"
-})
 class KPairsDegradationTest {
 
     private ListCompareExecutor listCompareExecutor;

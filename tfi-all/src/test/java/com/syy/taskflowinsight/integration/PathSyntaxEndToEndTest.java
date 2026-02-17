@@ -10,7 +10,6 @@ import com.syy.taskflowinsight.tracking.TestChangeRecordFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -21,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * 路径语法端到端集成测试
  * 验证各组件协同工作的正确性
  */
-@SpringBootTest
 class PathSyntaxEndToEndTest {
 
     private PathDeduplicator deduplicator;

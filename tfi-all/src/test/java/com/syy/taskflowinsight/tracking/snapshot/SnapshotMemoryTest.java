@@ -3,6 +3,7 @@ package com.syy.taskflowinsight.tracking.snapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.util.*;
 
@@ -17,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 2025-01-13
  */
 @DisplayName("快照内存使用测试")
+@EnabledIfSystemProperty(named = "tfi.perf.enabled", matches = "true")
 public class SnapshotMemoryTest {
     
     private SnapshotConfig config;

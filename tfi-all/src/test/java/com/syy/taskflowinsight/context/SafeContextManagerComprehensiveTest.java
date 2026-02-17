@@ -7,8 +7,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.springframework.boot.test.context.SpringBootTest;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
@@ -34,7 +35,6 @@ import static org.junit.jupiter.api.Assertions.fail;
  * - 并发安全性
  * - 资源清理
  */
-@SpringBootTest
 @DisplayName("SafeContextManager 全面测试")
 class SafeContextManagerComprehensiveTest {
 
@@ -99,8 +99,8 @@ class SafeContextManagerComprehensiveTest {
     class ConfigurationTests {
 
         @Test
-        @DisplayName("configureFromTfiConfig应该正确应用配置")
-        void configureFromTfiConfig_shouldApplyConfiguration() {
+        @DisplayName("configure应该正确应用配置")
+        void configure_shouldApplyConfiguration() {
             // 创建模拟配置
             TfiConfig.Context contextConfig = new TfiConfig.Context(
                 30000L, // 30秒超时
@@ -112,17 +112,21 @@ class SafeContextManagerComprehensiveTest {
             TfiConfig config = new TfiConfig(true, null, contextConfig, null, null);
             
             // 应用配置
-            manager.configureFromTfiConfig(config);
+            manager.configure(
+                config.context().maxAgeMillis(),
+                config.context().leakDetectionEnabled(),
+                config.context().leakDetectionIntervalMillis()
+            );
             
             // 验证配置生效 - 通过后续行为验证
             assertThat(manager.getActiveContextCount()).isEqualTo(0);
         }
 
         @Test
-        @DisplayName("configureFromTfiConfig处理null配置")
-        void configureFromTfiConfig_shouldHandleNullConfig() {
+        @DisplayName("configure处理null等价场景（显式默认值）")
+        void configure_shouldHandleNullEquivalentScenario() {
             assertThatCode(() -> {
-                manager.configureFromTfiConfig(null);
+                manager.configure(3600000L, false, 60000L);
             }).doesNotThrowAnyException();
             
             // 验证默认配置未改变
@@ -437,18 +441,11 @@ class SafeContextManagerComprehensiveTest {
             manager.setLeakDetectionEnabled(true);
             manager.setLeakDetectionIntervalMillis(100); // 100ms间隔，快速测试
             
-            // 等待一小段时间让检测启动
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            
-            // 禁用泄漏检测
-            manager.setLeakDetectionEnabled(false);
-            
-            // 验证无异常
-            assertThat(manager.getActiveContextCount()).isEqualTo(0);
+            // 等待检测启动后验证无异常
+            await().atMost(Duration.ofSeconds(2)).pollDelay(Duration.ofMillis(200)).untilAsserted(() -> {
+                manager.setLeakDetectionEnabled(false);
+                assertThat(manager.getActiveContextCount()).isEqualTo(0);
+            });
         }
 
         @Test

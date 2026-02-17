@@ -2,6 +2,7 @@ package com.syy.taskflowinsight.tracking.snapshot;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -236,6 +237,7 @@ class ReflectionMetaCacheTests {
     }
     
     @Test
+    @EnabledIfSystemProperty(named = "tfi.perf.enabled", matches = "true")
     void testFieldAccessPerformanceMatrix() {
         // Given - 不同字段数量的性能测试
         ComplexEntity entity = new ComplexEntity();

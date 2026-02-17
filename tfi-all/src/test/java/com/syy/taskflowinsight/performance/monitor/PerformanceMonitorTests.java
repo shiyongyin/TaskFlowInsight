@@ -43,7 +43,7 @@ class PerformanceMonitorTests {
         monitor.configureSLA("snapshot", sla);
 
         // record one snapshot operation - this should trigger SLA check
-        try (PerformanceMonitor.Timer t = monitor.startTimer("snapshot")) {
+        try (OperationTimer t = monitor.startTimer("snapshot")) {
             t.setSuccess(true);
         }
 
@@ -59,7 +59,7 @@ class PerformanceMonitorTests {
     @Test
     void maintainsHistoryWithinSize() {
         for (int i = 0; i < 20; i++) {
-            try (PerformanceMonitor.Timer t = monitor.startTimer("change_tracking")) {
+            try (OperationTimer t = monitor.startTimer("change_tracking")) {
                 t.setSuccess(true);
             }
             monitor.collectMetrics();

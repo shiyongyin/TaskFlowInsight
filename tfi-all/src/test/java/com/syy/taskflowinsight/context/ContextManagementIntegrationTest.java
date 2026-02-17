@@ -6,12 +6,14 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -270,10 +272,9 @@ public class ContextManagementIntegrationTest {
             leaked = null; // 丢失引用但未关闭
             
             // 等待泄漏检测
-            Thread.sleep(2000);
-            
-            // 验证泄漏已被检测
-            assertTrue(contextManager.getActiveContextCount() <= initialActive);
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertTrue(contextManager.getActiveContextCount() <= initialActive)
+            );
         } finally {
             contextManager.setLeakDetectionEnabled(false);
         }
@@ -302,10 +303,9 @@ public class ContextManagementIntegrationTest {
             shortLivedThread.join();
             
             // 等待清理
-            Thread.sleep(3000);
-            
-            // 验证已清理
-            assertTrue(cleanedCount.get() > 0);
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertTrue(cleanedCount.get() > 0)
+            );
             
         } finally {
             contextManager.unregisterLeakListener(listener);

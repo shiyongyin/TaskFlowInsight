@@ -99,7 +99,7 @@ class ConsoleExporterCustomLabelTest {
         root.addMessage("时间戳消息", "时间测试");
         
         // When
-        String output = exporter.export(session, true); // With timestamp
+        String output = exporter.exportSimple(session, true); // With timestamp
         
         // Then
         assertTrue(output.contains("[时间测试 @"));
@@ -182,7 +182,7 @@ class ConsoleExporterCustomLabelTest {
         
         // Then
         assertTrue(output.contains("Empty Session"));
-        assertFalse(output.contains("|-")); // No message indicators
+        assertFalse(output.contains("💬")); // No message indicators
     }
     
     @Test
@@ -215,7 +215,7 @@ class ConsoleExporterCustomLabelTest {
         String[] lines = output.split("\n");
         int messageCount = 0;
         for (String line : lines) {
-            if (line.contains("|-")) {
+            if (line.contains("💬")) {
                 messageCount++;
             }
         }
@@ -249,11 +249,11 @@ class ConsoleExporterCustomLabelTest {
         // Find message lines and verify indentation
         for (String line : lines) {
             if (line.contains("[Root Label]")) {
-                assertTrue(line.startsWith("    |-")); // Root task indentation
+                assertTrue(line.startsWith("├── 💬")); // Root task message indentation
             } else if (line.contains("[Child Label]")) {
-                assertTrue(line.startsWith("        |-")); // Child task indentation
+                assertTrue(line.startsWith("    ├── 💬")); // Child task message indentation
             } else if (line.contains("[GrandChild Label]")) {
-                assertTrue(line.startsWith("            |-")); // GrandChild indentation
+                assertTrue(line.startsWith("        └── 💬")); // GrandChild message indentation
             }
         }
     }

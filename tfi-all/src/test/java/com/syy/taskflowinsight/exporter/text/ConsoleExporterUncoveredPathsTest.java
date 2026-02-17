@@ -101,8 +101,7 @@ class ConsoleExporterUncoveredPathsTest {
         String result = sb.toString();
         assertThat(result).contains("TaskWithoutMessages");
         // 不应该包含消息相关的输出
-        assertThat(result).doesNotContain("[");
-        assertThat(result).doesNotContain("]");
+        assertThat(result).doesNotContain("💬");
     }
 
     @Test
@@ -216,17 +215,17 @@ class ConsoleExporterUncoveredPathsTest {
         TaskNode root = session.getRootTask();
         root.addInfo("Test message with timestamp");
         
+        Method appendTaskNodeSimpleMethod = ConsoleExporter.class.getDeclaredMethod(
+            "appendTaskNodeSimple", StringBuilder.class, TaskNode.class, int.class);
+        appendTaskNodeSimpleMethod.setAccessible(true);
+
         // 设置showTimestamp为false
         Field showTimestampField = ConsoleExporter.class.getDeclaredField("showTimestamp");
         showTimestampField.setAccessible(true);
         showTimestampField.set(exporter, false);
         
         StringBuilder sb = new StringBuilder();
-        Method appendTaskNodeMethod = ConsoleExporter.class.getDeclaredMethod(
-            "appendTaskNode", StringBuilder.class, TaskNode.class, String.class, boolean.class);
-        appendTaskNodeMethod.setAccessible(true);
-        
-        appendTaskNodeMethod.invoke(exporter, sb, root, "", false);
+        appendTaskNodeSimpleMethod.invoke(exporter, sb, root, 0);
         
         String result = sb.toString();
         
@@ -238,7 +237,7 @@ class ConsoleExporterUncoveredPathsTest {
         showTimestampField.set(exporter, true);
         
         StringBuilder sb2 = new StringBuilder();
-        appendTaskNodeMethod.invoke(exporter, sb2, root, "", false);
+        appendTaskNodeSimpleMethod.invoke(exporter, sb2, root, 0);
         
         String result2 = sb2.toString();
         

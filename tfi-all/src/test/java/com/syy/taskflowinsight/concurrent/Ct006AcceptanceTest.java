@@ -12,6 +12,7 @@ import org.junit.jupiter.api.*;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.ConcurrentModificationException;
@@ -20,6 +21,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
 
 /**
  * CT-006 并发与内存优化验收测试
@@ -152,7 +154,7 @@ class Ct006AcceptanceTest {
                 }
                 
                 // 等待线程结束
-                Thread.sleep(200);
+                await().atMost(Duration.ofSeconds(2)).pollDelay(Duration.ofMillis(200)).until(() -> true);
                 
                 // 执行批量清理
                 long startTime = System.currentTimeMillis();
@@ -403,16 +405,13 @@ class Ct006AcceptanceTest {
             metricsCollector.recordTimer("test.timer", 1000000L); // 1ms in nanos
             metricsCollector.recordGauge("test.gauge", 42.0);
             
-            // 等待处理
-            Thread.sleep(100);
-            
-            // 手动触发刷新
             metricsCollector.flushMetrics();
             
-            // 验证统计
-            AsyncMetricsCollector.CollectorStats stats = metricsCollector.getStats();
-            assertThat(stats.getTotalEvents()).isGreaterThanOrEqualTo(4);
-            assertThat(stats.getProcessedEvents()).isGreaterThan(0);
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                AsyncMetricsCollector.CollectorStats stats = metricsCollector.getStats();
+                assertThat(stats.getTotalEvents()).isGreaterThanOrEqualTo(4);
+                assertThat(stats.getProcessedEvents()).isGreaterThan(0);
+            });
         }
         
         @Test
@@ -425,13 +424,12 @@ class Ct006AcceptanceTest {
                 metricsCollector.recordCounter("overflow.test." + i);
             }
             
-            // 等待处理
-            Thread.sleep(100);
-            
-            AsyncMetricsCollector.CollectorStats stats = metricsCollector.getStats();
-            assertThat(stats.getTotalEvents()).isEqualTo(eventsToGenerate);
-            assertThat(stats.getDroppedEvents()).isGreaterThan(0);
-            assertThat(stats.getDropRate()).isGreaterThan(0.0);
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                AsyncMetricsCollector.CollectorStats stats = metricsCollector.getStats();
+                assertThat(stats.getTotalEvents()).isEqualTo(eventsToGenerate);
+                assertThat(stats.getDroppedEvents()).isGreaterThan(0);
+                assertThat(stats.getDropRate()).isGreaterThan(0.0);
+            });
         }
         
         @Test
@@ -460,12 +458,12 @@ class Ct006AcceptanceTest {
                     future.get(5, TimeUnit.SECONDS);
                 }
                 
-                // 强制刷新
                 metricsCollector.flushMetrics();
-                Thread.sleep(100);
                 
-                AsyncMetricsCollector.CollectorStats stats = metricsCollector.getStats();
-                assertThat(stats.getTotalEvents()).isEqualTo(totalEvents.get());
+                await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                    AsyncMetricsCollector.CollectorStats stats = metricsCollector.getStats();
+                    assertThat(stats.getTotalEvents()).isEqualTo(totalEvents.get());
+                });
                 
             } finally {
                 executor.shutdown();
@@ -509,15 +507,11 @@ class Ct006AcceptanceTest {
                 thread.join();
             }
             
-            // 等待死线程检测
-            Thread.sleep(200);
-            
-            // 手动触发清理检测
-            int leaksDetected = threadLocalManager.detectLeaks();
-            int batchCleaned = threadLocalManager.cleanupNestedStagesBatch();
-            
-            // 验证清理效果
-            assertThat(leaksDetected + batchCleaned).isGreaterThanOrEqualTo(5);
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                int leaksDetected = threadLocalManager.detectLeaks();
+                int batchCleaned = threadLocalManager.cleanupNestedStagesBatch();
+                assertThat(leaksDetected + batchCleaned).isGreaterThanOrEqualTo(5);
+            });
         }
         
         @Test

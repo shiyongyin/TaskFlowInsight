@@ -244,7 +244,7 @@ class TFIBoundaryTest {
             assertThat(TFI.getTaskStack()).isEmpty();
             
             // 导出操作应该安全
-            assertThat(TFI.exportToJson()).isNull();
+            assertThat(TFI.exportToJson()).isEqualTo("{}");
             assertThat(TFI.exportToMap()).isEmpty();
         });
     }
@@ -463,7 +463,7 @@ class TFIBoundaryTest {
             assertThat(TFI.getTaskStack()).isEmpty();
             
             // 导出操作
-            assertThat(TFI.exportToJson()).isNull();
+            assertThat(TFI.exportToJson()).isEqualTo("{}");
             assertThat(TFI.exportToMap()).isEmpty();
             assertThatNoException().isThrownBy(TFI::exportToConsole);
             

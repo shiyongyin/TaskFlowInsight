@@ -6,7 +6,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -24,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.fail;
  * ContextPropagatingExecutor 全面测试
  * 目标：从45%覆盖率提升到90%+
  */
-@SpringBootTest
 @DisplayName("ContextPropagatingExecutor 全面测试")
 class ContextPropagatingExecutorComprehensiveTest {
 

@@ -113,7 +113,7 @@ public class TFIRoutingDemo {
 
         // 2. 如果找不到，使用兜底实现
         if (provider == null) {
-            provider = ProviderRegistry.getDefaultComparisonProvider();
+            provider = new DefaultComparisonProvider();
             logger.debug("Using default ComparisonProvider (no registered or ServiceLoader provider found)");
         }
 

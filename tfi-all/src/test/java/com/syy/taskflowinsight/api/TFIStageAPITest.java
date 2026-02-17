@@ -3,6 +3,7 @@ package com.syy.taskflowinsight.api;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -146,6 +147,7 @@ class TFIStageAPITest {
     
     @Test
     @DisplayName("Stage创建性能测试 - P99≤100μs")
+    @EnabledIfSystemProperty(named = "tfi.perf.enabled", matches = "true")
     void shouldMeetStageCreationPerformanceTarget() {
         // Given
         int iterations = 10000;

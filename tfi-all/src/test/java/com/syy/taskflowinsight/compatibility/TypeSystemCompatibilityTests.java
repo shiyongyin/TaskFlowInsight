@@ -127,10 +127,10 @@ class TypeSystemCompatibilityTests {
         
         Map<String, Object> typeAwareResult = snapshot.captureDeep(user, typeAwareOptions);
         
-        // Legacy模式：所有字段都被处理
+        // Legacy模式：仍应遵循 @DiffIgnore（安全默认），但不启用类型感知的Entity/ValueObject策略
         assertTrue(legacyResult.containsKey("id"));
         assertTrue(legacyResult.containsKey("name"));
-        assertTrue(legacyResult.containsKey("email"));
+        assertFalse(legacyResult.containsKey("email"));
         
         // 类型感知模式：遵循注解规则
         assertTrue(typeAwareResult.containsKey("id"));
@@ -224,14 +224,13 @@ class TypeSystemCompatibilityTests {
         
         Map<String, Object> rollbackResult = snapshot.captureDeep(user, rollbackOptions);
         
-        // 回滚后应该恢复到原始行为
+        // 回滚后应关闭类型感知策略，但 @DiffIgnore 仍应生效（安全默认）
         assertTrue(rollbackResult.containsKey("id"));
         assertTrue(rollbackResult.containsKey("name"));
-        assertTrue(rollbackResult.containsKey("sensitive")); // 不再遵循@DiffIgnore
+        assertFalse(rollbackResult.containsKey("sensitive")); // 仍遵循@DiffIgnore
         
         assertEquals(1L, rollbackResult.get("id"));
         assertEquals("User", rollbackResult.get("name"));
-        assertEquals("secret", rollbackResult.get("sensitive"));
     }
     
     @Test

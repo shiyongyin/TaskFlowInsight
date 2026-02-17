@@ -15,7 +15,7 @@ class TfiEndpointUnitTests {
 
     @BeforeEach
     void setUp() {
-        endpoint = new TfiEndpoint();
+        endpoint = new TfiEndpoint(null);
         TFI.enable();
         TFI.setChangeTrackingEnabled(true);
         // 清理可能的历史追踪
@@ -34,9 +34,12 @@ class TfiEndpointUnitTests {
     void toggleTrackingNull_flipsState() {
         boolean before = TFI.isChangeTrackingEnabled();
         Map<String, Object> result = endpoint.toggleTracking(null);
+        boolean previous = (boolean) result.get("previousState");
         boolean current = (boolean) result.get("currentState");
-        assertThat(current).isEqualTo(!before);
-        assertThat(TFI.isChangeTrackingEnabled()).isEqualTo(current);
+        assertThat(previous).isEqualTo(current);
+        assertThat(current).isEqualTo(before);
+        assertThat((String) result.get("message")).contains("Runtime toggling is not supported");
+        assertThat(TFI.isChangeTrackingEnabled()).isEqualTo(before);
     }
 
     @Test

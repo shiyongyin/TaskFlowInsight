@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -18,7 +17,6 @@ import static org.assertj.core.api.Assertions.*;
  * ManagedThreadContext 综合测试
  * 覆盖所有公共方法和边界条件
  */
-@SpringBootTest
 @DisplayName("ManagedThreadContext 综合测试")
 class ManagedThreadContextComprehensiveTest {
 

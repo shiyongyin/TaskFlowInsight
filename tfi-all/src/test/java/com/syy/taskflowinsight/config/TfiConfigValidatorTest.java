@@ -3,7 +3,6 @@ package com.syy.taskflowinsight.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.Set;
 import java.util.Map;
@@ -13,7 +12,6 @@ import static org.assertj.core.api.Assertions.*;
  * TfiConfigValidator 综合测试
  * 目标：从3%提升至95%+覆盖率
  */
-@SpringBootTest
 @DisplayName("TFI配置验证器测试")
 class TfiConfigValidatorTest {
 

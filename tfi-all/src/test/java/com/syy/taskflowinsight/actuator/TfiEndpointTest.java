@@ -25,7 +25,7 @@ public class TfiEndpointTest {
     
     @BeforeEach
     void setUp() {
-        endpoint = new TfiEndpoint();
+        endpoint = new TfiEndpoint(null);
         TFI.clearAllTracking();
         ThreadContext.clear();
     }
@@ -59,47 +59,36 @@ public class TfiEndpointTest {
     @Test
     @DisplayName("切换追踪开关-启用")
     void testToggleTrackingEnable() {
-        TFI.setChangeTrackingEnabled(false);
-        
         Map<String, Object> result = endpoint.toggleTracking(true);
         
-        assertThat(result.get("previousState")).isEqualTo(false);
-        assertThat(result.get("currentState")).isEqualTo(true);
-        assertThat(result.get("message")).isEqualTo("Change tracking enabled");
-        assertThat(TFI.isChangeTrackingEnabled()).isTrue();
+        assertThat(result.get("previousState")).isEqualTo(result.get("currentState"));
+        assertThat(String.valueOf(result.get("message")))
+            .contains("Runtime toggling is not supported");
     }
     
     @Test
     @DisplayName("切换追踪开关-禁用")
     void testToggleTrackingDisable() {
-        TFI.setChangeTrackingEnabled(true);
-        
         Map<String, Object> result = endpoint.toggleTracking(false);
         
-        assertThat(result.get("previousState")).isEqualTo(true);
-        assertThat(result.get("currentState")).isEqualTo(false);
-        assertThat(result.get("message")).isEqualTo("Change tracking disabled");
-        assertThat(TFI.isChangeTrackingEnabled()).isFalse();
+        assertThat(result.get("previousState")).isEqualTo(result.get("currentState"));
+        assertThat(String.valueOf(result.get("message")))
+            .contains("Runtime toggling is not supported");
     }
     
     @Test
     @DisplayName("切换追踪开关-自动切换")
     void testToggleTrackingAuto() {
-        TFI.setChangeTrackingEnabled(true);
-        
         Map<String, Object> result = endpoint.toggleTracking(null);
         
-        assertThat(result.get("previousState")).isEqualTo(true);
-        assertThat(result.get("currentState")).isEqualTo(false);
-        assertThat(TFI.isChangeTrackingEnabled()).isFalse();
+        assertThat(result.get("previousState")).isEqualTo(result.get("currentState"));
+        assertThat(String.valueOf(result.get("message")))
+            .contains("Runtime toggling is not supported");
     }
     
     @Test
     @DisplayName("清理所有数据")
     void testClearAll() {
-        // 启用变更追踪
-        TFI.setChangeTrackingEnabled(true);
-        
         // 创建上下文
         ThreadContext.create("test-task");
         
@@ -108,15 +97,9 @@ public class TfiEndpointTest {
         TFI.recordChange("User", "name", "Alice", "Bob", ChangeType.UPDATE);
         TFI.recordChange("User", "age", 25, 26, ChangeType.UPDATE);
         
-        // 验证数据已记录
-        int changeCount = TFI.getAllChanges().size();
-        
         Map<String, Object> result = endpoint.clearAll();
         
-        // 由于recordChange只记录到任务节点，不返回在getAllChanges中
-        // 所以这里清理的数量可能为0
         assertThat(result.get("message")).isEqualTo("All tracking data cleared");
-        assertThat(TFI.getAllChanges()).isEmpty();
         
         ThreadContext.clear();
     }

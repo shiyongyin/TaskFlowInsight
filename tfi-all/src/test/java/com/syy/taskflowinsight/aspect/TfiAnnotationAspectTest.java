@@ -1,10 +1,8 @@
 package com.syy.taskflowinsight.aspect;
 
 import com.syy.taskflowinsight.annotation.TfiTask;
-import com.syy.taskflowinsight.config.resolver.ConfigurationResolver;
 import com.syy.taskflowinsight.masking.UnifiedDataMasker;
 import com.syy.taskflowinsight.spel.SafeSpELEvaluator;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,20 +18,17 @@ import static org.mockito.Mockito.*;
 class TfiAnnotationAspectTest {
     
     private TfiAnnotationAspect aspect;
-    private SimpleMeterRegistry meterRegistry;
     
     @Mock private ProceedingJoinPoint pjp;
     @Mock private MethodSignature signature;
     @Mock private TfiTask tfiTask;
     @Mock private SafeSpELEvaluator spelEvaluator;
     @Mock private UnifiedDataMasker dataMasker;
-    @Mock private ConfigurationResolver configurationResolver;
     
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        meterRegistry = new SimpleMeterRegistry();
-        aspect = new TfiAnnotationAspect(spelEvaluator, dataMasker, meterRegistry, configurationResolver);
+        aspect = new TfiAnnotationAspect(spelEvaluator, dataMasker);
     }
     
     @Test
@@ -48,7 +43,6 @@ class TfiAnnotationAspectTest {
         // Then: 直通不拦截
         assertEquals("result", result);
         verify(pjp, times(1)).proceed();
-        assertEquals(0, meterRegistry.counter("tfi.annotation.task.success").count());
     }
     
     @Test
@@ -69,7 +63,6 @@ class TfiAnnotationAspectTest {
         
         // Then: 全量拦截
         assertEquals("result", result);
-        assertTrue(meterRegistry.counter("tfi.annotation.task.success").count() > 0);
     }
     
     @Test
@@ -88,7 +81,6 @@ class TfiAnnotationAspectTest {
         
         // Then: 跳过追踪
         assertEquals("result", result);
-        assertEquals(0, meterRegistry.counter("tfi.annotation.task.success").count());
     }
     
     @Test
@@ -106,11 +98,6 @@ class TfiAnnotationAspectTest {
         
         // When/Then: 异常不吞噬
         assertThrows(RuntimeException.class, () -> aspect.around(pjp, tfiTask));
-        
-        // And: 错误计数增加
-        assertTrue(meterRegistry.counter("tfi.annotation.task.error").count() > 0);
-        assertTrue(meterRegistry.counter("tfi.annotation.task.error", 
-            "exception", "RuntimeException").count() > 0);
     }
     
     @Test
@@ -132,7 +119,6 @@ class TfiAnnotationAspectTest {
         
         // Then: 执行追踪
         assertEquals("result", result);
-        assertTrue(meterRegistry.counter("tfi.annotation.task.success").count() > 0);
     }
     
     @Test 

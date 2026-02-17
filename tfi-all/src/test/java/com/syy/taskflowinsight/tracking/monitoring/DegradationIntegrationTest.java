@@ -4,7 +4,6 @@ import com.syy.taskflowinsight.metrics.TfiMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -21,24 +20,6 @@ import static org.mockito.Mockito.*;
  * @author TaskFlow Insight Team
  * @version 3.0.0
  */
-@SpringBootTest(properties = {
-    "tfi.change-tracking.degradation.enabled=true",
-    "tfi.change-tracking.degradation.evaluation-interval=100ms",
-    "tfi.change-tracking.degradation.min-level-change-duration=50ms",
-    "tfi.change-tracking.degradation.memory-thresholds.skip-deep-analysis=60.0",
-    "tfi.change-tracking.degradation.memory-thresholds.simple-comparison=70.0",
-    "tfi.change-tracking.degradation.memory-thresholds.summary-only=80.0",
-    "tfi.change-tracking.degradation.memory-thresholds.disabled=90.0",
-    "tfi.change-tracking.degradation.performance-thresholds.average-operation-time-ms=200",
-    "tfi.change-tracking.degradation.performance-thresholds.slow-operation-rate=0.05",
-    "tfi.change-tracking.degradation.performance-thresholds.cpu-usage-percent=80.0",
-    "tfi.change-tracking.enabled=true",
-    "management.endpoint.tfi.enabled=false",
-    "tfi.actuator.enabled=false",
-    "taskflow.monitoring.endpoint.enabled=false",
-    "tfi.annotation.enabled=false",
-    "tfi.performance.dashboard.enabled=false"
-})
 class DegradationIntegrationTest {
     
     private DegradationPerformanceMonitor performanceMonitor;

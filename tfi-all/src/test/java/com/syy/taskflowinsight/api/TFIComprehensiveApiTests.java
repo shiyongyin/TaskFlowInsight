@@ -97,7 +97,7 @@ class TFIComprehensiveApiTests {
             assertThat(result).isEqualTo(42);
             
             // Export operations should return safe defaults
-            assertThat(TFI.exportToJson()).isNull();
+            assertThat(TFI.exportToJson()).isEqualTo("{}");
             assertThat(TFI.exportToMap()).isEmpty();
             
             TFI.enable(); // Re-enable for cleanup

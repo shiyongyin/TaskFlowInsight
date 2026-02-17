@@ -1,7 +1,8 @@
 package com.syy.taskflowinsight.actuator;
 
+import com.syy.taskflowinsight.actuator.support.TfiHealthCalculator;
+import com.syy.taskflowinsight.actuator.support.TfiStatsAggregator;
 import com.syy.taskflowinsight.config.TfiConfig;
-import com.syy.taskflowinsight.masking.UnifiedDataMasker;
 import com.syy.taskflowinsight.tracking.path.PathMatcherCacheInterface;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -11,12 +12,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
-import static org.mockito.Mockito.withSettings;
 
 /**
  * SecureTfiEndpoint测试用例
@@ -33,46 +34,40 @@ import static org.mockito.Mockito.withSettings;
 @DisplayName("M1-005 SecureTfiEndpoint Tests")
 class SecureTfiEndpointTest {
     
-    @Mock
     private TfiConfig tfiConfig;
     
     @Mock
     private PathMatcherCacheInterface pathMatcherCache;
     
     private MeterRegistry meterRegistry;
-    private UnifiedDataMasker dataMasker;
     private SecureTfiEndpoint endpoint;
+    
+    private TfiHealthCalculator createHealthCalculator() {
+        TfiHealthCalculator hc = new TfiHealthCalculator();
+        ReflectionTestUtils.setField(hc, "memoryThreshold", 0.8);
+        ReflectionTestUtils.setField(hc, "maxActiveContexts", 100);
+        ReflectionTestUtils.setField(hc, "maxSessionsWarning", 500);
+        return hc;
+    }
     
     @BeforeEach
     void setUp() {
         meterRegistry = new SimpleMeterRegistry();
-        dataMasker = new UnifiedDataMasker();
-        
-        // 使用lenient模式避免UnnecessaryStubbingException
-        setupMockProperties();
-        
+
+        tfiConfig = buildConfig();
         endpoint = new SecureTfiEndpoint(
-            tfiConfig, meterRegistry, dataMasker, pathMatcherCache);
+            tfiConfig, meterRegistry, pathMatcherCache,
+            createHealthCalculator(), new TfiStatsAggregator());
     }
     
-    private void setupMockProperties() {
-        // Setup TfiConfig mock
-        TfiConfig.ChangeTracking changeTracking = mock(TfiConfig.ChangeTracking.class, withSettings().lenient());
-        TfiConfig.Context context = mock(TfiConfig.Context.class, withSettings().lenient());
-        TfiConfig.Metrics metrics = mock(TfiConfig.Metrics.class, withSettings().lenient());
-        TfiConfig.Security security = mock(TfiConfig.Security.class, withSettings().lenient());
-        
-        lenient().when(tfiConfig.enabled()).thenReturn(true);
-        lenient().when(tfiConfig.changeTracking()).thenReturn(changeTracking);
-        lenient().when(tfiConfig.context()).thenReturn(context);
-        lenient().when(tfiConfig.metrics()).thenReturn(metrics);
-        lenient().when(tfiConfig.security()).thenReturn(security);
-        
-        lenient().when(changeTracking.enabled()).thenReturn(true);
-        lenient().when(context.leakDetectionEnabled()).thenReturn(false);
-        lenient().when(context.cleanupEnabled()).thenReturn(false);
-        lenient().when(metrics.enabled()).thenReturn(true);
-        lenient().when(security.enableDataMasking()).thenReturn(true);
+    private TfiConfig buildConfig() {
+        TfiConfig.ChangeTracking changeTracking = new TfiConfig.ChangeTracking(
+            true, 8192, 5, null, null, null, 1024, null);
+        TfiConfig.Context context = new TfiConfig.Context(
+            3600000L, false, 60000L, false, 60000L);
+        TfiConfig.Metrics metrics = new TfiConfig.Metrics(true, Map.of(), "PT1M");
+        TfiConfig.Security security = new TfiConfig.Security(true, Set.of());
+        return new TfiConfig(true, changeTracking, context, metrics, security);
     }
     
     // ===== 只读性验证测试 =====
@@ -393,7 +388,8 @@ class SecureTfiEndpointTest {
     void shouldGracefullyDegradeWhenComponentsUnavailable() {
         // Given - 创建没有可选依赖的端点
         SecureTfiEndpoint endpointWithoutDeps = new SecureTfiEndpoint(
-            null, meterRegistry, dataMasker, null);
+            null, meterRegistry, null,
+            createHealthCalculator(), new TfiStatsAggregator());
         
         // When & Then - 所有方法都应该正常工作
         assertThatCode(() -> {

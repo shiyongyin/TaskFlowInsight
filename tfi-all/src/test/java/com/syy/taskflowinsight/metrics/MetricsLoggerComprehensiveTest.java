@@ -4,7 +4,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
@@ -17,7 +16,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * MetricsLogger综合测试
  * 测试覆盖率目标：从63%提升到80%
  */
-@SpringBootTest
 @DisplayName("MetricsLogger综合测试")
 class MetricsLoggerComprehensiveTest {
 

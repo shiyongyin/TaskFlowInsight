@@ -8,8 +8,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
 
 import java.util.Map;
 
@@ -25,11 +23,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * - Error conditions and edge cases
  * - State transitions
  */
-@SpringBootTest
-@TestPropertySource(properties = {
-    "tfi.endpoint.basic.enabled=true",
-    "tfi.enabled=true"
-})
 @DisplayName("TFI Endpoint Comprehensive Tests")
 class TfiEndpointComprehensiveTests {
 
@@ -37,7 +30,7 @@ class TfiEndpointComprehensiveTests {
 
     @BeforeEach
     void setUp() {
-        endpoint = new TfiEndpoint();
+        endpoint = new TfiEndpoint(null);
         TFI.enable();
         TFI.clear();
         TFI.setChangeTrackingEnabled(true);
@@ -149,7 +142,7 @@ class TfiEndpointComprehensiveTests {
         @Test
         @DisplayName("Health status reflects TFI disabled state")
         void healthStatusReflectsTfiDisabledState() {
-            TFI.disable();
+            com.syy.taskflowinsight.api.TfiFlow.disable();
 
             Map<String, Object> info = endpoint.info();
             Map<String, Object> health = (Map<String, Object>) info.get("health");
@@ -158,7 +151,7 @@ class TfiEndpointComprehensiveTests {
             assertThat(health.get("healthy")).isEqualTo(false);
             assertThat(health.get("issue")).isEqualTo("TFI system is disabled");
 
-            TFI.enable(); // Restore for cleanup
+            com.syy.taskflowinsight.api.TfiFlow.enable(); // Restore for cleanup
         }
     }
 
@@ -170,6 +163,7 @@ class TfiEndpointComprehensiveTests {
         @DisplayName("Toggle tracking with true parameter")
         void toggleTrackingWithTrueParameter() {
             TFI.setChangeTrackingEnabled(false); // Start disabled
+            boolean before = TFI.isChangeTrackingEnabled();
 
             Map<String, Object> result = endpoint.toggleTracking(true);
 
@@ -178,23 +172,22 @@ class TfiEndpointComprehensiveTests {
             assertThat(result).containsKey("message");
             assertThat(result).containsKey("timestamp");
 
-            assertThat(result.get("previousState")).isEqualTo(false);
-            assertThat(result.get("currentState")).isEqualTo(true);
-            assertThat(result.get("message")).isEqualTo("Change tracking enabled");
-            assertThat(TFI.isChangeTrackingEnabled()).isTrue();
+            assertThat(result.get("previousState")).isEqualTo(result.get("currentState"));
+            assertThat(((String) result.get("message"))).contains("Runtime toggling is not supported");
+            assertThat(TFI.isChangeTrackingEnabled()).isEqualTo(before);
         }
 
         @Test
         @DisplayName("Toggle tracking with false parameter")
         void toggleTrackingWithFalseParameter() {
             TFI.setChangeTrackingEnabled(true); // Start enabled
+            boolean before = TFI.isChangeTrackingEnabled();
 
             Map<String, Object> result = endpoint.toggleTracking(false);
 
-            assertThat(result.get("previousState")).isEqualTo(true);
-            assertThat(result.get("currentState")).isEqualTo(false);
-            assertThat(result.get("message")).isEqualTo("Change tracking disabled");
-            assertThat(TFI.isChangeTrackingEnabled()).isFalse();
+            assertThat(result.get("previousState")).isEqualTo(result.get("currentState"));
+            assertThat(((String) result.get("message"))).contains("Runtime toggling is not supported");
+            assertThat(TFI.isChangeTrackingEnabled()).isEqualTo(before);
         }
 
         @Test
@@ -205,8 +198,9 @@ class TfiEndpointComprehensiveTests {
             Map<String, Object> result = endpoint.toggleTracking(null);
 
             assertThat(result.get("previousState")).isEqualTo(initialState);
-            assertThat(result.get("currentState")).isEqualTo(!initialState);
-            assertThat(TFI.isChangeTrackingEnabled()).isEqualTo(!initialState);
+            assertThat(result.get("currentState")).isEqualTo(initialState);
+            assertThat(((String) result.get("message"))).contains("Runtime toggling is not supported");
+            assertThat(TFI.isChangeTrackingEnabled()).isEqualTo(initialState);
         }
 
         @Test
@@ -215,11 +209,11 @@ class TfiEndpointComprehensiveTests {
             // Test enabling
             TFI.setChangeTrackingEnabled(false);
             Map<String, Object> enableResult = endpoint.toggleTracking(true);
-            assertThat(enableResult.get("message")).isEqualTo("Change tracking enabled");
+            assertThat((String) enableResult.get("message")).contains("Runtime toggling is not supported");
 
             // Test disabling
             Map<String, Object> disableResult = endpoint.toggleTracking(false);
-            assertThat(disableResult.get("message")).isEqualTo("Change tracking disabled");
+            assertThat((String) disableResult.get("message")).contains("Runtime toggling is not supported");
         }
 
         @Test
@@ -319,18 +313,12 @@ class TfiEndpointComprehensiveTests {
             Map<String, Object> result2 = endpoint.toggleTracking(null);
             Map<String, Object> result3 = endpoint.toggleTracking(null);
 
-            // Should be back to opposite of initial state after 3 toggles
-            assertThat(TFI.isChangeTrackingEnabled()).isEqualTo(!initialState);
+            // Runtime toggling is not supported, state should remain unchanged
+            assertThat(TFI.isChangeTrackingEnabled()).isEqualTo(initialState);
 
-            // Each result should have correct previous/current states
-            assertThat(result1.get("previousState")).isEqualTo(initialState);
-            assertThat(result1.get("currentState")).isEqualTo(!initialState);
-
-            assertThat(result2.get("previousState")).isEqualTo(!initialState);
-            assertThat(result2.get("currentState")).isEqualTo(initialState);
-
-            assertThat(result3.get("previousState")).isEqualTo(initialState);
-            assertThat(result3.get("currentState")).isEqualTo(!initialState);
+            assertThat(result1.get("previousState")).isEqualTo(result1.get("currentState"));
+            assertThat(result2.get("previousState")).isEqualTo(result2.get("currentState"));
+            assertThat(result3.get("previousState")).isEqualTo(result3.get("currentState"));
         }
 
         @Test
@@ -396,19 +384,23 @@ class TfiEndpointComprehensiveTests {
         @Test
         @DisplayName("Endpoint reflects actual TFI state changes")
         void endpointReflectsActualTfiStateChanges() {
-            // Change state through TFI API
-            TFI.setChangeTrackingEnabled(false);
+            // Endpoint reflects configuration (runtime toggles are unsupported)
+            var config = new com.syy.taskflowinsight.config.TfiConfig(
+                true,
+                new com.syy.taskflowinsight.config.TfiConfig.ChangeTracking(false, null, null, null, null, null, null, null),
+                new com.syy.taskflowinsight.config.TfiConfig.Context(null, null, null, null, null),
+                new com.syy.taskflowinsight.config.TfiConfig.Metrics(null, null, null),
+                new com.syy.taskflowinsight.config.TfiConfig.Security(null, null)
+            );
+            TfiEndpoint endpointWithConfig = new TfiEndpoint(config);
 
-            // Endpoint should reflect this change
-            Map<String, Object> info = endpoint.info();
+            Map<String, Object> info = endpointWithConfig.info();
             Map<String, Object> changeTracking = (Map<String, Object>) info.get("changeTracking");
             assertThat(changeTracking.get("enabled")).isEqualTo(false);
 
-            // Change through endpoint
-            endpoint.toggleTracking(true);
-
-            // TFI should reflect this change
-            assertThat(TFI.isChangeTrackingEnabled()).isTrue();
+            Map<String, Object> toggleResult = endpointWithConfig.toggleTracking(true);
+            assertThat((String) toggleResult.get("message")).contains("Runtime toggling is not supported");
+            assertThat(toggleResult.get("currentState")).isEqualTo(false);
         }
 
         @Test

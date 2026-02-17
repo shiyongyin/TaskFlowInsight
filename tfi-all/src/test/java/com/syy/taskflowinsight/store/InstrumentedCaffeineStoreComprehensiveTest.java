@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.*;
 
 /**
@@ -294,12 +295,15 @@ class InstrumentedCaffeineStoreComprehensiveTest {
             
             // 执行刷新（刷新会再次调用loader）
             store.refresh("refresh-key");
-            
+
+            // refresh是异步执行的，等待刷新完成后再断言
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+                assertThat(loadCounter.get()).isGreaterThanOrEqualTo(2)
+            );
+
             // 刷新后再次获取
             Optional<String> refreshedResult = store.get("refresh-key");
             assertThat(refreshedResult).contains("loaded-refresh-key");
-            // 刷新时调用了一次loader
-            assertThat(loadCounter.get()).isGreaterThanOrEqualTo(2);
         }
 
         @Test

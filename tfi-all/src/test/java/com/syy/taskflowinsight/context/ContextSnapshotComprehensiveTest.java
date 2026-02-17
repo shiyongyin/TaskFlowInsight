@@ -5,19 +5,19 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.springframework.boot.test.context.SpringBootTest;
 
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * ContextSnapshot 全面测试
  * 目标：从32%覆盖率提升到90%+
  */
-@SpringBootTest
 @DisplayName("ContextSnapshot 全面测试")
 class ContextSnapshotComprehensiveTest {
 
@@ -157,49 +157,41 @@ class ContextSnapshotComprehensiveTest {
 
         @Test
         @DisplayName("getAgeNanos应该返回正确的纳秒数")
-        void getAgeNanos_shouldReturnCorrectNanos() throws InterruptedException {
+        void getAgeNanos_shouldReturnCorrectNanos() {
             long startTime = System.nanoTime();
             ContextSnapshot snapshot = new ContextSnapshot("ctx-123", null, null, startTime);
             
-            // 等待一小段时间
-            Thread.sleep(10);
-            
-            long age = snapshot.getAgeNanos();
-            
-            // 年龄应该是正数，且大于0
-            assertThat(age).isPositive();
-            // 年龄应该大约是10毫秒（但允许一些误差）
-            assertThat(age).isGreaterThan(5_000_000); // 5ms
-            assertThat(age).isLessThan(100_000_000); // 100ms（允许较大误差）
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                long age = snapshot.getAgeNanos();
+                assertThat(age).isPositive();
+                assertThat(age).isGreaterThan(5_000_000); // 5ms
+                assertThat(age).isLessThan(5_000_000_000L); // 5s（允许测试环境延迟）
+            });
         }
 
         @Test
         @DisplayName("getAgeMillis应该返回正确的毫秒数")
-        void getAgeMillis_shouldReturnCorrectMillis() throws InterruptedException {
+        void getAgeMillis_shouldReturnCorrectMillis() {
             long startTime = System.nanoTime();
             ContextSnapshot snapshot = new ContextSnapshot("ctx-123", null, null, startTime);
             
-            // 等待一小段时间
-            Thread.sleep(20);
-            
-            long ageMillis = snapshot.getAgeMillis();
-            
-            // 年龄应该是正数
-            assertThat(ageMillis).isGreaterThanOrEqualTo(0);
-            // 应该大约是20毫秒（但允许一些误差）
-            assertThat(ageMillis).isLessThan(200); // 允许较大误差
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                long ageMillis = snapshot.getAgeMillis();
+                assertThat(ageMillis).isGreaterThanOrEqualTo(0);
+                assertThat(ageMillis).isLessThan(200); // 允许较大误差
+            });
         }
 
         @Test
         @DisplayName("连续调用getAgeNanos应该返回递增的值")
-        void continuousGetAgeNanos_shouldReturnIncreasingValues() throws InterruptedException {
+        void continuousGetAgeNanos_shouldReturnIncreasingValues() {
             ContextSnapshot snapshot = new ContextSnapshot("ctx-123", null, null, System.nanoTime());
-            
             long age1 = snapshot.getAgeNanos();
-            Thread.sleep(5);
-            long age2 = snapshot.getAgeNanos();
             
-            assertThat(age2).isGreaterThan(age1);
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                long age2 = snapshot.getAgeNanos();
+                assertThat(age2).isGreaterThan(age1);
+            });
         }
 
         @Test
@@ -386,13 +378,12 @@ class ContextSnapshotComprehensiveTest {
 
         @Test
         @DisplayName("toString应该包含年龄信息")
-        void toString_shouldIncludeAgeInfo() throws InterruptedException {
+        void toString_shouldIncludeAgeInfo() {
             ContextSnapshot snapshot = new ContextSnapshot("ctx-123", null, null, System.nanoTime());
             
-            Thread.sleep(10);
-            String result = snapshot.toString();
-            
-            assertThat(result).matches(".*age=\\d+ms.*");
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() ->
+                assertThat(snapshot.toString()).matches(".*age=\\d+ms.*")
+            );
         }
     }
 

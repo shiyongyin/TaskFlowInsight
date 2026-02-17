@@ -4,6 +4,7 @@ import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.core.TfiCore;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
+import com.syy.taskflowinsight.spi.ProviderRegistry;
 import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
@@ -44,6 +45,8 @@ class TfiRoutingGoldenTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        ProviderRegistry.clearAll();
+
         // 设置routing开关（测试新路由）
         System.setProperty("tfi.api.routing.enabled", "true");
 
@@ -70,6 +73,7 @@ class TfiRoutingGoldenTest {
     @AfterEach
     void tearDown() {
         System.clearProperty("tfi.api.routing.enabled");
+        ProviderRegistry.clearAll();
         try {
             clearProviderCache();
         } catch (Exception e) {

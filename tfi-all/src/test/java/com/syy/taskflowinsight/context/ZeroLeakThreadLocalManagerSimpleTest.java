@@ -5,7 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -18,7 +17,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ZeroLeakThreadLocalManager简化测试
  * 测试覆盖率目标：从33%提升到60%+
  */
-@SpringBootTest
 @DisplayName("ZeroLeakThreadLocalManager简化测试")
 class ZeroLeakThreadLocalManagerSimpleTest {
 

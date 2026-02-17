@@ -36,11 +36,11 @@ class ConsoleExporterAdditionalCoverageTest {
         root.addInfo("Test message");
         
         // 测试带时间戳的导出
-        String withTimestamp = exporter.export(session, true);
+        String withTimestamp = exporter.exportSimple(session, true);
         assertThat(withTimestamp).contains("@");
         
         // 测试不带时间戳的导出
-        String withoutTimestamp = exporter.export(session, false);
+        String withoutTimestamp = exporter.exportSimple(session, false);
         assertThat(withoutTimestamp).doesNotContain("@");
         
         // 验证其他内容相同

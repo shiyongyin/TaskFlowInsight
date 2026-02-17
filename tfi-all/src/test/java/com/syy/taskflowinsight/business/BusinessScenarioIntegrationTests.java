@@ -12,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -40,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * - Financial audit trails
  * - Real-time monitoring scenarios
  */
-@SpringBootTest
 @DisplayName("Business Scenario Integration Tests")
 class BusinessScenarioIntegrationTests {
 

@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
@@ -42,7 +41,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 
  * Enable with: -Dtfi.perf.enabled=true
  */
-@SpringBootTest
 @EnabledIfSystemProperty(named = "tfi.perf.enabled", matches = "true")
 @DisplayName("Real Metrics Performance Tests")
 class RealMetricsPerformanceTests {

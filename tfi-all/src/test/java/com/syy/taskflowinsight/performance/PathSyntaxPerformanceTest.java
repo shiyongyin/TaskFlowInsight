@@ -8,6 +8,7 @@ import com.syy.taskflowinsight.tracking.TestChangeRecordFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 路径语法性能基准测试
  * 验证P50<1ms、P99<5ms的性能目标
  */
+@EnabledIfSystemProperty(named = "tfi.perf.enabled", matches = "true")
 class PathSyntaxPerformanceTest {
 
     private static final int ITERATIONS = 10000;

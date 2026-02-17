@@ -8,7 +8,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -28,7 +27,6 @@ import static org.assertj.core.api.Assertions.*;
  * @author TaskFlow Insight Team
  * @since 2025-01-19
  */
-@SpringBootTest
 public class ComplexObjectChangeTrackingTest {
     
     private static final Logger logger = LoggerFactory.getLogger(ComplexObjectChangeTrackingTest.class);
