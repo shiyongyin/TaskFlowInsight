@@ -1,0 +1,46 @@
+name: tfi-examples CI
+
+on:
+  push:
+    branches: [ main, 'feature/**' ]
+    paths:
+      - 'tfi-examples/**'
+      - 'pom.xml'
+      - '.github/workflows/tfi-examples-ci.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tfi-examples/**'
+      - 'pom.xml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: [ '21' ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Install dependency modules
+        run: ./mvnw install -pl tfi-flow-core,tfi-flow-spring-starter,tfi-compare,tfi-ops-spring -am -DskipTests -q
+
+      - name: Run unit tests
+        run: ./mvnw test -pl tfi-examples -q
+
+      - name: Compile demos
+        run: ./mvnw compile -pl tfi-examples -q
