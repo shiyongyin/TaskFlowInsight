@@ -404,10 +404,10 @@ Each module has its own GitHub Actions CI workflow:
 - [Quick Start Guide](QUICKSTART.md)
 - [Getting Started](GETTING-STARTED.md)
 - [Real-World Examples](EXAMPLES.md) — 11 scenarios: e-commerce, workflow, finance, gaming
-- [API Reference](docs/api/)
-- [Configuration Guide](docs/configuration/)
 - [FAQ](FAQ.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
+- [v3→v4 Migration Guide](docs/MIGRATION_GUIDE_v3_to_v4.md)
+- [Contributing](CONTRIBUTING.md)
 
 ---
 

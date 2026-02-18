@@ -404,10 +404,10 @@ tfi:
 - [快速开始指南](QUICKSTART.md)
 - [入门教程](GETTING-STARTED.md)
 - [真实案例](EXAMPLES.md) — 电商、工作流、金融、游戏等 11 个场景
-- [API 参考](docs/api/)
-- [配置指南](docs/configuration/)
 - [FAQ](FAQ.md)
 - [故障排除](TROUBLESHOOTING.md)
+- [v3→v4 迁移指南](docs/MIGRATION_GUIDE_v3_to_v4.md)
+- [贡献指南](CONTRIBUTING.md)
 
 ---
 
