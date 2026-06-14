@@ -209,8 +209,12 @@ class TFITest {
             
             TaskNode task = TFI.getCurrentTask();
             assertThat(task).isNotNull();
-            // TaskNode没有getAttributes和getTags方法，这些功能已转换为消息记录
-            assertThat(task.getMessages()).isNotEmpty();
+            // attribute/tag 现已存储为结构化属性与标签
+            assertThat(task.getAttributes())
+                .containsEntry("key1", "value1")
+                .containsEntry("key2", 123)
+                .containsEntry("key3", true);
+            assertThat(task.getTags()).containsExactlyInAnyOrder("important", "test");
         }
     }
     

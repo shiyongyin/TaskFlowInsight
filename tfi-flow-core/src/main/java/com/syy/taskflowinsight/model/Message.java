@@ -1,7 +1,6 @@
 package com.syy.taskflowinsight.model;
 
 import com.syy.taskflowinsight.enums.MessageType;
-import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -11,10 +10,10 @@ import java.util.UUID;
  * 
  * <p>设计原则：
  * <ul>
- *   <li>不可变对象 - 所有字段均为final</li>
+ *   <li>不可变对象 - 业务字段均为final；messageId 延迟生成后即固定，对外表现为不可变</li>
  *   <li>双时间戳 - 毫秒级显示时间，纳秒级精确时间</li>
  *   <li>工厂方法 - 通过静态方法创建实例</li>
- *   <li>UUID标识 - 确保消息唯一性</li>
+ *   <li>UUID标识 - 首次访问时才生成，确保消息唯一性的同时避免热路径开销</li>
  * </ul>
  * 
  * @author TaskFlow Insight Team
@@ -23,7 +22,9 @@ import java.util.UUID;
  */
 public final class Message {
     
-    private final String messageId;
+    // 延迟生成：messageId 仅用于 equals/hashCode，绝大多数消息无需该 ID，
+    // 推迟到首次访问再生成可避免每条消息都调用 SecureRandom（UUID.randomUUID）
+    private volatile String messageId;
     private final MessageType type;          // 可能为null（使用自定义标签时）
     private final String content;
     private final long timestampMillis;
@@ -38,13 +39,11 @@ public final class Message {
      * @param content 消息内容
      */
     private Message(MessageType type, String content) {
-        this.messageId = UUID.randomUUID().toString();
         this.type = Objects.requireNonNull(type, "Message type cannot be null");
         this.content = Objects.requireNonNull(content, "Message content cannot be null");
         this.customLabel = null;
         
-        Instant now = Instant.now();
-        this.timestampMillis = now.toEpochMilli();
+        this.timestampMillis = System.currentTimeMillis();
         this.timestampNanos = System.nanoTime();
         this.threadName = Thread.currentThread().getName();
     }
@@ -56,13 +55,11 @@ public final class Message {
      * @param content 消息内容
      */
     private Message(String customLabel, String content) {
-        this.messageId = UUID.randomUUID().toString();
         this.type = null;
         this.content = Objects.requireNonNull(content, "Message content cannot be null");
         this.customLabel = Objects.requireNonNull(customLabel, "Custom label cannot be null");
         
-        Instant now = Instant.now();
-        this.timestampMillis = now.toEpochMilli();
+        this.timestampMillis = System.currentTimeMillis();
         this.timestampNanos = System.nanoTime();
         this.threadName = Thread.currentThread().getName();
     }
@@ -178,11 +175,24 @@ public final class Message {
     
     /**
      * 获取消息唯一标识
-     * 
-     * @return 消息ID
+     *
+     * <p>采用延迟初始化：UUID 在首次调用时通过双重检查锁生成并缓存，
+     * 之后多次调用返回同一值（保证 equals/hashCode 的稳定性）。
+     *
+     * @return 消息ID（UUID 字符串）
      */
     public String getMessageId() {
-        return messageId;
+        String id = messageId;
+        if (id == null) {
+            synchronized (this) {
+                id = messageId;
+                if (id == null) {
+                    id = UUID.randomUUID().toString();
+                    messageId = id;
+                }
+            }
+        }
+        return id;
     }
     
     /**
@@ -309,12 +319,12 @@ public final class Message {
         }
         
         Message message = (Message) obj;
-        return Objects.equals(messageId, message.messageId);
+        return Objects.equals(getMessageId(), message.getMessageId());
     }
     
     @Override
     public int hashCode() {
-        return Objects.hash(messageId);
+        return Objects.hash(getMessageId());
     }
     
     @Override

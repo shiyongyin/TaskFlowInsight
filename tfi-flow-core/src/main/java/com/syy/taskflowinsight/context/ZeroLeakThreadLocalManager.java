@@ -1,10 +1,9 @@
 package com.syy.taskflowinsight.context;
 
 
-import com.syy.taskflowinsight.internal.ConfigDefaults;
+import com.syy.taskflowinsight.internal.FlowConfigDefaults;
 import lombok.Getter;
 
-import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.util.*;
@@ -33,17 +32,9 @@ public final class ZeroLeakThreadLocalManager {
     // 单例实例
     private static final ZeroLeakThreadLocalManager INSTANCE = new ZeroLeakThreadLocalManager();
     
-    // 线程上下文注册表
-    private final ConcurrentHashMap<Long, ContextRecord> contextRecords = new ConcurrentHashMap<>();
-    
     // 嵌套 stage 注册表（CT-006）
     private final ConcurrentHashMap<Long, NestedStageRegistry> nestedStageRecords = new ConcurrentHashMap<>();
-    
-    // 弱引用队列，用于检测死线程
-    private final ReferenceQueue<Thread> deadThreadQueue = new ReferenceQueue<>();
-    
-    // 线程弱引用映射
-    private final ConcurrentHashMap<Long, ThreadWeakReference> threadReferences = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, WeakReference<Thread>> nestedStageThreads = new ConcurrentHashMap<>();
     
     // 定时清理器（懒创建，可禁用）
     private ScheduledExecutorService cleanupScheduler;
@@ -66,30 +57,7 @@ public final class ZeroLeakThreadLocalManager {
     private static Field threadLocalsField;
     private static Field tableField;
     private static Field valueField;
-    private static boolean reflectionAvailable = false;
-    
-    // 静态初始化块，检测反射可用性
-    static {
-        try {
-            threadLocalsField = Thread.class.getDeclaredField("threadLocals");
-            threadLocalsField.setAccessible(true);
-            
-            Class<?> threadLocalMapClass = Class.forName("java.lang.ThreadLocal$ThreadLocalMap");
-            tableField = threadLocalMapClass.getDeclaredField("table");
-            tableField.setAccessible(true);
-            
-            Class<?> entryClass = Class.forName("java.lang.ThreadLocal$ThreadLocalMap$Entry");
-            valueField = entryClass.getDeclaredField("value");
-            valueField.setAccessible(true);
-            
-            reflectionAvailable = true;
-            logger.info("Reflection for ThreadLocal cleanup is available");
-        } catch (Exception e) {
-            reflectionAvailable = false;
-            logger.info("Reflection for ThreadLocal cleanup is not available: {}", e.getMessage());
-            logger.info("This is expected in Java 9+ without --add-opens java.base/java.lang=ALL-UNNAMED");
-        }
-    }
+    private static volatile Boolean reflectionAvailable;
     
     /**
      * 私有构造函数
@@ -131,24 +99,6 @@ public final class ZeroLeakThreadLocalManager {
         }
         
         long threadId = thread.threadId();
-        long timestamp = System.currentTimeMillis();
-        
-        // 检查是否替换了未清理的旧上下文
-        ContextRecord oldRecord = contextRecords.get(threadId);
-        if (oldRecord != null && oldRecord.context != context) {
-            logger.warn("Replacing uncleaned context for thread {} (id={}), age={}ms",
-                thread.getName(), threadId, timestamp - oldRecord.registeredTime);
-            leaksDetected.incrementAndGet();
-        }
-        
-        // 注册新上下文
-        ContextRecord newRecord = new ContextRecord(thread, context, timestamp);
-        contextRecords.put(threadId, newRecord);
-        
-        // 创建线程弱引用
-        ThreadWeakReference ref = new ThreadWeakReference(thread, threadId, deadThreadQueue);
-        threadReferences.put(threadId, ref);
-        
         registeredCount.incrementAndGet();
         
         // 诊断模式下记录详细信息
@@ -164,19 +114,14 @@ public final class ZeroLeakThreadLocalManager {
      * @param threadId 线程ID
      */
     public void unregisterContext(long threadId) {
-        ContextRecord record = contextRecords.remove(threadId);
-        threadReferences.remove(threadId);
-        
         // 同时清理嵌套 stage 记录（CT-006）
-        nestedStageRecords.remove(threadId);
-        
-        if (record != null) {
-            unregisteredCount.incrementAndGet();
-            
-            if (diagnosticMode) {
-                long lifetime = System.currentTimeMillis() - record.registeredTime;
-                logger.debug("Unregistered context for thread id={}, lifetime={}ms", threadId, lifetime);
-            }
+        NestedStageRegistry removed = nestedStageRecords.remove(threadId);
+        nestedStageThreads.remove(threadId);
+        unregisteredCount.incrementAndGet();
+
+        if (diagnosticMode) {
+            logger.debug("Unregistered zero-leak diagnostic state for thread id={}, nestedStages={}",
+                threadId, removed != null ? removed.size() : 0);
         }
     }
     
@@ -194,15 +139,16 @@ public final class ZeroLeakThreadLocalManager {
             return;
         }
         
-        if (depth > ConfigDefaults.NESTED_STAGE_MAX_DEPTH) {
+        if (depth > FlowConfigDefaults.NESTED_STAGE_MAX_DEPTH) {
             logger.warn("Nested stage depth {} exceeds maximum {}, registration ignored", 
-                depth, ConfigDefaults.NESTED_STAGE_MAX_DEPTH);
+                depth, FlowConfigDefaults.NESTED_STAGE_MAX_DEPTH);
             return;
         }
         
         NestedStageRegistry registry = nestedStageRecords.computeIfAbsent(
             threadId, k -> new NestedStageRegistry());
         registry.addStage(stageId, depth);
+        nestedStageThreads.putIfAbsent(threadId, new WeakReference<>(Thread.currentThread()));
         
         if (diagnosticMode) {
             logger.debug("Registered nested stage: thread={}, stage={}, depth={}", 
@@ -228,6 +174,7 @@ public final class ZeroLeakThreadLocalManager {
         // 如果registry为空，移除整个记录
         if (registry.isEmpty()) {
             nestedStageRecords.remove(threadId);
+            nestedStageThreads.remove(threadId);
         }
         
         if (cleaned > 0 && diagnosticMode) {
@@ -245,7 +192,7 @@ public final class ZeroLeakThreadLocalManager {
      */
     public int cleanupNestedStagesBatch() {
         int totalCleaned = 0;
-        int batchSize = ConfigDefaults.NESTED_CLEANUP_BATCH_SIZE;
+        int batchSize = FlowConfigDefaults.NESTED_CLEANUP_BATCH_SIZE;
         long now = System.currentTimeMillis();
         
         // 收集需要清理的线程ID
@@ -269,6 +216,7 @@ public final class ZeroLeakThreadLocalManager {
         // 执行清理
         for (Long threadId : threadsToCleanup) {
             NestedStageRegistry registry = nestedStageRecords.remove(threadId);
+            nestedStageThreads.remove(threadId);
             if (registry != null) {
                 totalCleaned += registry.size();
             }
@@ -305,8 +253,15 @@ public final class ZeroLeakThreadLocalManager {
      * 辅助方法：根据线程ID获取线程对象
      */
     private Thread getThreadById(long threadId) {
-        ThreadWeakReference ref = threadReferences.get(threadId);
-        return ref != null ? ref.get() : null;
+        WeakReference<Thread> ref = nestedStageThreads.get(threadId);
+        if (ref != null) {
+            return ref.get();
+        }
+        ManagedThreadContext current = SafeContextManager.getInstance().getCurrentContext();
+        if (current != null && current.getThreadId() == threadId && current.isOwnerThreadAlive()) {
+            return Thread.currentThread();
+        }
+        return null;
     }
     
     /**
@@ -371,63 +326,21 @@ public final class ZeroLeakThreadLocalManager {
      * @return 检测到的泄漏数量
      */
     public int detectLeaks() {
-        long now = System.currentTimeMillis();
-        List<Long> leakedThreadIds = new ArrayList<>();
-        
-        contextRecords.forEach((threadId, record) -> {
-            // 检查线程是否存活
-            Thread thread = record.threadRef.get();
-            boolean threadAlive = thread != null && thread.isAlive();
-            
-            // 检查上下文是否超时
-            long age = now - record.registeredTime;
-            boolean timeout = age > contextTimeoutMillis;
-            
-            if (!threadAlive || timeout) {
-                leakedThreadIds.add(threadId);
-                
-                String reason = !threadAlive ? "dead thread" : "timeout";
-                logger.warn("Detected leaked context: thread={}, reason={}, age={}ms",
-                    thread != null ? thread.getName() : "id=" + threadId, reason, age);
-                
-                leaksDetected.incrementAndGet();
-            }
-        });
-        
-        // 清理泄漏的上下文
-        for (Long threadId : leakedThreadIds) {
-            cleanupContext(threadId);
+        long before = safeLongMetric("contexts.leaked");
+        SafeContextManager.getInstance().detectAndCleanLeaks();
+        long after = safeLongMetric("contexts.leaked");
+        long delta = Math.max(0, after - before);
+        if (delta > 0) {
+            leaksDetected.addAndGet(delta);
         }
-        
-        return leakedThreadIds.size();
+        return (int) Math.min(Integer.MAX_VALUE, delta);
     }
     
     /**
      * 清理死线程
      */
     private void cleanDeadThreads() {
-        ThreadWeakReference ref;
-        int cleaned = 0;
-        
-        // 处理队列中的死线程引用
-        while ((ref = (ThreadWeakReference) deadThreadQueue.poll()) != null) {
-            long threadId = ref.threadId;
-            
-            if (contextRecords.remove(threadId) != null) {
-                cleaned++;
-                deadThreadsCleaned.incrementAndGet();
-                
-                if (diagnosticMode) {
-                    logger.debug("Cleaned dead thread context: id={}", threadId);
-                }
-            }
-            
-            threadReferences.remove(threadId);
-        }
-        
-        if (cleaned > 0 && diagnosticMode) {
-            logger.info("Cleaned {} dead thread contexts", cleaned);
-        }
+        detectLeaks();
     }
     
     /**
@@ -436,18 +349,14 @@ public final class ZeroLeakThreadLocalManager {
      * @param threadId 线程ID
      */
     private void cleanupContext(long threadId) {
-        ContextRecord record = contextRecords.remove(threadId);
-        threadReferences.remove(threadId);
-        
-        if (record != null) {
-            leaksCleaned.incrementAndGet();
-            
-            // 如果启用了反射清理且在诊断模式
-            if (diagnosticMode && reflectionCleanupEnabled && reflectionAvailable) {
-                Thread thread = record.threadRef.get();
-                if (thread != null) {
-                    attemptReflectionCleanup(thread);
-                }
+        nestedStageRecords.remove(threadId);
+        nestedStageThreads.remove(threadId);
+
+        if (diagnosticMode && reflectionCleanupEnabled && isReflectionAvailable()) {
+            Thread thread = getThreadById(threadId);
+            if (thread != null) {
+                attemptReflectionCleanup(thread);
+                leaksCleaned.incrementAndGet();
             }
         }
     }
@@ -459,7 +368,7 @@ public final class ZeroLeakThreadLocalManager {
      * @param thread 目标线程
      */
     private void attemptReflectionCleanup(Thread thread) {
-        if (!reflectionAvailable) {
+        if (!isReflectionAvailable()) {
             return;
         }
         
@@ -505,9 +414,10 @@ public final class ZeroLeakThreadLocalManager {
      */
     public void enableDiagnosticMode(boolean enableReflection) {
         this.diagnosticMode = true;
-        this.reflectionCleanupEnabled = enableReflection && reflectionAvailable;
+        boolean available = enableReflection && isReflectionAvailable();
+        this.reflectionCleanupEnabled = available;
         
-        if (enableReflection && !reflectionAvailable) {
+        if (enableReflection && !available) {
             logger.warn("Reflection cleanup requested but not available. " +
                 "Add JVM flag: --add-opens java.base/java.lang=ALL-UNNAMED");
         }
@@ -531,8 +441,8 @@ public final class ZeroLeakThreadLocalManager {
      * @return 健康状态
      */
     public HealthStatus getHealthStatus() {
-        int activeContexts = contextRecords.size();
-        long totalLeaks = leaksDetected.get();
+        int activeContexts = safeIntMetric("contexts.active");
+        long totalLeaks = Math.max(leaksDetected.get(), safeLongMetric("contexts.leaked"));
         
         // 计算健康等级
         HealthLevel level;
@@ -559,15 +469,72 @@ public final class ZeroLeakThreadLocalManager {
         Map<String, Object> diagnostics = new HashMap<>();
         diagnostics.put("contexts.registered", registeredCount.get());
         diagnostics.put("contexts.unregistered", unregisteredCount.get());
-        diagnostics.put("contexts.active", contextRecords.size());
-        diagnostics.put("leaks.detected", leaksDetected.get());
+        diagnostics.put("contexts.active", safeIntMetric("contexts.active"));
+        diagnostics.put("leaks.detected", Math.max(leaksDetected.get(), safeLongMetric("contexts.leaked")));
         diagnostics.put("leaks.cleaned", leaksCleaned.get());
         diagnostics.put("threads.dead.cleaned", deadThreadsCleaned.get());
         diagnostics.put("diagnostic.mode", diagnosticMode);
+        diagnostics.put("reflection.probed", reflectionAvailable != null);
         diagnostics.put("reflection.available", reflectionAvailable);
         diagnostics.put("reflection.enabled", reflectionCleanupEnabled);
         diagnostics.put("health.status", getHealthStatus());
         return diagnostics;
+    }
+
+    private static synchronized boolean isReflectionAvailable() {
+        if (reflectionAvailable != null) {
+            return reflectionAvailable;
+        }
+        try {
+            threadLocalsField = Thread.class.getDeclaredField("threadLocals");
+            threadLocalsField.setAccessible(true);
+
+            Class<?> threadLocalMapClass = Class.forName("java.lang.ThreadLocal$ThreadLocalMap");
+            tableField = threadLocalMapClass.getDeclaredField("table");
+            tableField.setAccessible(true);
+
+            Class<?> entryClass = Class.forName("java.lang.ThreadLocal$ThreadLocalMap$Entry");
+            valueField = entryClass.getDeclaredField("value");
+            valueField.setAccessible(true);
+
+            reflectionAvailable = true;
+            logger.info("Reflection for ThreadLocal cleanup is available");
+        } catch (Exception e) {
+            reflectionAvailable = false;
+            logger.info("Reflection for ThreadLocal cleanup is not available: {}", e.getMessage());
+            logger.info("This is expected in Java 9+ without --add-opens java.base/java.lang=ALL-UNNAMED");
+        }
+        return reflectionAvailable;
+    }
+
+    private static long safeLongMetric(String key) {
+        SafeContextManager manager = SafeContextManager.getInstance();
+        switch (key) {
+            case "contexts.created":
+                return manager.getContextCreatedCount();
+            case "contexts.closed":
+                return manager.getContextClosedCount();
+            case "contexts.leaked":
+                return manager.getLeakDetectedCount();
+            case "async.tasks":
+                return manager.getAsyncTaskCount();
+            default:
+                return 0L;
+        }
+    }
+
+    private static int safeIntMetric(String key) {
+        SafeContextManager manager = SafeContextManager.getInstance();
+        switch (key) {
+            case "contexts.active":
+                return manager.getActiveContextCount();
+            case "executor.poolSize":
+                return manager.getAsyncExecutorPoolSize();
+            case "executor.queueSize":
+                return manager.getAsyncExecutorQueueSize();
+            default:
+                return 0;
+        }
     }
     
     /**
@@ -589,35 +556,8 @@ public final class ZeroLeakThreadLocalManager {
         }
         
         // 最后清理
-        contextRecords.clear();
-        threadReferences.clear();
-    }
-    
-    /**
-     * 上下文记录
-     */
-    private static class ContextRecord {
-        final WeakReference<Thread> threadRef;
-        final Object context;
-        final long registeredTime;
-        
-        ContextRecord(Thread thread, Object context, long registeredTime) {
-            this.threadRef = new WeakReference<>(thread);
-            this.context = context;
-            this.registeredTime = registeredTime;
-        }
-    }
-    
-    /**
-     * 线程弱引用
-     */
-    private static class ThreadWeakReference extends WeakReference<Thread> {
-        final long threadId;
-        
-        ThreadWeakReference(Thread thread, long threadId, ReferenceQueue<Thread> queue) {
-            super(thread, queue);
-            this.threadId = threadId;
-        }
+        nestedStageRecords.clear();
+        nestedStageThreads.clear();
     }
     
     /**

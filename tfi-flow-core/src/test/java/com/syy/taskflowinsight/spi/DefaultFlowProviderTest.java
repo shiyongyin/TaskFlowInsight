@@ -1,6 +1,8 @@
 package com.syy.taskflowinsight.spi;
 
 import com.syy.taskflowinsight.context.ManagedThreadContext;
+import com.syy.taskflowinsight.enums.MessageType;
+import com.syy.taskflowinsight.model.Message;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
 import org.junit.jupiter.api.*;
@@ -139,8 +141,11 @@ class DefaultFlowProviderTest {
     @DisplayName("message - 带标签的消息")
     void messageWithLabel() {
         provider.startSession("msg");
-        provider.startTask("task");
+        TaskNode task = provider.startTask("task");
         assertThatNoException().isThrownBy(() -> provider.message("hello", "INFO"));
+        assertThat(task.getMessages()).hasSize(1);
+        assertThat(task.getMessages().get(0).getContent()).isEqualTo("hello");
+        assertThat(task.getMessages().get(0).getCustomLabel()).isEqualTo("INFO");
         provider.endTask();
         provider.endSession();
     }
@@ -169,6 +174,42 @@ class DefaultFlowProviderTest {
     @DisplayName("message - 无任务时安全忽略")
     void messageWithoutTaskIsSafe() {
         assertThatNoException().isThrownBy(() -> provider.message("orphan", "INFO"));
+    }
+
+    @Test
+    @DisplayName("messageWithType - 保留消息类型语义 (Bug B 回归)")
+    void messageWithMessageTypePreservesType() {
+        provider.startSession("typed-msg");
+        TaskNode task = provider.startTask("task");
+
+        provider.messageWithType("库存不足", MessageType.ALERT);
+
+        assertThat(task.getMessages()).hasSize(1);
+        Message recorded = task.getMessages().get(0);
+        assertThat(recorded.getContent()).isEqualTo("库存不足");
+        // 类型语义被保留：getType() 返回 ALERT，而非退化为 customLabel 字符串
+        assertThat(recorded.getType()).isEqualTo(MessageType.ALERT);
+        assertThat(recorded.isAlert()).isTrue();
+        assertThat(recorded.getCustomLabel()).isNull();
+
+        provider.endTask();
+        provider.endSession();
+    }
+
+    @Test
+    @DisplayName("messageWithType - null 类型退回字符串标签路径")
+    void messageWithNullMessageTypeFallsBack() {
+        provider.startSession("typed-null");
+        TaskNode task = provider.startTask("task");
+
+        provider.messageWithType("内容", null);
+
+        assertThat(task.getMessages()).hasSize(1);
+        // null 类型时退回 INFO 字符串标签，保持与字符串重载一致的兜底行为
+        assertThat(task.getMessages().get(0).getCustomLabel()).isEqualTo("INFO");
+
+        provider.endTask();
+        provider.endSession();
     }
 
     // ==================== priority / toString ====================

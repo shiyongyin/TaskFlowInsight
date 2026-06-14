@@ -3,6 +3,9 @@ package com.syy.taskflowinsight.model;
 import com.syy.taskflowinsight.enums.SessionStatus;
 import org.junit.jupiter.api.*;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 import static org.assertj.core.api.Assertions.*;
 
 /**
@@ -216,6 +219,25 @@ class SessionTest {
 
         int cleaned = Session.cleanupInactiveSessions();
         assertThat(cleaned).isGreaterThanOrEqualTo(0);
+        s1.deactivate();
+    }
+
+    @Test
+    @DisplayName("cleanupInactiveSessions - 清理创建线程已结束的运行中会话")
+    void cleanupInactiveSessionsRemovesRunningSessionOwnedByDeadThread() throws Exception {
+        CountDownLatch activated = new CountDownLatch(1);
+        Thread worker = new Thread(() -> {
+            Session.create("worker").activate();
+            activated.countDown();
+        }, "tfi-session-cleanup-test");
+
+        worker.start();
+        assertThat(activated.await(5, TimeUnit.SECONDS)).isTrue();
+        worker.join(TimeUnit.SECONDS.toMillis(5));
+        assertThat(worker.isAlive()).isFalse();
+
+        int cleaned = Session.cleanupInactiveSessions();
+        assertThat(cleaned).isGreaterThanOrEqualTo(1);
     }
 
     // ==================== equals / hashCode / toString ====================

@@ -198,6 +198,57 @@ class SafeContextManagerTest {
     }
 
     @Test
+    @DisplayName("detectAndCleanLeaks - 存活线程的上下文不被误清理 (Bug E 回归)")
+    void detectAndCleanLeaksKeepsAliveContext() {
+        // 当前测试线程存活且上下文未超时，detectAndCleanLeaks 不应将其误判为泄漏
+        // 显式设置较大超时，避免共享单例被其他测试改写超时阈值造成的偶发失败
+        manager.setContextTimeoutMillis(3_600_000L);
+        ManagedThreadContext ctx = ManagedThreadContext.create("alive-ctx");
+        try {
+            int before = manager.getActiveContextCount();
+            assertThat(ctx.isOwnerThreadAlive()).isTrue();
+
+            manager.detectAndCleanLeaks();
+
+            assertThat(ctx.isClosed()).isFalse();
+            assertThat(manager.getActiveContextCount()).isEqualTo(before);
+        } finally {
+            ctx.close();
+        }
+    }
+
+    @Test
+    @DisplayName("isOwnerThreadAlive - 当前线程存活返回 true")
+    void ownerThreadAliveOnCurrentThread() {
+        try (ManagedThreadContext ctx = ManagedThreadContext.create("alive")) {
+            assertThat(ctx.isOwnerThreadAlive()).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("isOwnerThreadAlive - 创建线程死亡后返回 false")
+    void ownerThreadAliveFalseAfterThreadDies() throws Exception {
+        AtomicReference<ManagedThreadContext> ctxRef = new AtomicReference<>();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        Thread worker = new Thread(() -> {
+            ctxRef.set(ManagedThreadContext.create("dead-owner"));
+            latch.countDown();
+        });
+        worker.start();
+        latch.await(5, TimeUnit.SECONDS);
+        worker.join(5000);
+
+        assertThat(worker.isAlive()).isFalse();
+        ManagedThreadContext ctx = ctxRef.get();
+        try {
+            assertThat(ctx.isOwnerThreadAlive()).isFalse();
+        } finally {
+            ctx.close();
+        }
+    }
+
+    @Test
     @DisplayName("detectAndCleanLeaks - 死线程上下文被清理")
     void detectAndCleanLeaksDeadThread() throws Exception {
         AtomicReference<ManagedThreadContext> ctxRef = new AtomicReference<>();
@@ -377,5 +428,20 @@ class SafeContextManagerTest {
                 "executor.poolSize",
                 "executor.queueSize"
         );
+    }
+
+    @Test
+    @DisplayName("metric getters - 与 getMetrics 快照保持一致")
+    void metricGettersMatchSnapshot() {
+        Map<String, Object> metrics = manager.getMetrics();
+
+        assertThat(metrics)
+                .containsEntry("contexts.created", manager.getContextCreatedCount())
+                .containsEntry("contexts.closed", manager.getContextClosedCount())
+                .containsEntry("contexts.active", manager.getActiveContextCount())
+                .containsEntry("contexts.leaked", manager.getLeakDetectedCount())
+                .containsEntry("async.tasks", manager.getAsyncTaskCount())
+                .containsEntry("executor.poolSize", manager.getAsyncExecutorPoolSize())
+                .containsEntry("executor.queueSize", manager.getAsyncExecutorQueueSize());
     }
 }

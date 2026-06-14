@@ -2,6 +2,7 @@ package com.syy.taskflowinsight.context;
 
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -33,8 +34,8 @@ public final class SafeContextManager {
     // 全局上下文注册表
     private final ConcurrentHashMap<Long, ManagedThreadContext> activeContexts = new ConcurrentHashMap<>();
     
-    // 异步执行器
-    private final ThreadPoolExecutor asyncExecutor;
+    // 异步执行器（仅在 executeAsync 首次使用时创建）
+    private volatile ThreadPoolExecutor asyncExecutor;
     
     // 泄漏检测定时器（懒创建）
     private ScheduledExecutorService leakDetector;
@@ -57,24 +58,6 @@ public final class SafeContextManager {
      * 私有构造函数
      */
     private SafeContextManager() {
-        // 创建异步执行器
-        this.asyncExecutor = new ThreadPoolExecutor(
-            10, // 核心线程数
-            50, // 最大线程数
-            60L, TimeUnit.SECONDS, // 空闲线程存活时间
-            new LinkedBlockingQueue<>(1000), // 任务队列
-            new ThreadFactory() {
-                private final AtomicLong counter = new AtomicLong();
-                @Override
-                public Thread newThread(Runnable r) {
-                    Thread t = new Thread(r, "TFI-Async-" + counter.incrementAndGet());
-                    t.setDaemon(true);
-                    return t;
-                }
-            },
-            new ThreadPoolExecutor.CallerRunsPolicy() // 拒绝策略
-        );
-        
         // 使用默认配置，通过configureFromTfiConfig()方法统一配置
         // 已移除系统属性读取，完全由TfiConfig管理配置
         logger.debug("SafeContextManager initialized with default configuration: " +
@@ -210,39 +193,21 @@ public final class SafeContextManager {
      * @return 任务Future
      */
     public <T> CompletableFuture<T> executeAsync(String taskName, Callable<T> task) {
-        // 捕获当前上下文快照
-        ManagedThreadContext currentContext = getCurrentContext();
-        ContextSnapshot snapshot = currentContext != null ? currentContext.createSnapshot() : null;
-        
         asyncTaskCount.incrementAndGet();
         
         // 创建CompletableFuture
         CompletableFuture<T> future = new CompletableFuture<>();
         
-        // 提交任务到线程池
-        asyncExecutor.execute(() -> {
-            ManagedThreadContext restoredContext = null;
+        // 提交任务到线程池，复用与 ExecutorService 装饰器相同的传播包装逻辑
+        getAsyncExecutor().execute(wrapRunnable(() -> {
             try {
-                // 恢复上下文
-                if (snapshot != null) {
-                    restoredContext = snapshot.restore();
-                    // 不需要再次启动会话，restore()已经处理了
-                }
-                
-                // 执行任务
                 T result = task.call();
                 future.complete(result);
-                
             } catch (Exception e) {
                 logger.error("Async task failed: {}", taskName, e);
                 future.completeExceptionally(e);
-            } finally {
-                // 清理上下文
-                if (restoredContext != null) {
-                    restoredContext.close();
-                }
             }
-        });
+        }));
         
         return future;
     }
@@ -329,8 +294,8 @@ public final class SafeContextManager {
         List<ManagedThreadContext> leakedContexts = new ArrayList<>();
         
         activeContexts.forEach((threadId, context) -> {
-            // 检查线程是否存活
-            boolean threadAlive = isThreadAlive(threadId);
+            // 检查线程是否存活（基于上下文持有的弱引用，不受线程组范围限制，O(1)）
+            boolean threadAlive = context.isOwnerThreadAlive();
             
             // 检查上下文超时
             // 注意：使用纳秒时间计算，但转换为毫秒进行比较
@@ -366,25 +331,6 @@ public final class SafeContextManager {
             // 通知监听器
             notifyLeakListeners(leaked);
         }
-    }
-    
-    /**
-     * 检查线程是否存活
-     * 
-     * @param threadId 线程ID
-     * @return true如果线程存活
-     */
-    private boolean isThreadAlive(long threadId) {
-        Thread[] threads = new Thread[Thread.activeCount() * 2];
-        int count = Thread.enumerate(threads);
-        
-        for (int i = 0; i < count; i++) {
-            if (threads[i] != null && threads[i].threadId() == threadId) {
-                return threads[i].isAlive();
-            }
-        }
-        
-        return false;
     }
     
     /**
@@ -432,6 +378,62 @@ public final class SafeContextManager {
     }
 
     /**
+     * 获取累计创建的上下文数量。
+     *
+     * @return 上下文创建总数
+     */
+    public long getContextCreatedCount() {
+        return contextCreatedCount.get();
+    }
+
+    /**
+     * 获取累计关闭的上下文数量。
+     *
+     * @return 上下文关闭总数
+     */
+    public long getContextClosedCount() {
+        return contextClosedCount.get();
+    }
+
+    /**
+     * 获取累计检测到的泄漏数量。
+     *
+     * @return 泄漏检测总数
+     */
+    public long getLeakDetectedCount() {
+        return leakDetectedCount.get();
+    }
+
+    /**
+     * 获取累计提交的异步任务数量。
+     *
+     * @return 异步任务总数
+     */
+    public long getAsyncTaskCount() {
+        return asyncTaskCount.get();
+    }
+
+    /**
+     * 获取异步执行器当前线程池大小。
+     *
+     * @return 当前线程池大小
+     */
+    public int getAsyncExecutorPoolSize() {
+        ThreadPoolExecutor executor = asyncExecutor;
+        return executor != null ? executor.getPoolSize() : 0;
+    }
+
+    /**
+     * 获取异步执行器当前队列大小。
+     *
+     * @return 当前队列大小
+     */
+    public int getAsyncExecutorQueueSize() {
+        ThreadPoolExecutor executor = asyncExecutor;
+        return executor != null ? executor.getQueue().size() : 0;
+    }
+
+    /**
      * 清理所有活动上下文（仅供测试使用）
      * @deprecated 仅供测试使用，生产环境不应调用
      */
@@ -456,14 +458,14 @@ public final class SafeContextManager {
      * @return 监控指标映射
      */
     public Map<String, Object> getMetrics() {
-        Map<String, Object> metrics = new ConcurrentHashMap<>();
-        metrics.put("contexts.created", contextCreatedCount.get());
-        metrics.put("contexts.closed", contextClosedCount.get());
-        metrics.put("contexts.active", activeContexts.size());
-        metrics.put("contexts.leaked", leakDetectedCount.get());
-        metrics.put("async.tasks", asyncTaskCount.get());
-        metrics.put("executor.poolSize", asyncExecutor.getPoolSize());
-        metrics.put("executor.queueSize", asyncExecutor.getQueue().size());
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("contexts.created", getContextCreatedCount());
+        metrics.put("contexts.closed", getContextClosedCount());
+        metrics.put("contexts.active", getActiveContextCount());
+        metrics.put("contexts.leaked", getLeakDetectedCount());
+        metrics.put("async.tasks", getAsyncTaskCount());
+        metrics.put("executor.poolSize", getAsyncExecutorPoolSize());
+        metrics.put("executor.queueSize", getAsyncExecutorQueueSize());
         return metrics;
     }
     
@@ -483,14 +485,17 @@ public final class SafeContextManager {
         });
         
         // 关闭执行器
-        asyncExecutor.shutdown();
+        ThreadPoolExecutor executor = asyncExecutor;
+        if (executor != null) {
+            executor.shutdown();
+        }
         if (leakDetector != null) {
             leakDetector.shutdown();
         }
         
         try {
-            if (!asyncExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
-                asyncExecutor.shutdownNow();
+            if (executor != null && !executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
             }
             if (leakDetector != null && !leakDetector.awaitTermination(10, TimeUnit.SECONDS)) {
                 leakDetector.shutdownNow();
@@ -556,6 +561,40 @@ public final class SafeContextManager {
             }
             startLeakDetection();
         }
+    }
+
+    private ThreadPoolExecutor getAsyncExecutor() {
+        ThreadPoolExecutor executor = asyncExecutor;
+        if (executor != null) {
+            return executor;
+        }
+
+        synchronized (this) {
+            if (asyncExecutor == null) {
+                asyncExecutor = createAsyncExecutor();
+            }
+            return asyncExecutor;
+        }
+    }
+
+    private ThreadPoolExecutor createAsyncExecutor() {
+        return new ThreadPoolExecutor(
+            10, // 核心线程数
+            50, // 最大线程数
+            60L, TimeUnit.SECONDS, // 空闲线程存活时间
+            new LinkedBlockingQueue<>(1000), // 任务队列
+            new ThreadFactory() {
+                private final AtomicLong counter = new AtomicLong();
+
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r, "TFI-Async-" + counter.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                }
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy() // 拒绝策略
+        );
     }
     
     /**

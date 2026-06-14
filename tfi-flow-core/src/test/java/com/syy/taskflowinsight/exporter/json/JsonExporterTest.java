@@ -90,6 +90,23 @@ class JsonExporterTest {
         assertThat(json).contains("alert msg");
     }
 
+    @Test
+    @DisplayName("export - 包含结构化属性和标签")
+    void exportWithAttributesAndTags() {
+        Session session = Session.create("root");
+        TaskNode root = session.getRootTask();
+        root.addAttribute("orderId", "A-100");
+        root.addTag("vip");
+        root.complete();
+        session.activate();
+        session.complete();
+
+        String json = compatExporter.export(session);
+
+        assertThat(json).contains("\"attributes\":{\"orderId\":\"A-100\"}");
+        assertThat(json).contains("\"tags\":[\"vip\"]");
+    }
+
     // ==================== 特殊字符转义 ====================
 
     @Test

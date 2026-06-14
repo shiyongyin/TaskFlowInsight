@@ -7,12 +7,15 @@ import com.syy.taskflowinsight.exporter.map.MapExporter;
 import com.syy.taskflowinsight.exporter.text.ConsoleExporter;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
+import com.syy.taskflowinsight.spi.DefaultExportProvider;
+import com.syy.taskflowinsight.spi.ExportProvider;
 import com.syy.taskflowinsight.spi.FlowProvider;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -43,6 +46,8 @@ public final class TfiFlow {
 
     // FlowProvider 缓存（双重检查锁机制）
     private static volatile FlowProvider cachedFlowProvider;
+    private static volatile ExportProvider cachedExportProvider;
+    private static volatile long providerGeneration = Long.MIN_VALUE;
 
     /**
      * 私有构造函数，防止实例化
@@ -227,7 +232,7 @@ public final class TfiFlow {
                     provider.startSession("auto-session");
                 }
                 TaskNode taskNode = provider.startTask(taskName.trim());
-                return taskNode != null ? new TaskContextImpl(taskNode) : NullTaskContext.INSTANCE;
+                return taskNode != null ? new TaskContextImpl(taskNode, provider) : NullTaskContext.INSTANCE;
             }
 
             // 传统路径（无 Provider 时的兜底逻辑）
@@ -332,7 +337,8 @@ public final class TfiFlow {
         try {
             FlowProvider provider = getFlowProvider();
             if (provider != null) {
-                provider.message(content.trim(), messageType.getDisplayName());
+                // 传递 MessageType 本体而非 displayName，保留类型语义（getType()/isAlert() 等仍可用）
+                provider.messageWithType(content.trim(), messageType);
                 return;
             }
 
@@ -467,9 +473,10 @@ public final class TfiFlow {
                 List<TaskNode> stack = new ArrayList<>();
                 TaskNode current = context.getCurrentTask();
                 while (current != null) {
-                    stack.add(0, current);
+                    stack.add(current);
                     current = current.getParent();
                 }
+                Collections.reverse(stack);
                 return stack;
             }
             return List.of();
@@ -502,15 +509,14 @@ public final class TfiFlow {
         }
 
         try {
+            ExportProvider provider = getExportProvider();
+            if (isCustomExportProvider(provider)) {
+                return provider.exportToConsole(showTimestamp);
+            }
+
             Session session = getCurrentSession();
             if (session != null) {
-                ConsoleExporter exporter = new ConsoleExporter();
-                if (showTimestamp) {
-                    exporter.print(session);
-                } else {
-                    exporter.printSimple(session);
-                }
-                return true;
+                return exportToConsoleDefault(session, showTimestamp);
             }
             return false;
         } catch (Throwable t) {
@@ -530,10 +536,14 @@ public final class TfiFlow {
         }
 
         try {
+            ExportProvider provider = getExportProvider();
+            if (isCustomExportProvider(provider)) {
+                return provider.exportToJson();
+            }
+
             Session session = getCurrentSession();
             if (session != null) {
-                JsonExporter exporter = new JsonExporter();
-                return exporter.export(session);
+                return new JsonExporter().export(session);
             }
             return "{}";
         } catch (Throwable t) {
@@ -553,8 +563,16 @@ public final class TfiFlow {
         }
 
         try {
+            ExportProvider provider = getExportProvider();
+            if (isCustomExportProvider(provider)) {
+                return provider.exportToMap();
+            }
+
             Session session = getCurrentSession();
-            return session != null ? MapExporter.export(session) : Map.of();
+            if (session == null) {
+                return Map.of();
+            }
+            return MapExporter.export(session);
         } catch (Throwable t) {
             logger.warn("Failed to export to Map: {}", t.getMessage());
             return Map.of();
@@ -569,23 +587,60 @@ public final class TfiFlow {
      * @return FlowProvider 实例，可能为 null
      */
     private static FlowProvider getFlowProvider() {
-        if (cachedFlowProvider != null) {
+        long generation = ProviderRegistry.getGeneration();
+        if (providerGeneration == generation && cachedFlowProvider != null) {
             return cachedFlowProvider;
         }
 
         synchronized (TfiFlow.class) {
+            refreshProviderCacheIfStale(generation);
             if (cachedFlowProvider == null) {
-                cachedFlowProvider = ProviderRegistry.lookup(FlowProvider.class);
-
-                if (cachedFlowProvider != null) {
-                    logger.debug("Found FlowProvider: {} (priority={})",
-                        cachedFlowProvider.getClass().getSimpleName(),
-                        cachedFlowProvider.priority());
-                }
+                cachedFlowProvider = lookupProvider(FlowProvider.class);
             }
         }
 
         return cachedFlowProvider;
+    }
+
+    /**
+     * 获取 ExportProvider（带 Registry generation 缓存）。
+     *
+     * @return ExportProvider 实例，可能为 null
+     */
+    private static ExportProvider getExportProvider() {
+        long generation = ProviderRegistry.getGeneration();
+        if (providerGeneration == generation && cachedExportProvider != null) {
+            return cachedExportProvider;
+        }
+
+        synchronized (TfiFlow.class) {
+            refreshProviderCacheIfStale(generation);
+            if (cachedExportProvider == null) {
+                cachedExportProvider = lookupProvider(ExportProvider.class);
+            }
+        }
+
+        return cachedExportProvider;
+    }
+
+    private static void refreshProviderCacheIfStale(long generation) {
+        if (providerGeneration != generation) {
+            cachedFlowProvider = null;
+            cachedExportProvider = null;
+            providerGeneration = generation;
+        }
+    }
+
+    private static <T> T lookupProvider(Class<T> providerType) {
+        T provider = ProviderRegistry.lookup(providerType);
+        if (provider instanceof FlowProvider flowProvider) {
+            logger.debug("Found FlowProvider: {} (priority={})",
+                flowProvider.getClass().getSimpleName(), flowProvider.priority());
+        } else if (provider instanceof ExportProvider exportProvider) {
+            logger.debug("Found ExportProvider: {} (priority={})",
+                exportProvider.getClass().getSimpleName(), exportProvider.priority());
+        }
+        return provider;
     }
 
     /**
@@ -596,11 +651,38 @@ public final class TfiFlow {
     public static void registerFlowProvider(FlowProvider provider) {
         try {
             ProviderRegistry.register(FlowProvider.class, provider);
-            cachedFlowProvider = null; // 清除缓存，下次重新查找
             logger.info("Registered custom FlowProvider: {}", provider.getClass().getSimpleName());
         } catch (Throwable t) {
             logger.warn("Failed to register FlowProvider: {}", t.getMessage());
         }
+    }
+
+    /**
+     * 注册自定义 ExportProvider。
+     *
+     * @param provider ExportProvider 实例
+     */
+    public static void registerExportProvider(ExportProvider provider) {
+        try {
+            ProviderRegistry.register(ExportProvider.class, provider);
+            logger.info("Registered custom ExportProvider: {}", provider.getClass().getSimpleName());
+        } catch (Throwable t) {
+            logger.warn("Failed to register ExportProvider: {}", t.getMessage());
+        }
+    }
+
+    private static boolean isCustomExportProvider(ExportProvider provider) {
+        return provider != null && provider.getClass() != DefaultExportProvider.class;
+    }
+
+    private static boolean exportToConsoleDefault(Session session, boolean showTimestamp) {
+        ConsoleExporter exporter = new ConsoleExporter();
+        if (showTimestamp) {
+            exporter.print(session);
+        } else {
+            exporter.printSimple(session);
+        }
+        return true;
     }
 
     // ==================== 内部工具方法 ====================

@@ -3,13 +3,13 @@ package com.syy.taskflowinsight.model;
 import com.syy.taskflowinsight.enums.TaskStatus;
 import com.syy.taskflowinsight.enums.MessageType;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 任务节点类
@@ -19,7 +19,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <ul>
  *   <li>树形结构 - 支持父子节点关系</li>
  *   <li>不可变路径 - taskPath在构造时计算并固定</li>
- *   <li>线程安全 - 使用CopyOnWriteArrayList和synchronized方法</li>
+ *   <li>线程安全 - 对内部列表的写操作均 synchronized，读操作返回防御性快照</li>
  *   <li>状态管理 - 支持RUNNING → COMPLETED/FAILED状态转换</li>
  *   <li>双时间戳 - 毫秒级显示时间，纳秒级精确时间</li>
  * </ul>
@@ -30,7 +30,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public final class TaskNode {
     
-    private final String nodeId;
+    // 延迟生成：仅在首次访问（equals/hashCode/导出）时才生成 UUID，避免热路径上的 SecureRandom 开销
+    private volatile String nodeId;
     private final String taskName;
     private final String taskPath;
     // 注意：纯 Java 核心模块已移除 Jackson 注解
@@ -38,9 +39,13 @@ public final class TaskNode {
     private final long createdMillis;
     private final long createdNanos;
     private final String threadName;
-    
-    private final CopyOnWriteArrayList<TaskNode> children;
-    private final CopyOnWriteArrayList<Message> messages;
+
+    // 改用 ArrayList + synchronized 写：消息/子节点为执行期高频追加、导出期一次性读取，
+    // CopyOnWriteArrayList 的每次写全量复制会带来 O(n²) 开销
+    private final List<TaskNode> children;
+    private final List<Message> messages;
+    private final Map<String, Object> attributes;
+    private final List<String> tags;
     
     private volatile TaskStatus status;
     private volatile Long completedMillis;
@@ -66,7 +71,6 @@ public final class TaskNode {
             throw new IllegalArgumentException("Task name cannot be null or empty");
         }
         
-        this.nodeId = UUID.randomUUID().toString();
         this.taskName = taskName.trim();
         this.parent = parent;
         this.taskPath = computeTaskPath();
@@ -76,8 +80,10 @@ public final class TaskNode {
         this.createdNanos = System.nanoTime();
         this.threadName = Thread.currentThread().getName();
         
-        this.children = new CopyOnWriteArrayList<>();
-        this.messages = new CopyOnWriteArrayList<>();
+        this.children = new ArrayList<>();
+        this.messages = new ArrayList<>();
+        this.attributes = new LinkedHashMap<>();
+        this.tags = new ArrayList<>();
         this.status = TaskStatus.RUNNING;
         
         // 将自己添加到父节点的子列表中
@@ -100,11 +106,14 @@ public final class TaskNode {
     
     /**
      * 添加子节点到当前节点
-     * 
+     *
+     * <p>子节点由构造函数唯一创建（{@code parent.addChild(this)}），不存在重复添加，
+     * 因此无需 {@code contains} 去重检查；写操作以父节点为锁，保证与读快照的可见性。
+     *
      * @param child 子节点
      */
-    private void addChild(TaskNode child) {
-        if (child != null && !children.contains(child)) {
+    private synchronized void addChild(TaskNode child) {
+        if (child != null) {
             children.add(child);
         }
     }
@@ -222,6 +231,40 @@ public final class TaskNode {
         messages.add(message);
         return message;
     }
+
+    /**
+     * 添加结构化任务属性。
+     *
+     * @param key 属性键
+     * @param value 属性值，可为 null
+     * @return 当前任务节点
+     * @throws IllegalArgumentException 如果 key 为 null 或空字符串
+     */
+    public synchronized TaskNode addAttribute(String key, Object value) {
+        if (key == null || key.trim().isEmpty()) {
+            throw new IllegalArgumentException("Attribute key cannot be null or empty");
+        }
+        attributes.put(key.trim(), value);
+        return this;
+    }
+
+    /**
+     * 添加结构化任务标签。
+     *
+     * @param tag 标签
+     * @return 当前任务节点
+     * @throws IllegalArgumentException 如果 tag 为 null 或空字符串
+     */
+    public synchronized TaskNode addTag(String tag) {
+        if (tag == null || tag.trim().isEmpty()) {
+            throw new IllegalArgumentException("Tag cannot be null or empty");
+        }
+        String normalizedTag = tag.trim();
+        if (!tags.contains(normalizedTag)) {
+            tags.add(normalizedTag);
+        }
+        return this;
+    }
     
     /**
      * 标记任务为完成状态
@@ -285,8 +328,7 @@ public final class TaskNode {
         }
         
         this.status = TaskStatus.FAILED;
-        Instant now = Instant.now();
-        this.completedMillis = now.toEpochMilli();
+        this.completedMillis = System.currentTimeMillis();
         this.completedNanos = System.nanoTime();
     }
     
@@ -316,11 +358,24 @@ public final class TaskNode {
     
     /**
      * 获取节点唯一标识
-     * 
-     * @return 节点ID
+     *
+     * <p>采用延迟初始化：UUID 在首次调用时通过双重检查锁生成并缓存，
+     * 之后多次调用返回同一值（保证 equals/hashCode 与序列化的稳定性）。
+     *
+     * @return 节点ID（UUID 字符串）
      */
     public String getNodeId() {
-        return nodeId;
+        String id = nodeId;
+        if (id == null) {
+            synchronized (this) {
+                id = nodeId;
+                if (id == null) {
+                    id = UUID.randomUUID().toString();
+                    nodeId = id;
+                }
+            }
+        }
+        return id;
     }
     
     /**
@@ -429,21 +484,39 @@ public final class TaskNode {
     }
     
     /**
-     * 获取子节点列表（只读）
+     * 获取子节点列表（只读快照）
      * 
      * @return 子节点的不可修改列表
      */
-    public List<TaskNode> getChildren() {
+    public synchronized List<TaskNode> getChildren() {
         return Collections.unmodifiableList(new ArrayList<>(children));
     }
     
     /**
-     * 获取消息列表（只读）
+     * 获取消息列表（只读快照）
      * 
      * @return 消息的不可修改列表
      */
-    public List<Message> getMessages() {
+    public synchronized List<Message> getMessages() {
         return Collections.unmodifiableList(new ArrayList<>(messages));
+    }
+
+    /**
+     * 获取任务属性（只读快照）。
+     *
+     * @return 任务属性的不可修改映射
+     */
+    public synchronized Map<String, Object> getAttributes() {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(attributes));
+    }
+
+    /**
+     * 获取任务标签（只读快照）。
+     *
+     * @return 任务标签的不可修改列表
+     */
+    public synchronized List<String> getTags() {
+        return Collections.unmodifiableList(new ArrayList<>(tags));
     }
     
     /**
@@ -460,7 +533,7 @@ public final class TaskNode {
      * 
      * @return true 如果没有子节点
      */
-    public boolean isLeaf() {
+    public synchronized boolean isLeaf() {
         return children.isEmpty();
     }
     
@@ -502,12 +575,12 @@ public final class TaskNode {
         }
         
         TaskNode taskNode = (TaskNode) obj;
-        return Objects.equals(nodeId, taskNode.nodeId);
+        return Objects.equals(getNodeId(), taskNode.getNodeId());
     }
     
     @Override
     public int hashCode() {
-        return Objects.hash(nodeId);
+        return Objects.hash(getNodeId());
     }
     
     @Override

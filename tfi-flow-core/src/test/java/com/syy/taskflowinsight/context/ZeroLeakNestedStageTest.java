@@ -1,6 +1,6 @@
 package com.syy.taskflowinsight.context;
 
-import com.syy.taskflowinsight.internal.ConfigDefaults;
+import com.syy.taskflowinsight.internal.FlowConfigDefaults;
 import org.junit.jupiter.api.*;
 
 import static org.assertj.core.api.Assertions.*;
@@ -63,7 +63,7 @@ class ZeroLeakNestedStageTest {
     @DisplayName("registerNestedStage - 超过最大深度被拒绝")
     void registerNestedStageExceedsMaxDepth() {
         manager.registerNestedStage(threadId, "deep",
-                ConfigDefaults.NESTED_STAGE_MAX_DEPTH + 1);
+                FlowConfigDefaults.NESTED_STAGE_MAX_DEPTH + 1);
 
         ZeroLeakThreadLocalManager.NestedStageStatus status =
                 manager.getNestedStageStatus(threadId);

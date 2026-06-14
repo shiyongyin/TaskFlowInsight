@@ -6,6 +6,7 @@ import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
@@ -31,6 +32,8 @@ public class ManagedThreadContext implements AutoCloseable {
     private final long threadId;
     @Getter
     private final String threadName;
+    // 弱引用持有创建线程，用于泄漏检测时精确判断线程存活，且不阻止线程对象被 GC
+    private final WeakReference<Thread> ownerThreadRef;
     private final long createdNanos;
     private final Deque<TaskNode> taskStack;
     // 手动声明了 getCurrentSession()，不再由 Lombok 生成，以避免重复方法警告
@@ -68,6 +71,23 @@ public class ManagedThreadContext implements AutoCloseable {
     public long getCreatedNanos() {
         return createdNanos;
     }
+
+    /**
+     * 判断创建该上下文的线程是否仍然存活。
+     *
+     * <p>通过 {@link WeakReference} 持有创建线程：当线程对象已被垃圾回收（{@code get()} 返回 {@code null}）
+     * 或线程已终止（{@link Thread#isAlive()} 为 {@code false}）时返回 {@code false}。
+     *
+     * <p>相较于 {@code Thread.enumerate(...)}，该方式不受当前线程组（ThreadGroup）范围限制，
+     * 可避免将其他线程组中仍然存活的线程误判为“死线程泄漏”，同时把单次判断的复杂度从
+     * O(JVM 线程总数) 降为 O(1)。
+     *
+     * @return true 如果创建线程仍然存活
+     */
+    public boolean isOwnerThreadAlive() {
+        Thread owner = ownerThreadRef.get();
+        return owner != null && owner.isAlive();
+    }
     
     // 元数据存储
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
@@ -80,6 +100,7 @@ public class ManagedThreadContext implements AutoCloseable {
         Thread current = Thread.currentThread();
         this.threadId = current.threadId();
         this.threadName = current.getName();
+        this.ownerThreadRef = new WeakReference<>(current);
         this.createdNanos = System.nanoTime();
         this.taskStack = new ArrayDeque<>();
     }
@@ -355,21 +376,21 @@ public class ManagedThreadContext implements AutoCloseable {
             // 清理未完成的任务
             while (!taskStack.isEmpty()) {
                 TaskNode task = taskStack.pop();
-            if (task.getStatus().isActive()) {
-                logger.debug("Closing context with active task: {}", task.getTaskName());
-                task.fail("Context closed with active task");
+                if (task.getStatus().isActive()) {
+                    logger.debug("Closing context with active task: {}", task.getTaskName());
+                    task.fail("Context closed with active task");
+                }
             }
-        }
-        
-        // 结束会话
-        if (currentSession != null && currentSession.isActive()) {
-            logger.debug("Closing context with active session: {}", currentSession.getSessionId());
-            currentSession.error("Context closed abnormally");
-        }
-            
+
+            // 结束会话
+            if (currentSession != null && currentSession.isActive()) {
+                logger.debug("Closing context with active session: {}", currentSession.getSessionId());
+                currentSession.error("Context closed abnormally");
+            }
+
             // 清理属性
             attributes.clear();
-            
+
         } finally {
             closed = true;
             

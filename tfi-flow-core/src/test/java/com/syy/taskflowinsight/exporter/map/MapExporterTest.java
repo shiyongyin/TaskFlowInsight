@@ -89,6 +89,30 @@ class MapExporterTest {
     }
 
     @Test
+    @DisplayName("export - 任务包含结构化属性和标签")
+    void exportTaskWithAttributesAndTags() {
+        Session session = Session.create("root");
+        TaskNode root = session.getRootTask();
+        root.addAttribute("orderId", "A-100");
+        root.addTag("vip");
+        root.complete();
+        session.activate();
+        session.complete();
+
+        Map<String, Object> result = MapExporter.export(session);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> task = (Map<String, Object>) result.get("task");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> attributes = (Map<String, Object>) task.get("attributes");
+        @SuppressWarnings("unchecked")
+        List<String> tags = (List<String>) task.get("tags");
+
+        assertThat(attributes).containsEntry("orderId", "A-100");
+        assertThat(tags).containsExactly("vip");
+    }
+
+    @Test
     @DisplayName("export - 嵌套子任务")
     void exportNestedChildren() {
         Session session = Session.create("root");

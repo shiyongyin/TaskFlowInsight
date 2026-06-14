@@ -363,8 +363,8 @@ class AsyncContextPropagationTest {
                 });
 
                 future.get(5, TimeUnit.SECONDS);
-                // ContextPropagatingExecutor 使用 ThreadContext.current() 获取上下文
-                // ThreadContext.current() 使用独立的 CONTEXT_HOLDER ThreadLocal
+                // ContextPropagatingExecutor 通过 ThreadContext 兼容入口获取上下文；
+                // ThreadContext 委托 ManagedThreadContext.current() 作为单一上下文来源。
                 assertThat(childParentId.get()).isEqualTo(parentCtx.getContextId());
             } finally {
                 ThreadContext.clear();

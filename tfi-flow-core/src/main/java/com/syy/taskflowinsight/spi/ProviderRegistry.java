@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Provider注册与查找中心（Flow Core 版本）
@@ -54,6 +55,12 @@ public class ProviderRegistry {
     private static volatile Set<String> allowedProviders;
 
     /**
+     * Registry mutation generation. Facades can cache providers against this value and refresh
+     * whenever registration, whitelist, or custom ClassLoader state changes.
+     */
+    private static final AtomicLong generation = new AtomicLong();
+
+    /**
      * 手动注册Provider
      *
      * @param providerType Provider接口类型
@@ -89,6 +96,7 @@ public class ProviderRegistry {
 
             return Collections.unmodifiableList(newList);
         });
+        generation.incrementAndGet();
     }
 
     /**
@@ -121,6 +129,7 @@ public class ProviderRegistry {
         if (removed[0]) {
             logger.info("Unregistered {} provider: {}",
                 providerType.getSimpleName(), provider.getClass().getSimpleName());
+            generation.incrementAndGet();
         }
         return removed[0];
     }
@@ -248,6 +257,7 @@ public class ProviderRegistry {
                 // 按priority排序并缓存
                 providers.sort((a, b) -> Integer.compare(getPriority(b), getPriority(a)));
                 serviceLoaderCache.put(type, Collections.unmodifiableList(providers));
+                generation.incrementAndGet();
             }
         } catch (Throwable t) {
             logger.warn("Failed to load {} from ClassLoader: {}",
@@ -272,6 +282,7 @@ public class ProviderRegistry {
         try {
             // 尝试反射调用 priority() 方法
             Method priorityMethod = provider.getClass().getMethod("priority");
+            priorityMethod.setAccessible(true);
             Object result = priorityMethod.invoke(provider);
             if (result instanceof Integer) {
                 return (Integer) result;
@@ -293,7 +304,17 @@ public class ProviderRegistry {
     public static void clearAll() {
         registeredProviders.clear();
         serviceLoaderCache.clear();
+        generation.incrementAndGet();
         logger.info("Cleared all registered providers");
+    }
+
+    /**
+     * Current registry mutation generation.
+     *
+     * @return monotonically increasing generation value
+     */
+    public static long getGeneration() {
+        return generation.get();
     }
 
     /**
@@ -316,6 +337,7 @@ public class ProviderRegistry {
         }
         // 清空缓存，确保下次加载生效
         serviceLoaderCache.clear();
+        generation.incrementAndGet();
     }
 
     /**

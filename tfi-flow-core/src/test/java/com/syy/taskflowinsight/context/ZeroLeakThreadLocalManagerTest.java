@@ -44,16 +44,17 @@ class ZeroLeakThreadLocalManagerTest {
         assertThat(m1).isSameAs(m2);
     }
 
-    // ==================== 上下文注册/注销 ====================
+    // ==================== 生命周期锚点收敛 ====================
 
     @Test
-    @DisplayName("registerContext - 注册后诊断信息更新")
-    void registerContextUpdatesDiagnostics() {
+    @DisplayName("registerContext - 只记录诊断计数，不复制上下文生命周期")
+    void registerContextOnlyUpdatesDiagnosticsCounters() {
         long regBefore = (long) manager.getDiagnostics().get("contexts.registered");
+        int activeBefore = (int) manager.getDiagnostics().get("contexts.active");
         manager.registerContext(Thread.currentThread(), new Object());
         long regAfter = (long) manager.getDiagnostics().get("contexts.registered");
         assertThat(regAfter).isGreaterThan(regBefore);
-        // 清理
+        assertThat((int) manager.getDiagnostics().get("contexts.active")).isEqualTo(activeBefore);
         manager.unregisterContext(Thread.currentThread().threadId());
     }
 
@@ -65,14 +66,14 @@ class ZeroLeakThreadLocalManagerTest {
     }
 
     @Test
-    @DisplayName("unregisterContext - 注销后活跃数减少")
-    void unregisterRemovesContext() {
+    @DisplayName("unregisterContext - 不影响上下文活跃数，只级联清理诊断状态")
+    void unregisterDoesNotOwnContextLifecycle() {
         Object ctx = new Object();
         manager.registerContext(Thread.currentThread(), ctx);
         int activeBefore = (int) manager.getDiagnostics().get("contexts.active");
         manager.unregisterContext(Thread.currentThread().threadId());
         int activeAfter = (int) manager.getDiagnostics().get("contexts.active");
-        assertThat(activeAfter).isLessThanOrEqualTo(activeBefore);
+        assertThat(activeAfter).isEqualTo(activeBefore);
     }
 
     @Test
@@ -147,8 +148,8 @@ class ZeroLeakThreadLocalManagerTest {
     // ==================== 直接注册/注销集成 ====================
 
     @Test
-    @DisplayName("registerContext - 替换旧上下文触发泄漏计数")
-    void replacingContextCountsAsLeak() {
+    @DisplayName("registerContext - 替换旧上下文不再触发泄漏计数")
+    void replacingContextDoesNotCountAsLeak() {
         Thread current = Thread.currentThread();
         long threadId = current.threadId();
         Object ctx1 = new Object();
@@ -158,7 +159,7 @@ class ZeroLeakThreadLocalManagerTest {
         long leaksBefore = (long) manager.getDiagnostics().get("leaks.detected");
         manager.registerContext(current, ctx2);
         long leaksAfter = (long) manager.getDiagnostics().get("leaks.detected");
-        assertThat(leaksAfter).isGreaterThan(leaksBefore);
+        assertThat(leaksAfter).isEqualTo(leaksBefore);
         manager.unregisterContext(threadId);
     }
 
@@ -174,6 +175,23 @@ class ZeroLeakThreadLocalManagerTest {
         long leaksAfter = (long) manager.getDiagnostics().get("leaks.detected");
         assertThat(leaksAfter).isEqualTo(leaksBefore);
         manager.unregisterContext(current.threadId());
+    }
+
+    @Test
+    @DisplayName("reflection probe - not attempted until diagnostic reflection is requested")
+    void reflectionProbeIsLazy() {
+        manager.disableDiagnosticMode();
+        Map<String, Object> before = manager.getDiagnostics();
+
+        assertThat(before.get("reflection.probed")).isEqualTo(false);
+        assertThat(before.get("reflection.available")).isNull();
+
+        manager.enableDiagnosticMode(true);
+        Map<String, Object> after = manager.getDiagnostics();
+
+        assertThat(after.get("reflection.probed")).isEqualTo(true);
+        assertThat(after).containsKey("reflection.available");
+        manager.disableDiagnosticMode();
     }
 
     // ==================== HealthStatus 数据类 ====================

@@ -1,5 +1,6 @@
 package com.syy.taskflowinsight.exporter.text;
 
+import com.syy.taskflowinsight.exporter.TaskDurationCache;
 import com.syy.taskflowinsight.model.Message;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
@@ -34,6 +35,9 @@ public class ConsoleExporter {
 
     // 简化缩进字符（可选简化模式）
     private static final String INDENT_UNIT = "    ";
+    private static final int INITIAL_CAPACITY = 1024;
+    private static final DateTimeFormatter TIMESTAMP_FORMATTER =
+            DateTimeFormatter.ISO_INSTANT.withZone(ZoneId.systemDefault());
 
     // 输出选项
     private boolean showTimestamp = true;
@@ -68,25 +72,21 @@ public class ConsoleExporter {
             return "";
         }
         
-        // 预估容量：头部(500) + 每个节点约100字符
-        int estimatedCapacity = 500;
         TaskNode root = session.getRootTask();
-        if (root != null) {
-            estimatedCapacity += countNodes(root) * 100;
-        }
-        
-        StringBuilder sb = new StringBuilder(estimatedCapacity);
+        StringBuilder sb = new StringBuilder(INITIAL_CAPACITY);
         
         // 构建输出
         appendHeader(sb, session);
         
         if (root != null) {
+            TaskDurationCache durationCache = TaskDurationCache.from(root);
+
             // 默认使用 emoji 树状风格输出
             appendSessionRoot(sb, session);
             List<TaskNode> rootChildren = root.getChildren();
             for (int i = 0; i < rootChildren.size(); i++) {
                 boolean isLast = (i == rootChildren.size() - 1);
-                appendTaskNode(sb, rootChildren.get(i), "", isLast);
+                appendTaskNode(sb, rootChildren.get(i), "", isLast, durationCache);
             }
         } else {
             sb.append("No tasks executed\n");
@@ -119,17 +119,13 @@ public class ConsoleExporter {
         }
         this.showTimestamp = showTimestamp;
 
-        int estimatedCapacity = 500;
         TaskNode root = session.getRootTask();
-        if (root != null) {
-            estimatedCapacity += countNodes(root) * 100;
-        }
 
-        StringBuilder sb = new StringBuilder(estimatedCapacity);
+        StringBuilder sb = new StringBuilder(INITIAL_CAPACITY);
         appendHeader(sb, session);
 
         if (root != null) {
-            appendTaskNodeSimple(sb, root, 0);
+            appendTaskNodeSimple(sb, root, 0, TaskDurationCache.from(root));
         } else {
             sb.append("No tasks executed\n");
         }
@@ -208,27 +204,7 @@ public class ConsoleExporter {
      */
     private String formatTimestamp(long millis) {
         // 使用ISO-8601简洁时间格式，便于可读与对比
-        return DateTimeFormatter.ISO_INSTANT
-                .withZone(ZoneId.systemDefault())
-                .format(Instant.ofEpochMilli(millis));
-    }
-    
-    /**
-     * 计算节点总数
-     * 
-     * @param node 根节点
-     * @return 节点总数
-     */
-    private int countNodes(TaskNode node) {
-        if (node == null) {
-            return 0;
-        }
-        
-        int count = 1;
-        for (TaskNode child : node.getChildren()) {
-            count += countNodes(child);
-        }
-        return count;
+        return TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(millis));
     }
     
     /**
@@ -276,14 +252,14 @@ public class ConsoleExporter {
      * @param isLast 是否为同级最后一个节点
      */
     private void appendTaskNode(StringBuilder sb, TaskNode node,
-                                String prefix, boolean isLast) {
+                                String prefix, boolean isLast, TaskDurationCache durationCache) {
         // 绘制连接线 + emoji + 任务名 + 状态 + 耗时
         sb.append(prefix);
         sb.append(isLast ? LAST_BRANCH : BRANCH);
         sb.append(ICON_TASK);
         sb.append(node.getTaskName());
         sb.append(" [").append(node.getStatus()).append("]");
-        long accMs = node.getAccumulatedDurationMillis();
+        long accMs = durationCache.getAccumulatedDurationMillis(node);
         sb.append(" (").append(formatDuration(accMs)).append(")");
         sb.append("\n");
 
@@ -306,7 +282,7 @@ public class ConsoleExporter {
         // 递归处理子节点
         for (int i = 0; i < children.size(); i++) {
             boolean childIsLast = (i == children.size() - 1);
-            appendTaskNode(sb, children.get(i), childPrefix, childIsLast);
+            appendTaskNode(sb, children.get(i), childPrefix, childIsLast, durationCache);
         }
     }
 
@@ -317,7 +293,7 @@ public class ConsoleExporter {
      * @param node 任务节点
      * @param depth 当前深度
      */
-    private void appendTaskNodeSimple(StringBuilder sb, TaskNode node, int depth) {
+    private void appendTaskNodeSimple(StringBuilder sb, TaskNode node, int depth, TaskDurationCache durationCache) {
         // 生成缩进
         String indent = INDENT_UNIT.repeat(depth);
         
@@ -327,7 +303,7 @@ public class ConsoleExporter {
         
         // 添加累计/自身时间和状态信息
         long selfMs = node.getSelfDurationMillis();
-        long accMs = node.getAccumulatedDurationMillis();
+        long accMs = durationCache.getAccumulatedDurationMillis(node);
         sb.append(" (")
           .append(formatDuration(accMs)).append(", self ")
           .append(formatDuration(selfMs)).append(", ")
@@ -351,7 +327,7 @@ public class ConsoleExporter {
         // 递归处理子节点
         List<TaskNode> children = node.getChildren();
         for (TaskNode child : children) {
-            appendTaskNodeSimple(sb, child, depth + 1);
+            appendTaskNodeSimple(sb, child, depth + 1, durationCache);
         }
     }
 }

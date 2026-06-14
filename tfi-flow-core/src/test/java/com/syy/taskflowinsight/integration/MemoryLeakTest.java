@@ -166,7 +166,7 @@ class MemoryLeakTest {
                 "contexts.active",
                 "leaks.detected",
                 "diagnostic.mode",
-                "reflection.available"
+                "reflection.probed"
         );
     }
 }

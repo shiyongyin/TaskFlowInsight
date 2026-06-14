@@ -1,7 +1,9 @@
 package com.syy.taskflowinsight.spi;
 
+import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
+import java.util.Collections;
 
 /**
  * 流程管理服务提供接口（SPI）
@@ -70,6 +72,27 @@ public interface FlowProvider {
     void message(String content, String label);
 
     /**
+     * 向当前任务添加带 {@link MessageType} 语义的消息。
+     *
+     * <p>相比 {@link #message(String, String)}，此方法保留结构化的消息类型，
+     * 使得下游 {@code Message.getType()} / {@code isAlert()} 等语义判断在 Provider 路径下依然有效。
+     *
+     * <p>采用独立方法名（而非重载 {@code message}）是为了避免 {@code message(content, null)}
+     * 在 {@code (String,String)} 与 {@code (String,MessageType)} 之间产生歧义，从而保持源码级向后兼容。
+     *
+     * <p>默认实现委托给 {@link #message(String, String)}，并以 {@link MessageType#getDisplayName()}
+     * 作为标签，从而对仅实现字符串标签版本的旧 Provider 保持向后兼容。
+     * 实现类应覆盖此方法以保留 {@link MessageType} 语义。
+     *
+     * @param content 消息内容
+     * @param type 消息类型，可为 null（此时退化为无类型消息）
+     * @since 3.0.1
+     */
+    default void messageWithType(String content, MessageType type) {
+        message(content, type != null ? type.getDisplayName() : null);
+    }
+
+    /**
      * 清空当前线程的所有上下文（会话+任务栈）
      *
      * <p>实现注意事项：
@@ -122,9 +145,10 @@ public interface FlowProvider {
         java.util.List<TaskNode> stack = new java.util.ArrayList<>();
         TaskNode current = currentTask();
         while (current != null) {
-            stack.add(0, current);  // 头部插入
+            stack.add(current);
             current = current.getParent();
         }
+        Collections.reverse(stack);
         return java.util.List.copyOf(stack);  // 不可变列表
     }
 

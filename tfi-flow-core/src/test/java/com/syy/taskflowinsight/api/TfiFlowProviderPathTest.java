@@ -5,6 +5,7 @@ import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
 import com.syy.taskflowinsight.spi.DefaultFlowProvider;
+import com.syy.taskflowinsight.spi.ExportProvider;
 import com.syy.taskflowinsight.spi.FlowProvider;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
 import org.junit.jupiter.api.*;
@@ -42,12 +43,6 @@ class TfiFlowProviderPathTest {
     }
 
     private void forceCleanContext() {
-        try {
-            java.lang.reflect.Field field = TfiFlow.class.getDeclaredField("cachedFlowProvider");
-            field.setAccessible(true);
-            field.set(null, null);
-        } catch (Exception ignored) {
-        }
         try {
             ManagedThreadContext ctx = ManagedThreadContext.current();
             if (ctx != null && !ctx.isClosed()) {
@@ -138,6 +133,22 @@ class TfiFlowProviderPathTest {
     }
 
     @Test
+    @DisplayName("Provider: message(MessageType) 端到端保留类型语义 (Bug B 回归)")
+    void providerMessagePreservesMessageType() {
+        TfiFlow.startSession("test");
+        try (TaskContext stage = TfiFlow.stage("task")) {
+            TfiFlow.message("业务消息", MessageType.PROCESS);
+
+            TaskNode current = TfiFlow.getCurrentTask();
+            assertThat(current).isNotNull();
+            assertThat(current.getMessages()).hasSize(1);
+            // 经 Provider 路径后，MessageType 不再丢失（修复前 getType() 恒为 null）
+            assertThat(current.getMessages().get(0).getType()).isEqualTo(MessageType.PROCESS);
+        }
+        TfiFlow.endSession();
+    }
+
+    @Test
     @DisplayName("Provider: error 记录错误")
     void providerError() {
         TfiFlow.startSession("test");
@@ -211,6 +222,23 @@ class TfiFlowProviderPathTest {
         TfiFlow.endSession();
     }
 
+    @Test
+    @DisplayName("Provider: registered ExportProvider handles all export methods")
+    void registeredExportProviderHandlesExports() {
+        RecordingExportProvider provider = new RecordingExportProvider();
+        ProviderRegistry.register(ExportProvider.class, provider);
+
+        assertThat(TfiFlow.exportToConsole()).isTrue();
+        assertThat(TfiFlow.exportToConsole(true)).isTrue();
+        assertThat(TfiFlow.exportToJson()).isEqualTo("{\"provider\":true}");
+        assertThat(TfiFlow.exportToMap()).containsEntry("provider", true);
+
+        assertThat(provider.consoleCalls).isEqualTo(2);
+        assertThat(provider.lastShowTimestamp).isTrue();
+        assertThat(provider.jsonCalls).isEqualTo(1);
+        assertThat(provider.mapCalls).isEqualTo(1);
+    }
+
     // ==================== Provider 路径 - clear ====================
 
     @Test
@@ -257,5 +285,168 @@ class TfiFlowProviderPathTest {
         String sessionId = TfiFlow.startSession("custom");
         assertThat(sessionId).isNotNull();
         TfiFlow.endSession();
+    }
+
+    @Test
+    @DisplayName("Provider cache - unregister invalidates TfiFlow cached provider")
+    void unregisterInvalidatesTfiFlowCachedProvider() {
+        forceCleanContext();
+        ProviderRegistry.clearAll();
+        RecordingFlowProvider provider = new RecordingFlowProvider();
+        TfiFlow.registerFlowProvider(provider);
+
+        assertThat(TfiFlow.startSession("first")).isEqualTo("recording-first");
+        assertThat(provider.startSessionCalls).isEqualTo(1);
+
+        assertThat(ProviderRegistry.unregister(FlowProvider.class, provider)).isTrue();
+        assertThat(TfiFlow.startSession("second")).isNotEqualTo("recording-second");
+        assertThat(provider.startSessionCalls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Provider cache - clearAll invalidates TfiFlow cached provider")
+    void clearAllInvalidatesTfiFlowCachedProvider() {
+        forceCleanContext();
+        ProviderRegistry.clearAll();
+        RecordingFlowProvider provider = new RecordingFlowProvider();
+        TfiFlow.registerFlowProvider(provider);
+
+        assertThat(TfiFlow.startSession("first")).isEqualTo("recording-first");
+        ProviderRegistry.clearAll();
+
+        assertThat(TfiFlow.startSession("second")).isNotEqualTo("recording-second");
+        assertThat(provider.startSessionCalls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Provider: TaskContext close delegates endTask to same provider")
+    void providerTaskContextCloseDelegatesToProvider() {
+        forceCleanContext();
+        ProviderRegistry.clearAll();
+        RecordingFlowProvider provider = new RecordingFlowProvider();
+        TfiFlow.registerFlowProvider(provider);
+
+        try (TaskContext ignored = TfiFlow.stage("outer")) {
+            assertThat(provider.startTaskCalls).isEqualTo(1);
+            assertThat(provider.endTaskCalls).isZero();
+        }
+
+        assertThat(provider.endTaskCalls).isEqualTo(1);
+        assertThat(provider.currentTask()).isNull();
+    }
+
+    @Test
+    @DisplayName("Provider: TaskContext subtask starts and closes through same provider")
+    void providerSubtaskUsesSameProviderStack() {
+        forceCleanContext();
+        ProviderRegistry.clearAll();
+        RecordingFlowProvider provider = new RecordingFlowProvider();
+        TfiFlow.registerFlowProvider(provider);
+
+        try (TaskContext outer = TfiFlow.stage("outer")) {
+            try (TaskContext inner = outer.subtask("inner")) {
+                assertThat(inner).isNotSameAs(NullTaskContext.INSTANCE);
+                assertThat(provider.startTaskCalls).isEqualTo(2);
+                assertThat(provider.currentTask()).isNotNull();
+                assertThat(provider.currentTask().getTaskName()).isEqualTo("inner");
+            }
+            assertThat(provider.currentTask()).isNotNull();
+            assertThat(provider.currentTask().getTaskName()).isEqualTo("outer");
+        }
+
+        assertThat(provider.endTaskCalls).isEqualTo(2);
+        assertThat(provider.currentTask()).isNull();
+    }
+
+    private static final class RecordingExportProvider implements ExportProvider {
+        private int consoleCalls;
+        private boolean lastShowTimestamp;
+        private int jsonCalls;
+        private int mapCalls;
+
+        @Override
+        public boolean exportToConsole(boolean showTimestamp) {
+            consoleCalls++;
+            lastShowTimestamp = showTimestamp;
+            return true;
+        }
+
+        @Override
+        public String exportToJson() {
+            jsonCalls++;
+            return "{\"provider\":true}";
+        }
+
+        @Override
+        public Map<String, Object> exportToMap() {
+            mapCalls++;
+            return Map.of("provider", true);
+        }
+
+        @Override
+        public int priority() {
+            return 100;
+        }
+    }
+
+    private static final class RecordingFlowProvider implements FlowProvider {
+        private int startSessionCalls;
+        private int endSessionCalls;
+        private int startTaskCalls;
+        private int endTaskCalls;
+        private Session session;
+        private TaskNode currentTask;
+
+        @Override
+        public String startSession(String name) {
+            startSessionCalls++;
+            session = Session.create(name);
+            return "recording-" + name;
+        }
+
+        @Override
+        public void endSession() {
+            endSessionCalls++;
+            session = null;
+            currentTask = null;
+        }
+
+        @Override
+        public TaskNode startTask(String name) {
+            startTaskCalls++;
+            if (session == null) {
+                startSession("auto-session");
+            }
+            currentTask = currentTask == null ? new TaskNode(name) : new TaskNode(currentTask, name);
+            return currentTask;
+        }
+
+        @Override
+        public void endTask() {
+            endTaskCalls++;
+            if (currentTask != null && currentTask.getStatus().isActive()) {
+                currentTask.complete();
+            }
+            currentTask = currentTask != null ? currentTask.getParent() : null;
+        }
+
+        @Override
+        public Session currentSession() {
+            return session;
+        }
+
+        @Override
+        public TaskNode currentTask() {
+            return currentTask;
+        }
+
+        @Override
+        public void message(String content, String label) {
+        }
+
+        @Override
+        public int priority() {
+            return 100;
+        }
     }
 }

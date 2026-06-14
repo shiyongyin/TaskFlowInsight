@@ -298,9 +298,17 @@ class TaskNodeTest {
     @DisplayName("accumulatedDuration - 包含子节点")
     void accumulatedDurationIncludesChildren() {
         TaskNode root = new TaskNode("root");
-        root.createChild("child1");
-        root.createChild("child2");
-        assertThat(root.getAccumulatedDurationNanos()).isGreaterThanOrEqualTo(root.getSelfDurationNanos());
+        TaskNode child1 = root.createChild("child1");
+        TaskNode child2 = root.createChild("child2");
+
+        child1.complete();
+        child2.complete();
+        root.complete();
+
+        assertThat(root.getAccumulatedDurationNanos())
+                .isEqualTo(root.getSelfDurationNanos()
+                        + child1.getAccumulatedDurationNanos()
+                        + child2.getAccumulatedDurationNanos());
     }
 
     // ==================== equals / hashCode / toString ====================

@@ -42,12 +42,6 @@ class TfiFlowTest {
     /** 强制清理底层 ManagedThreadContext 和 TfiFlow 缓存，避免跨测试状态泄漏 */
     private void forceCleanContext() {
         try {
-            // 通过反射清除 TfiFlow.cachedFlowProvider 缓存
-            java.lang.reflect.Field field = TfiFlow.class.getDeclaredField("cachedFlowProvider");
-            field.setAccessible(true);
-            field.set(null, null);
-        } catch (Exception ignored) {}
-        try {
             ManagedThreadContext ctx = ManagedThreadContext.current();
             if (ctx != null && !ctx.isClosed()) {
                 ctx.close();

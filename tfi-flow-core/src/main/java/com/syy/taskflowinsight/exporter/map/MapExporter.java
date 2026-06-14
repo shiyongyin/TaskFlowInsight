@@ -96,6 +96,16 @@ public final class MapExporter {
         if (!messages.isEmpty()) {
             result.put("messages", messages);
         }
+
+        Map<String, Object> attributes = task.getAttributes();
+        if (!attributes.isEmpty()) {
+            result.put("attributes", attributes);
+        }
+
+        List<String> tags = task.getTags();
+        if (!tags.isEmpty()) {
+            result.put("tags", tags);
+        }
         
         // 子任务
         List<Map<String, Object>> children = new ArrayList<>();

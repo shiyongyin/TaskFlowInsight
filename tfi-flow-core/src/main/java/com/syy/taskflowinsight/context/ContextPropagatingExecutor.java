@@ -22,9 +22,11 @@ import java.util.stream.Collectors;
 public class ContextPropagatingExecutor implements ExecutorService {
     
     private final ExecutorService delegate;
+    private final SafeContextManager contextManager;
     
     private ContextPropagatingExecutor(ExecutorService delegate) {
         this.delegate = delegate;
+        this.contextManager = SafeContextManager.getInstance();
     }
     
     /**
@@ -47,52 +49,14 @@ public class ContextPropagatingExecutor implements ExecutorService {
      * 包装Runnable任务，添加上下文传播
      */
     private Runnable wrapTask(Runnable task) {
-        // 捕获当前线程的上下文快照
-        ManagedThreadContext currentContext = ThreadContext.current();
-        ContextSnapshot snapshot = currentContext != null ? currentContext.createSnapshot() : null;
-        
-        return () -> {
-            ManagedThreadContext restoredContext = null;
-            try {
-                // 恢复上下文
-                if (snapshot != null) {
-                    restoredContext = ThreadContext.propagate(snapshot);
-                }
-                // 执行原始任务
-                task.run();
-            } finally {
-                // 清理恢复的上下文
-                if (restoredContext != null) {
-                    ThreadContext.clear();
-                }
-            }
-        };
+        return contextManager.wrapRunnable(task);
     }
     
     /**
      * 包装Callable任务，添加上下文传播
      */
     private <T> Callable<T> wrapTask(Callable<T> task) {
-        // 捕获当前线程的上下文快照
-        ManagedThreadContext currentContext = ThreadContext.current();
-        ContextSnapshot snapshot = currentContext != null ? currentContext.createSnapshot() : null;
-        
-        return () -> {
-            ManagedThreadContext restoredContext = null;
-            try {
-                // 恢复上下文
-                if (snapshot != null) {
-                    restoredContext = ThreadContext.propagate(snapshot);
-                }
-                // 执行原始任务
-                return task.call();
-            } finally {
-                // 清理恢复的上下文
-                if (restoredContext != null) {
-                    ThreadContext.clear();
-                }
-            }
-        };
+        return contextManager.wrapCallable(task);
     }
     
     @Override

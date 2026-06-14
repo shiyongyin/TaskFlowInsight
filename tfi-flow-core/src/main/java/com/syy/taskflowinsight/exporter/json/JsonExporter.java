@@ -1,6 +1,7 @@
 package com.syy.taskflowinsight.exporter.json;
 
 import com.syy.taskflowinsight.enums.TaskStatus;
+import com.syy.taskflowinsight.exporter.TaskDurationCache;
 import com.syy.taskflowinsight.model.Message;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
@@ -9,6 +10,7 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.util.List;
+import java.util.Map;
 
 /**
  * JSON导出器
@@ -19,6 +21,8 @@ import java.util.List;
  * @since 2025-01-08
  */
 public class JsonExporter {
+
+    private static final int DEFAULT_SEQUENCE = 0;
     
     /**
      * 导出模式
@@ -86,13 +90,7 @@ public class JsonExporter {
         // Session基本信息
         writeField(writer, "sessionId", session.getSessionId(), false);
         // 使用Session记录的线程信息，threadId保持为数字（兼容示例）
-        Long threadIdNumeric = null;
-        try {
-            threadIdNumeric = Long.parseLong(session.getThreadId());
-        } catch (Exception ignored) {
-
-        }
-        writeField(writer, "threadId", threadIdNumeric != null ? threadIdNumeric : session.getThreadId(), true);
+        writeField(writer, "threadId", toJsonThreadId(session.getThreadId()), true);
         writeField(writer, "threadName", session.getThreadName(), true);
         writeField(writer, "status", session.getStatus(), true);
         
@@ -110,9 +108,10 @@ public class JsonExporter {
         
         // 根任务节点
         TaskNode root = session.getRootTask();
+        TaskDurationCache durationCache = TaskDurationCache.from(root);
         if (root != null) {
             writer.write(",\"root\":");
-            writeTaskNode(root, writer);
+            writeTaskNode(root, writer, durationCache);
             
             // 增强模式：添加统计信息
             if (mode == ExportMode.ENHANCED) {
@@ -134,7 +133,7 @@ public class JsonExporter {
     /**
      * 写入TaskNode为JSON
      */
-    private void writeTaskNode(TaskNode node, Writer writer) throws IOException {
+    private void writeTaskNode(TaskNode node, Writer writer, TaskDurationCache durationCache) throws IOException {
         if (node == null) {
             writer.write("null");
             return;
@@ -146,7 +145,7 @@ public class JsonExporter {
         writeField(writer, "nodeId", node.getNodeId(), false);
         writeField(writer, "name", node.getTaskName(), true);
         writeField(writer, "depth", node.getDepth(), true);
-        writeField(writer, "sequence", 0, true);  // TaskNode 未提供 getSequence 方法，使用默认值
+        writeField(writer, "sequence", DEFAULT_SEQUENCE, true);  // 兼容字段：TaskNode 暂不维护同级序号
         writeField(writer, "taskPath", node.getTaskPath(), true);
         
         // 时间信息
@@ -155,14 +154,14 @@ public class JsonExporter {
             writeField(writer, "endMillis", node.getCompletedMillis(), true);
             writeField(writer, "durationMs", node.getDurationMillis(), true); // 兼容字段（自身）
             writeField(writer, "selfDurationMs", node.getSelfDurationMillis(), true);
-            writeField(writer, "accDurationMs", node.getAccumulatedDurationMillis(), true);
+            writeField(writer, "accDurationMs", durationCache.getAccumulatedDurationMillis(node), true);
         } else {
             writeField(writer, "startNanos", node.getCreatedNanos(), true);
             writeField(writer, "endNanos", node.getCompletedNanos(), true);
             writeField(writer, "durationNanos", node.getDurationNanos(), true);
             // 额外提供毫秒口径的自/累计，便于消费
             writeField(writer, "selfDurationMs", node.getSelfDurationMillis(), true);
-            writeField(writer, "accDurationMs", node.getAccumulatedDurationMillis(), true);
+            writeField(writer, "accDurationMs", durationCache.getAccumulatedDurationMillis(node), true);
         }
         
         // 状态信息
@@ -172,10 +171,22 @@ public class JsonExporter {
         // 消息列表
         writer.write(",\"messages\":");
         writeMessages(node.getMessages(), writer);
+
+        Map<String, Object> attributes = node.getAttributes();
+        if (!attributes.isEmpty()) {
+            writer.write(",\"attributes\":");
+            writeAttributes(attributes, writer);
+        }
+
+        List<String> tags = node.getTags();
+        if (!tags.isEmpty()) {
+            writer.write(",\"tags\":");
+            writeTags(tags, writer);
+        }
         
         // 子节点列表
         writer.write(",\"children\":");
-        writeChildren(node.getChildren(), writer);
+        writeChildren(node.getChildren(), writer, durationCache);
         
         writer.write('}');
     }
@@ -214,18 +225,46 @@ public class JsonExporter {
         writeField(writer, "timestamp", message.getTimestampMillis(), true);
         writer.write('}');
     }
+
+    /**
+     * 写入任务属性。
+     */
+    private void writeAttributes(Map<String, Object> attributes, Writer writer) throws IOException {
+        writer.write('{');
+        int index = 0;
+        for (Map.Entry<String, Object> entry : attributes.entrySet()) {
+            writeField(writer, entry.getKey(), entry.getValue(), index > 0);
+            index++;
+        }
+        writer.write('}');
+    }
+
+    /**
+     * 写入任务标签。
+     */
+    private void writeTags(List<String> tags, Writer writer) throws IOException {
+        writer.write('[');
+        for (int i = 0; i < tags.size(); i++) {
+            if (i > 0) {
+                writer.write(',');
+            }
+            writeValue(writer, tags.get(i));
+        }
+        writer.write(']');
+    }
     
     /**
      * 写入子节点列表
      */
-    private void writeChildren(List<TaskNode> children, Writer writer) throws IOException {
+    private void writeChildren(List<TaskNode> children, Writer writer, TaskDurationCache durationCache)
+            throws IOException {
         writer.write('[');
         if (children != null && !children.isEmpty()) {
             for (int i = 0; i < children.size(); i++) {
                 if (i > 0) {
                     writer.write(',');
                 }
-                writeTaskNode(children.get(i), writer);
+                writeTaskNode(children.get(i), writer, durationCache);
             }
         }
         writer.write(']');
@@ -267,6 +306,25 @@ public class JsonExporter {
             writer.write(escape(value.toString()));
             writer.write('"');
         }
+    }
+
+    /**
+     * 将线程 ID 转为兼容 JSON 值：纯数字保留为 number，否则按字符串输出。
+     */
+    private Object toJsonThreadId(String threadId) {
+        if (threadId == null || threadId.isEmpty()) {
+            return threadId;
+        }
+        int start = threadId.charAt(0) == '-' ? 1 : 0;
+        if (start == threadId.length()) {
+            return threadId;
+        }
+        for (int i = start; i < threadId.length(); i++) {
+            if (!Character.isDigit(threadId.charAt(i))) {
+                return threadId;
+            }
+        }
+        return Long.parseLong(threadId);
     }
     
     /**

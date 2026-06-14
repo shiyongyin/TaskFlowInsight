@@ -55,18 +55,20 @@ class ContextPropagatingExecutorTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> childSessionId = new AtomicReference<>();
+        AtomicReference<String> childParentContextId = new AtomicReference<>();
 
         executor.execute(() -> {
             ManagedThreadContext child = ThreadContext.current();
             if (child != null && child.getCurrentSession() != null) {
                 childSessionId.set(child.getCurrentSession().getSessionId());
+                childParentContextId.set(child.getAttribute("parent.contextId"));
             }
             latch.countDown();
         });
 
         assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
-        // 子线程应该获得了传播的上下文
-        // 不检查具体值，只确保执行成功
+        assertThat(childSessionId.get()).isNotBlank();
+        assertThat(childParentContextId.get()).isEqualTo(parentContextId);
         ThreadContext.clear();
     }
 

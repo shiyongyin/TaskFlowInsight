@@ -153,6 +153,7 @@ class TaskContextImplTest {
     void attributeRecordsKeyValue() {
         try (TaskContextImpl ctx = createContext("attr-test")) {
             assertThat(ctx.attribute("key", "value")).isSameAs(ctx);
+            assertThat(mtc.getCurrentTask().getAttributes()).containsEntry("key", "value");
         }
     }
 
@@ -169,6 +170,7 @@ class TaskContextImplTest {
     void tagRecordsTag() {
         try (TaskContextImpl ctx = createContext("tag-test")) {
             assertThat(ctx.tag("important")).isSameAs(ctx);
+            assertThat(mtc.getCurrentTask().getTags()).containsExactly("important");
         }
     }
 

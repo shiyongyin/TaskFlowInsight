@@ -1,6 +1,7 @@
 package com.syy.taskflowinsight.spi;
 
 import com.syy.taskflowinsight.context.ManagedThreadContext;
+import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
 import org.slf4j.Logger;
@@ -120,11 +121,10 @@ public class DefaultFlowProvider implements FlowProvider {
             if (context != null) {
                 TaskNode task = context.getCurrentTask();
                 if (task != null) {
-                    // TaskNode.addMessage(String, String) 方法签名：(label, content)
                     if (label != null && !label.isEmpty()) {
-                        task.addMessage(label, content);
+                        task.addMessage(content, label);
                     } else {
-                        task.addMessage("INFO", content);
+                        task.addMessage(content, "INFO");
                     }
                 }
             }
@@ -132,6 +132,36 @@ public class DefaultFlowProvider implements FlowProvider {
             logger.warn("DefaultFlowProvider.message failed: {}", e.getMessage());
             if (logger.isDebugEnabled()) {
                 logger.debug("Message error details", e);
+            }
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>覆盖默认实现以保留 {@link MessageType} 语义：直接调用
+     * {@link TaskNode#addMessage(String, MessageType)}，确保下游 {@code Message.getType()}
+     * 在 Provider 路径下仍可正确返回类型，而非退化为字符串标签。
+     */
+    @Override
+    public void messageWithType(String content, MessageType type) {
+        if (type == null) {
+            // 无类型时退回字符串标签路径（与默认实现一致）
+            message(content, (String) null);
+            return;
+        }
+        try {
+            ManagedThreadContext context = ManagedThreadContext.current();
+            if (context != null) {
+                TaskNode task = context.getCurrentTask();
+                if (task != null) {
+                    task.addMessage(content, type);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("DefaultFlowProvider.message(type) failed: {}", e.getMessage());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Message(type) error details", e);
             }
         }
     }

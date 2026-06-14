@@ -2,7 +2,7 @@ package com.syy.taskflowinsight.model;
 
 import com.syy.taskflowinsight.enums.SessionStatus;
 
-import java.time.Instant;
+import java.lang.ref.WeakReference;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,11 +27,16 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class Session {
     
+    /*
+     * Legacy thread-session registry retained for source compatibility with Session.getCurrent().
+     * Runtime flow APIs use ManagedThreadContext/SafeContextManager as the source of truth.
+     */
     private static final ConcurrentHashMap<String, Session> THREAD_SESSIONS = new ConcurrentHashMap<>();
     
     private final String sessionId;
     private final String threadId;
     private final String threadName;
+    private final WeakReference<Thread> ownerThread;
     private final long createdMillis;
     private final long createdNanos;
     private final TaskNode rootTask;
@@ -51,9 +56,9 @@ public final class Session {
         Thread currentThread = Thread.currentThread();
         this.threadId = String.valueOf(currentThread.threadId());
         this.threadName = currentThread.getName();
+        this.ownerThread = new WeakReference<>(currentThread);
         
-        Instant now = Instant.now();
-        this.createdMillis = now.toEpochMilli();
+        this.createdMillis = System.currentTimeMillis();
         this.createdNanos = System.nanoTime();
         
         this.rootTask = new TaskNode(rootTaskName);
@@ -78,7 +83,10 @@ public final class Session {
      * 获取当前线程的活跃会话
      * 
      * @return 当前线程的活跃会话，如果不存在则返回null
+     * @deprecated 兼容旧的 {@link #activate()} / {@link #deactivate()} 入口。运行时流程 API 的当前会话以
+     *     ManagedThreadContext/SafeContextManager 为准。
      */
+    @Deprecated(since = "4.0.0")
     public static Session getCurrent() {
         String threadId = String.valueOf(Thread.currentThread().threadId());
         Session session = THREAD_SESSIONS.get(threadId);
@@ -101,7 +109,10 @@ public final class Session {
      * 
      * @return 当前会话实例
      * @throws IllegalStateException 如果会话不在RUNNING状态
+     * @deprecated 兼容旧的 {@link #getCurrent()} 入口。新代码应通过 TfiFlow 或 ManagedThreadContext
+     *     管理会话生命周期。
      */
+    @Deprecated(since = "4.0.0")
     public synchronized Session activate() {
         if (!isActive()) {
             throw new IllegalStateException(
@@ -122,7 +133,10 @@ public final class Session {
      * 取消激活当前会话
      * 
      * @return 当前会话实例
+     * @deprecated 兼容旧的 {@link #getCurrent()} 入口。新代码应通过 TfiFlow 或 ManagedThreadContext
+     *     管理会话生命周期。
      */
+    @Deprecated(since = "4.0.0")
     public synchronized Session deactivate() {
         THREAD_SESSIONS.remove(threadId, this);
         return this;
@@ -198,8 +212,7 @@ public final class Session {
      * 标记完成时间
      */
     private void markCompleted() {
-        Instant now = Instant.now();
-        this.completedMillis = now.toEpochMilli();
+        this.completedMillis = System.currentTimeMillis();
         this.completedNanos = System.nanoTime();
     }
     
@@ -348,28 +361,38 @@ public final class Session {
      * 获取当前活跃会话数量
      * 
      * @return 活跃会话数量
+     * @deprecated 兼容旧的静态会话注册表指标。运行时上下文数量请使用 SafeContextManager。
      */
+    @Deprecated(since = "4.0.0")
     public static int getActiveSessionCount() {
+        cleanupInactiveSessions();
         return THREAD_SESSIONS.size();
     }
     
     /**
-     * 清理所有非活跃会话
+     * 清理所有非活跃会话，以及创建线程已经结束的运行中会话。
      * 
      * @return 清理的会话数量
+     * @deprecated 兼容旧的静态会话注册表清理入口。运行时泄漏检测请使用 SafeContextManager。
      */
+    @Deprecated(since = "4.0.0")
     public static int cleanupInactiveSessions() {
         int cleaned = 0;
         for (var iterator = THREAD_SESSIONS.entrySet().iterator(); iterator.hasNext(); ) {
             var entry = iterator.next();
             Session session = entry.getValue();
             
-            if (!session.isActive()) {
+            if (!session.isActive() || !session.isOwnerThreadAlive()) {
                 iterator.remove();
                 cleaned++;
             }
         }
         return cleaned;
+    }
+
+    private boolean isOwnerThreadAlive() {
+        Thread thread = ownerThread.get();
+        return thread != null && thread.isAlive();
     }
     
     @Override

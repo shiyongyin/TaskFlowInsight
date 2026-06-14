@@ -118,21 +118,23 @@ class TaskContextImplTest {
     class AttributeAndTagTests {
         
         @Test
-        @DisplayName("attribute方法应该记录键值对")
+        @DisplayName("attribute方法应该记录为结构化属性")
         void attributeShouldLogKeyValuePair() {
             taskContext.attribute("userId", "12345");
-            
-            assertThat(taskNode.getMessages()).hasSize(1);
-            assertThat(taskNode.getMessages().get(0).getContent()).isEqualTo("[ATTR] userId=12345");
+
+            // attribute 现已存储为结构化属性，而非降级为消息
+            assertThat(taskNode.getAttributes()).containsEntry("userId", "12345");
+            assertThat(taskNode.getMessages()).isEmpty();
         }
         
         @Test
-        @DisplayName("tag方法应该记录标签")
+        @DisplayName("tag方法应该记录为结构化标签")
         void tagShouldLogTag() {
             taskContext.tag("important");
-            
-            assertThat(taskNode.getMessages()).hasSize(1);
-            assertThat(taskNode.getMessages().get(0).getContent()).isEqualTo("[TAG] important");
+
+            // tag 现已存储为结构化标签，而非降级为消息
+            assertThat(taskNode.getTags()).containsExactly("important");
+            assertThat(taskNode.getMessages()).isEmpty();
         }
         
         @Test
@@ -142,12 +144,14 @@ class TaskContextImplTest {
             taskContext.attribute("number", 42);
             taskContext.attribute("boolean", true);
             taskContext.attribute("null", null);
-            
-            assertThat(taskNode.getMessages()).hasSize(4);
-            assertThat(taskNode.getMessages().get(0).getContent()).isEqualTo("[ATTR] string=value");
-            assertThat(taskNode.getMessages().get(1).getContent()).isEqualTo("[ATTR] number=42");
-            assertThat(taskNode.getMessages().get(2).getContent()).isEqualTo("[ATTR] boolean=true");
-            assertThat(taskNode.getMessages().get(3).getContent()).isEqualTo("[ATTR] null=null");
+
+            assertThat(taskNode.getAttributes())
+                .hasSize(4)
+                .containsEntry("string", "value")
+                .containsEntry("number", 42)
+                .containsEntry("boolean", true)
+                .containsKey("null");
+            assertThat(taskNode.getMessages()).isEmpty();
         }
     }
 
@@ -361,7 +365,10 @@ class TaskContextImplTest {
                 .success();
             
             assertThat(result).isSameAs(taskContext);
-            assertThat(taskNode.getMessages()).hasSize(5);
+            // message/debug/warn 仍记录为消息（3 条）；attribute/tag 现为结构化数据
+            assertThat(taskNode.getMessages()).hasSize(3);
+            assertThat(taskNode.getAttributes()).containsEntry("user", "test");
+            assertThat(taskNode.getTags()).containsExactly("important");
             assertThat(taskNode.getStatus()).isEqualTo(TaskStatus.COMPLETED);
         }
         

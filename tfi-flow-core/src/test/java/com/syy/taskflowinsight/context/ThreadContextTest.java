@@ -47,6 +47,26 @@ class ThreadContextTest {
     }
 
     @Test
+    @DisplayName("create - 与 ManagedThreadContext.current 使用同一上下文")
+    void createUsesManagedThreadContextAsSingleSourceOfTruth() {
+        ManagedThreadContext ctx = ThreadContext.create("test");
+
+        assertThat(ManagedThreadContext.current()).isSameAs(ctx);
+
+        ThreadContext.clear();
+    }
+
+    @Test
+    @DisplayName("current - 识别 ManagedThreadContext 直接创建的上下文")
+    void currentSeesDirectManagedThreadContext() {
+        ManagedThreadContext ctx = ManagedThreadContext.create("direct");
+
+        assertThat(ThreadContext.current()).isSameAs(ctx);
+
+        ThreadContext.clear();
+    }
+
+    @Test
     @DisplayName("create - 替换现有上下文")
     void createReplacesExisting() {
         ManagedThreadContext old = ThreadContext.create("old");
@@ -226,6 +246,20 @@ class ThreadContextTest {
         int before = ThreadContext.getActiveContextCount();
         ThreadContext.create("test");
         assertThat(ThreadContext.getActiveContextCount()).isGreaterThanOrEqualTo(before);
+        ThreadContext.clear();
+    }
+
+    @Test
+    @DisplayName("statistics - active and created counts come from SafeContextManager")
+    void statisticsDelegateToSafeContextManager() {
+        SafeContextManager manager = SafeContextManager.getInstance();
+        long beforeCreated = manager.getContextCreatedCount();
+
+        ThreadContext.create("delegated");
+
+        assertThat(ThreadContext.getActiveContextCount()).isEqualTo(manager.getActiveContextCount());
+        assertThat(ThreadContext.getTotalContextsCreated()).isEqualTo(manager.getContextCreatedCount());
+        assertThat(ThreadContext.getTotalContextsCreated()).isGreaterThan(beforeCreated);
         ThreadContext.clear();
     }
 

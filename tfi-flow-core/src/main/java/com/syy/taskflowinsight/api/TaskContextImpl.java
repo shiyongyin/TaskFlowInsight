@@ -3,6 +3,7 @@ package com.syy.taskflowinsight.api;
 import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.enums.TaskStatus;
 import com.syy.taskflowinsight.model.TaskNode;
+import com.syy.taskflowinsight.spi.FlowProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +21,7 @@ final class TaskContextImpl implements TaskContext {
     
     private static final Logger logger = LoggerFactory.getLogger(TaskContextImpl.class);
     private final TaskNode taskNode;
+    private final FlowProvider provider;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     
     /**
@@ -28,10 +30,21 @@ final class TaskContextImpl implements TaskContext {
      * @param taskNode 任务节点
      */
     TaskContextImpl(TaskNode taskNode) {
+        this(taskNode, null);
+    }
+
+    /**
+     * 构造函数
+     *
+     * @param taskNode 任务节点
+     * @param provider 创建该任务的 Provider；为 null 时使用默认线程上下文路径
+     */
+    TaskContextImpl(TaskNode taskNode, FlowProvider provider) {
         if (taskNode == null) {
             throw new IllegalArgumentException("TaskNode cannot be null");
         }
         this.taskNode = taskNode;
+        this.provider = provider;
     }
     
     @Override
@@ -103,8 +116,7 @@ final class TaskContextImpl implements TaskContext {
     public TaskContext attribute(String key, Object value) {
         if (!closed.get() && key != null && !key.trim().isEmpty()) {
             try {
-                // 属性功能暂未实现，记录为消息
-                taskNode.addInfo("[ATTR] " + key.trim() + "=" + value);
+                taskNode.addAttribute(key, value);
             } catch (Throwable t) {
                 logger.debug("Failed to add attribute: {}", t.getMessage());
             }
@@ -116,8 +128,7 @@ final class TaskContextImpl implements TaskContext {
     public TaskContext tag(String tag) {
         if (!closed.get() && tag != null && !tag.trim().isEmpty()) {
             try {
-                // 标签功能暂未实现，记录为消息
-                taskNode.addInfo("[TAG] " + tag.trim());
+                taskNode.addTag(tag);
             } catch (Throwable t) {
                 logger.debug("Failed to add tag: {}", t.getMessage());
             }
@@ -172,6 +183,11 @@ final class TaskContextImpl implements TaskContext {
     public TaskContext subtask(String taskName) {
         if (!closed.get() && taskName != null && !taskName.trim().isEmpty()) {
             try {
+                if (provider != null) {
+                    TaskNode subTask = provider.startTask(taskName.trim());
+                    return subTask != null ? new TaskContextImpl(subTask, provider) : NullTaskContext.INSTANCE;
+                }
+
                 ManagedThreadContext context = ManagedThreadContext.current();
                 if (context != null) {
                     TaskNode subTask = context.startTask(taskName.trim());
@@ -220,6 +236,11 @@ final class TaskContextImpl implements TaskContext {
                 if (taskNode.getStatus() == TaskStatus.RUNNING) {
                     taskNode.complete();
                 }
+                if (provider != null) {
+                    provider.endTask();
+                    return;
+                }
+
                 ManagedThreadContext context = ManagedThreadContext.current();
                 if (context != null && context.getCurrentTask() == taskNode) {
                     context.endTask();

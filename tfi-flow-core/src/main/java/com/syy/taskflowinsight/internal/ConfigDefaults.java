@@ -146,10 +146,10 @@ public final class ConfigDefaults {
     public static final long CONCURRENT_RETRY_BASE_DELAY_MS = 10L;
     
     /** 嵌套stage最大深度 */
-    public static final int NESTED_STAGE_MAX_DEPTH = 20;
+    public static final int NESTED_STAGE_MAX_DEPTH = FlowConfigDefaults.NESTED_STAGE_MAX_DEPTH;
     
     /** 嵌套清理批次大小 */
-    public static final int NESTED_CLEANUP_BATCH_SIZE = 100;
+    public static final int NESTED_CLEANUP_BATCH_SIZE = FlowConfigDefaults.NESTED_CLEANUP_BATCH_SIZE;
     
     /** FIFO缓存默认大小 */
     public static final int FIFO_CACHE_DEFAULT_SIZE = 1000;
