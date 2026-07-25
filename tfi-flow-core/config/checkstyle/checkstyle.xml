@@ -30,6 +30,12 @@
     <property name="charset" value="UTF-8"/>
     <property name="severity" value="error"/>
 
+    <!-- 常量 manifest 必须保持一项一行，折行会破坏机器解析与双向 diff。 -->
+    <module name="BeforeExecutionExclusionFileFilter">
+        <property name="fileNamePattern"
+                  value="[/\\]src[/\\]test[/\\]resources[/\\]compatibility[/\\]public-constants\.properties$"/>
+    </module>
+
     <!-- 文件级别检查 -->
     <module name="FileTabCharacter">
         <property name="eachLine" value="true"/>

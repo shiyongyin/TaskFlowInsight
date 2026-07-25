@@ -1,0 +1,5 @@
+ordinal	role	coordinate	evidencePath	sha256
+1	JDK_RUNTIME	jdk:Zml4dHVyZQ:YnVpbGQ:linux:amd64:amF2YQ	tool-bytes/jdk.bin	0e9978e1d167d9969fbe1314b425835cf326d3e9900b9d73c6243987757c6f1c
+2	MAVEN_DISTRIBUTION	maven-dist:3.9.11:Y29yZQ	tool-bytes/maven.bin	cbd668bebcab6874e7e4a5fa1476432cd120d56875b21bf4511e3de41f9174ff
+3	MAVEN_WRAPPER	maven-wrapper:3.3.4:d3JhcHBlcg	tool-bytes/wrapper.jar	41de73b7d90f69de836d4d75e1c1ba2599f0e855efd95c8dc37e0114884e86d5
+4	RUNNER_IMAGE	oci:example.test/tfi-runner@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee	tool-bytes/runner.json	50b6e64ae203f8f91c66d1d8f59dfcdec21b0396581b7c1d88bce7b33bd4e495

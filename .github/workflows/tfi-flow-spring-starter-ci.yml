@@ -5,12 +5,18 @@ on:
     branches: [ main, 'feature/**' ]
     paths:
       - 'tfi-flow-spring-starter/**'
+      - '.mvn/static-analysis-baseline.json'
+      - 'config/pmd/**'
+      - 'scripts/enforce_static_analysis_baseline.py'
       - 'pom.xml'
       - '.github/workflows/tfi-flow-spring-starter-ci.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'tfi-flow-spring-starter/**'
+      - '.mvn/static-analysis-baseline.json'
+      - 'config/pmd/**'
+      - 'scripts/enforce_static_analysis_baseline.py'
       - 'pom.xml'
   workflow_dispatch:
 
@@ -71,10 +77,24 @@ jobs:
       - name: SpotBugs
         run: ./mvnw compile spotbugs:check -pl tfi-flow-spring-starter -q
 
-      - name: Checkstyle
-        run: ./mvnw checkstyle:check -pl tfi-flow-spring-starter -q
-        continue-on-error: true
+      - name: Generate Checkstyle and PMD reports
+        run: >-
+          ./mvnw checkstyle:check pmd:check -pl tfi-flow-spring-starter -q
+          -Dcheckstyle.consoleOutput=false -Dpmd.printFailingErrors=false
 
-      - name: PMD
-        run: ./mvnw pmd:check -pl tfi-flow-spring-starter -q
-        continue-on-error: true
+      - name: Enforce static analysis baseline
+        run: >-
+          python3 scripts/enforce_static_analysis_baseline.py
+          --module tfi-flow-spring-starter
+
+      - name: Upload static analysis reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tfi-flow-spring-starter-static-analysis-java21
+          path: |
+            tfi-flow-spring-starter/target/spotbugsXml.xml
+            tfi-flow-spring-starter/target/checkstyle-result.xml
+            tfi-flow-spring-starter/target/pmd.xml
+          if-no-files-found: error
+          retention-days: 14

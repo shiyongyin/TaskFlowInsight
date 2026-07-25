@@ -34,5 +34,16 @@ build/
 .DS_Store
 /src/main/java/com/syy/taskflowinsight/tracking/.claude/
 
+### Python tooling ###
+__pycache__/
+*.py[cod]
+
 # jqwik property-based testing database
 .jqwik-database
+
+# Candidate-addressed release evidence is local/CI output, never source material.
+/.evidence/
+
+# Local SSH credentials must never enter repository history
+/shi@2625962
+/shi@2625962.pub

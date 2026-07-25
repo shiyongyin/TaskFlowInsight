@@ -12,10 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: '21'
@@ -25,22 +25,27 @@ jobs:
         run: ./mvnw install -DskipTests -q
 
       - name: Generate routing vs legacy JMH reports
-        continue-on-error: true
         run: |
-          ./mvnw -q -pl tfi-examples -P bench -DskipTests exec:java \
-            -Dexec.mainClass=com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner
+          ./mvnw -q -pl tfi-examples -Pbench -DskipTests compile \
+            org.codehaus.mojo:exec-maven-plugin:3.5.0:exec \
+            -Dexec.executable=java \
+            -Dexec.classpathScope=runtime \
+            '-Dexec.args=-cp %classpath com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner'
 
       - name: Enforce <5% regression gate (strict)
-        continue-on-error: true
         run: |
-          ./mvnw -q -pl tfi-all -Dtest=*PerfGateIT verify -Dtfi.perf.enabled=true -Dtfi.perf.strict=true
+          ./mvnw -q -pl tfi-all \
+            -Dtest=TfiRoutingPerfGateTests \
+            -Dit.test=TfiRoutingPerfGateIT verify \
+            -Dtfi.perf.enabled=true -Dtfi.perf.strict=true
 
       - name: Upload perf reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: tfi-routing-perf-reports
           path: |
-            docs/task/v4.0.0/baseline/tfi_routing_enabled.json
-            docs/task/v4.0.0/baseline/tfi_routing_legacy.json
-
+            tfi-examples/target/perf/tfi-routing-enabled.json
+            tfi-examples/target/perf/tfi-routing-legacy.json
+          if-no-files-found: error
+          retention-days: 14

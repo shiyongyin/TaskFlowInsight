@@ -5,13 +5,26 @@ on:
     branches: [ main, 'feature/**' ]
     paths:
       - 'tfi-all/**'
+      - 'tfi-flow-core/**'
+      - 'tfi-compare/**'
+      - '.mvn/**'
+      - 'config/pmd/**'
+      - 'scripts/enforce_static_analysis_baseline.py'
       - 'pom.xml'
+      - '.github/workflows/tfi-flow-core-ci.yml'
       - '.github/workflows/tfi-all-ci.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'tfi-all/**'
+      - 'tfi-flow-core/**'
+      - 'tfi-compare/**'
+      - '.mvn/**'
+      - 'config/pmd/**'
+      - 'scripts/enforce_static_analysis_baseline.py'
       - 'pom.xml'
+      - '.github/workflows/tfi-flow-core-ci.yml'
+      - '.github/workflows/tfi-all-ci.yml'
   workflow_dispatch:
 
 concurrency:
@@ -71,13 +84,27 @@ jobs:
       - name: SpotBugs
         run: ./mvnw compile spotbugs:check -pl tfi-all -q
 
-      - name: Checkstyle
-        run: ./mvnw checkstyle:check -pl tfi-all -q
-        continue-on-error: true
+      - name: Generate Checkstyle and PMD reports
+        run: >-
+          ./mvnw checkstyle:check pmd:check -pl tfi-all -q
+          -Dcheckstyle.consoleOutput=false -Dpmd.printFailingErrors=false
 
-      - name: PMD
-        run: ./mvnw pmd:check -pl tfi-all -q
-        continue-on-error: true
+      - name: Enforce static analysis baseline
+        run: >-
+          python3 scripts/enforce_static_analysis_baseline.py
+          --module tfi-all
+
+      - name: Upload static analysis reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tfi-all-static-analysis-java21
+          path: |
+            tfi-all/target/spotbugsXml.xml
+            tfi-all/target/checkstyle-result.xml
+            tfi-all/target/pmd.xml
+          if-no-files-found: error
+          retention-days: 14
 
   api-compat:
     name: API Compatibility
@@ -92,11 +119,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
+
+      - name: Verify repository-owned API baseline checksums
+        working-directory: .mvn/api-baseline
+        run: sha256sum --check SHA256SUMS
 
       - name: Install dependency modules
-        run: ./mvnw install -pl tfi-flow-core,tfi-flow-spring-starter,tfi-compare,tfi-ops-spring -am -DskipTests -q
+        run: >-
+          ./mvnw install
+          -pl tfi-flow-core,tfi-flow-spring-starter,tfi-compare,tfi-ops-spring
+          -am -DskipTests -q
+          -Dmaven.repo.local=${{ runner.temp }}/tfi-api-baseline-m2
 
       - name: Run API compatibility check (japicmp)
-        run: ./mvnw verify -pl tfi-all -Papi-compat -DskipTests -q
-        continue-on-error: true
+        run: >-
+          ./mvnw verify -pl tfi-all -Papi-compat -DskipTests -q
+          -Dmaven.repo.local=${{ runner.temp }}/tfi-api-baseline-m2

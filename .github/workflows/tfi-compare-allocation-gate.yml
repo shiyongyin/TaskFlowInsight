@@ -1,0 +1,109 @@
+name: TFI Compare allocation gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tfi-compare-core/**'
+      - 'tfi-compare/**'
+      - 'tfi-kernel/**'
+      - 'tfi-kernel-compare/**'
+      - 'tfi-kernel-compare-spring-starter/**'
+      - 'config/compare-shared-source-contract.tsv'
+      - 'scripts/check_compare_shared_sources.py'
+      - 'scripts/tests/test_check_compare_shared_sources.py'
+      - 'pom.xml'
+      - '.github/workflows/tfi-compare-allocation-gate.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'tfi-compare-core/**'
+      - 'tfi-compare/**'
+      - 'tfi-kernel/**'
+      - 'tfi-kernel-compare/**'
+      - 'tfi-kernel-compare-spring-starter/**'
+      - 'config/compare-shared-source-contract.tsv'
+      - 'scripts/check_compare_shared_sources.py'
+      - 'scripts/tests/test_check_compare_shared_sources.py'
+      - 'pom.xml'
+      - '.github/workflows/tfi-compare-allocation-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  allocation-gate:
+    name: Shared sources and allocation budgets (Java 21)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Java 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Test shared-source checker failure paths
+        run: python3 -m unittest scripts/tests/test_check_compare_shared_sources.py
+
+      - name: Enforce explicit Compare shared-source contract
+        run: python3 scripts/check_compare_shared_sources.py
+
+      - name: Run fixed JMH allocation suite and strict budgets
+        run: >-
+          ./mvnw -q -pl tfi-kernel-compare-spring-starter -am
+          -Pperf -Dtfi.perf.enabled=true -Dtfi.perf.strict=true
+          -Dtest=CompareAllocationBenchmarkRunnerTest,CompareAllocationGatePolicyTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Dit.test=CompareAllocationPerfGateIT
+          -Dfailsafe.failIfNoSpecifiedTests=false verify
+
+      - name: Verify allocation gate execution
+        shell: bash
+        run: |
+          module="tfi-kernel-compare-spring-starter"
+          runner="$module/target/surefire-reports/TEST-com.syy.tfi.kernel.compare.spring.benchmark.CompareAllocationBenchmarkRunnerTest.xml"
+          policy="$module/target/surefire-reports/TEST-com.syy.tfi.kernel.compare.spring.benchmark.CompareAllocationGatePolicyTest.xml"
+          gate="$module/target/failsafe-reports/TEST-com.syy.tfi.kernel.compare.spring.benchmark.CompareAllocationPerfGateIT.xml"
+          test -s "$module/target/compare-allocation-jmh-results.json"
+          test -s "$module/target/compare-allocation-gate.properties"
+          test -s "$runner"
+          test -s "$policy"
+          test -s "$gate"
+          grep -Eq '<testsuite[^>]* tests="1"' "$runner"
+          grep -Eq '<testsuite[^>]* failures="0"' "$runner"
+          grep -Eq '<testsuite[^>]* errors="0"' "$runner"
+          grep -Eq '<testsuite[^>]* skipped="0"' "$runner"
+          grep -Eq '<testcase[^>]* name="typicalAllocationBenchmarksProduceHardGateEvidence"' "$runner"
+          grep -Eq '<testsuite[^>]* tests="4"' "$policy"
+          grep -Eq '<testsuite[^>]* failures="0"' "$policy"
+          grep -Eq '<testsuite[^>]* errors="0"' "$policy"
+          grep -Eq '<testsuite[^>]* skipped="0"' "$policy"
+          grep -Eq '<testcase[^>]* name="rejectsAllocationAboveTheMaximum"' "$policy"
+          grep -Eq '<testsuite[^>]* tests="1"' "$gate"
+          grep -Eq '<testsuite[^>]* failures="0"' "$gate"
+          grep -Eq '<testsuite[^>]* errors="0"' "$gate"
+          grep -Eq '<testsuite[^>]* skipped="0"' "$gate"
+          grep -Eq '<testcase[^>]* name="typicalAllocationStaysWithinAcceptedBudgets"' "$gate"
+
+      - name: Upload allocation evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: tfi-compare-allocation-java21
+          path: |
+            tfi-kernel-compare-spring-starter/target/compare-allocation-jmh-results.json
+            tfi-kernel-compare-spring-starter/target/compare-allocation-gate.properties
+            tfi-kernel-compare-spring-starter/target/surefire-reports/*CompareAllocation*
+            tfi-kernel-compare-spring-starter/target/failsafe-reports/*CompareAllocationPerfGateIT*
+          if-no-files-found: error
+          retention-days: 30

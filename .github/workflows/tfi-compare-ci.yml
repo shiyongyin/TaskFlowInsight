@@ -4,14 +4,45 @@ on:
   push:
     branches: [ main, 'feature/**' ]
     paths:
+      - 'tfi-flow-core/**'
       - 'tfi-compare/**'
+      - 'tfi-compare-spring-starter/**'
+      - 'tfi-ops-spring/**'
+      - 'tfi-all/**'
+      - 'tfi-examples/**'
+      - '.mvn/api-baseline/**'
+      - '.mvn/static-analysis-baseline.json'
+      - 'config/pmd/**'
+      - 'spotbugs-include.xml'
+      - 'spotbugs-exclude.xml'
+      - 'scripts/enforce_static_analysis_baseline.py'
+      - 'scripts/prepare_tfi_compare_release_evidence.sh'
+      - 'scripts/verify_tfi_compare_artifact_consumers.sh'
+      - 'scripts/release-evidence/**'
+      - '.gitignore'
       - 'pom.xml'
       - '.github/workflows/tfi-compare-ci.yml'
   pull_request:
     branches: [ main ]
     paths:
+      - 'tfi-flow-core/**'
       - 'tfi-compare/**'
+      - 'tfi-compare-spring-starter/**'
+      - 'tfi-ops-spring/**'
+      - 'tfi-all/**'
+      - 'tfi-examples/**'
+      - '.mvn/api-baseline/**'
+      - '.mvn/static-analysis-baseline.json'
+      - 'config/pmd/**'
+      - 'spotbugs-include.xml'
+      - 'spotbugs-exclude.xml'
+      - 'scripts/enforce_static_analysis_baseline.py'
+      - 'scripts/prepare_tfi_compare_release_evidence.sh'
+      - 'scripts/verify_tfi_compare_artifact_consumers.sh'
+      - 'scripts/release-evidence/**'
+      - '.gitignore'
       - 'pom.xml'
+      - '.github/workflows/tfi-compare-ci.yml'
   workflow_dispatch:
 
 concurrency:
@@ -27,10 +58,10 @@ jobs:
         java: [ '21' ]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Java ${{ matrix.java }}
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
@@ -39,27 +70,38 @@ jobs:
       - name: Install dependency modules
         run: ./mvnw install -pl tfi-flow-core -DskipTests -q
 
-      - name: Run unit tests + JaCoCo
-        run: ./mvnw verify jacoco:report -pl tfi-compare -q
+      - name: Run final module contracts
+        run: >-
+          ./mvnw -pl tfi-compare
+          -Dtest=CompareArchitectureContractTests,CompareBuildConfigurationContractTests,CompareServiceLoaderContractTests,CompareDependencyBoundaryTests,CompareManifestCoverageTests,CompareResourceInventoryContractTests,CompareProjectionSchemaContractTests,CompareProjectionParityTests
+          test -q
 
-      - name: Upload JaCoCo report
-        uses: actions/upload-artifact@v4
+      - name: Run strict module verify
+        run: ./mvnw -pl tfi-compare clean verify -q
+
+      - name: Upload module quality reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: jacoco-report-java${{ matrix.java }}
-          path: tfi-compare/target/site/jacoco/
+          name: tfi-compare-quality-java${{ matrix.java }}
+          path: |
+            tfi-compare/target/site/jacoco/
+            tfi-compare/target/spotbugsXml.xml
+            tfi-compare/target/checkstyle-result.xml
+            tfi-compare/target/pmd.xml
+          if-no-files-found: error
           retention-days: 14
 
-  static-analysis:
-    name: Static Analysis
+  dependency-check:
+    name: Dependency Vulnerability Scan
     runs-on: ubuntu-latest
     needs: build-and-test
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: '21'
@@ -68,42 +110,18 @@ jobs:
       - name: Install dependency modules
         run: ./mvnw install -pl tfi-flow-core -DskipTests -q
 
-      - name: SpotBugs
-        run: ./mvnw compile spotbugs:check -pl tfi-compare -q
-
-      - name: Checkstyle
-        run: ./mvnw checkstyle:check -pl tfi-compare -q
-        continue-on-error: true
-
-      - name: PMD
-        run: ./mvnw pmd:check -pl tfi-compare -q
-        continue-on-error: true
-
-  dependency-check:
-    name: Dependency Vulnerability Scan
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-
       - name: OWASP Dependency-Check
         run: ./mvnw dependency-check:check -pl tfi-compare -q
-        continue-on-error: true
 
       - name: Upload dependency-check report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: dependency-check-report
-          path: tfi-compare/target/dependency-check-report.html
+          path: |
+            tfi-compare/target/dependency-check/dependency-check-report.html
+            tfi-compare/target/dependency-check/dependency-check-report.json
+          if-no-files-found: error
           retention-days: 14
 
   api-compat:
@@ -112,14 +130,83 @@ jobs:
     needs: build-and-test
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
-      - name: Run API surface compatibility tests
-        run: ./mvnw test -pl tfi-compare -Dtest="ApiSurfaceCompatibilityTests" -q
+      - name: Install dependency modules
+        run: ./mvnw install -pl tfi-flow-core -DskipTests -q
+
+      - name: Verify fixed API baseline checksums
+        working-directory: .mvn/api-baseline
+        run: shasum -a 256 -c SHA256SUMS
+
+      - name: Run API inventory and manifest contracts
+        run: >-
+          ./mvnw -pl tfi-compare
+          -Dtest=CompareApiInventoryContractTests,CompareBreakingChangeManifestTests,CompareManifestCoverageTests,CompareResourceInventoryContractTests,CompareServiceLoaderContractTests,CompareArchitectureContractTests,CompareBuildConfigurationContractTests
+          test -q
+
+      - name: Run exact API compatibility check
+        run: ./mvnw -pl tfi-compare -Papi-compat verify -DskipTests -q
+
+  release-evidence-ci:
+    name: Release Evidence CI
+    runs-on: ubuntu-latest
+    needs: [build-and-test, dependency-check, api-compat]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Generate fresh CI-only release evidence
+        run: ./scripts/prepare_tfi_compare_release_evidence.sh --ci
+
+      - name: Upload hidden release evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: tfi-compare-release-evidence
+          path: '.evidence/ci/**'
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+
+  evidence-integrity:
+    name: Release Evidence Integrity
+    runs-on: ubuntu-latest
+    needs: release-evidence-ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Download hidden release evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: tfi-compare-release-evidence
+          path: .evidence/ci/
+
+      - name: Verify downloaded evidence without rebuilding
+        run: |
+          mapfile -t markers < <(find .evidence/ci -type f -name CI_ONLY -print)
+          test "${#markers[@]}" -eq 1
+          evidence_dir="${markers[0]%/CI_ONLY}"
+          java scripts/release-evidence/ReleaseEvidenceVerifier.java verify-integrity \
+            "$evidence_dir" scripts/release-evidence/expected-reports.tsv

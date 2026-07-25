@@ -1,0 +1,56 @@
+name: tfi-kernel strict performance gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tfi-kernel-strict-perf
+  cancel-in-progress: false
+
+jobs:
+  strict-perf:
+    name: Strict gate (fixed Java 21 runner)
+    runs-on: [self-hosted, tfi-kernel-perf]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run fixed JMH suite and enforce strict thresholds
+        run: >-
+          ./mvnw -q -pl tfi-kernel -Pperf
+          -Dtfi.perf.enabled=true -Dtfi.perf.strict=true
+          -Dit.test=KernelPerfGateIT
+          -Dfailsafe.failIfNoSpecifiedTests=true verify
+
+      - name: Verify strict gate execution
+        shell: bash
+        run: |
+          report="tfi-kernel/target/failsafe-reports/TEST-com.syy.tfi.kernel.benchmark.KernelPerfGateIT.xml"
+          test -s "$report"
+          grep -Eq '<testsuite[^>]* tests="1"' "$report"
+          grep -Eq '<testsuite[^>]* failures="0"' "$report"
+          grep -Eq '<testsuite[^>]* errors="0"' "$report"
+          grep -Eq '<testsuite[^>]* skipped="0"' "$report"
+          grep -Eq '<testcase[^>]* name="fixedRunnerMeetsKernelIdentityThresholds"' "$report"
+
+      - name: Upload strict performance evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tfi-kernel-strict-perf-java21
+          path: |
+            tfi-kernel/target/kernel-jmh-results.json
+            tfi-kernel/target/kernel-jmh-gate.properties
+            tfi-kernel/target/failsafe-reports/
+          if-no-files-found: error
+          retention-days: 30

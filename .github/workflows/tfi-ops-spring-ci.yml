@@ -5,12 +5,18 @@ on:
     branches: [ main, 'feature/**' ]
     paths:
       - 'tfi-ops-spring/**'
+      - '.mvn/static-analysis-baseline.json'
+      - 'config/pmd/**'
+      - 'scripts/enforce_static_analysis_baseline.py'
       - 'pom.xml'
       - '.github/workflows/tfi-ops-spring-ci.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'tfi-ops-spring/**'
+      - '.mvn/static-analysis-baseline.json'
+      - 'config/pmd/**'
+      - 'scripts/enforce_static_analysis_baseline.py'
       - 'pom.xml'
   workflow_dispatch:
 
@@ -71,10 +77,24 @@ jobs:
       - name: SpotBugs
         run: ./mvnw compile spotbugs:check -pl tfi-ops-spring -q
 
-      - name: Checkstyle
-        run: ./mvnw checkstyle:check -pl tfi-ops-spring -q
-        continue-on-error: true
+      - name: Generate Checkstyle and PMD reports
+        run: >-
+          ./mvnw checkstyle:check pmd:check -pl tfi-ops-spring -q
+          -Dcheckstyle.consoleOutput=false -Dpmd.printFailingErrors=false
 
-      - name: PMD
-        run: ./mvnw pmd:check -pl tfi-ops-spring -q
-        continue-on-error: true
+      - name: Enforce static analysis baseline
+        run: >-
+          python3 scripts/enforce_static_analysis_baseline.py
+          --module tfi-ops-spring
+
+      - name: Upload static analysis reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tfi-ops-spring-static-analysis-java21
+          path: |
+            tfi-ops-spring/target/spotbugsXml.xml
+            tfi-ops-spring/target/checkstyle-result.xml
+            tfi-ops-spring/target/pmd.xml
+          if-no-files-found: error
+          retention-days: 14

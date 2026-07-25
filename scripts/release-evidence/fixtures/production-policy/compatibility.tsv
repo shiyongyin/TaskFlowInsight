@@ -1,0 +1,2 @@
+edgeKind	consumerGa	consumerVersion	dependencyGa	dependencyVersion	expected	enforcement	evidenceCommandId
+DEPENDENCY	com.syy:tfi-compare	4.0.0	com.syy:tfi-flow-core	4.0.0	SUPPORTED	ARTIFACT_TEST	CMD-COMPAT

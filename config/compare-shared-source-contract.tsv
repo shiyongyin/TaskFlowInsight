@@ -1,0 +1,15 @@
+sourceSet	relativePath	contract
+main	com/syy/taskflowinsight/tracking/compare/CompareDiagnostics.java	CANONICAL_DIAGNOSTICS_FAST_PATH
+main	com/syy/taskflowinsight/tracking/compare/ValueSnapshot.java	IEEE754_CANONICAL_WIRE
+main	com/syy/taskflowinsight/tracking/compare/internal/CompareRequestState.java	REQUEST_STATE_ALLOCATION
+main	com/syy/taskflowinsight/tracking/compare/internal/IncompleteContainerFacts.java	INCOMPLETE_FACT_CLEANUP
+main	com/syy/taskflowinsight/tracking/compare/internal/RequestLocalSnapshot.java	SNAPSHOT_SELECTION_ALLOCATION
+main	com/syy/taskflowinsight/tracking/compare/internal/SnapshotCaptureContext.java	SNAPSHOT_CONTEXT_ALLOCATION
+main	com/syy/taskflowinsight/tracking/compare/internal/TrackingBatchSupport.java	TRACKING_BATCH_ALLOCATION
+main	com/syy/taskflowinsight/tracking/compare/internal/TypeDescriptor.java	CLASS_METADATA_CACHE
+main	com/syy/taskflowinsight/tracking/path/ComparePath.java	CANONICAL_PATH_ALLOCATION
+test	com/syy/taskflowinsight/tracking/compare/ValueSnapshotBoundaryTests.java	IEEE754_CANONICAL_WIRE
+test	com/syy/taskflowinsight/tracking/compare/internal/CompareRequestIsolationTests.java	REQUEST_STATE_ALLOCATION
+test	com/syy/taskflowinsight/tracking/compare/internal/SnapshotPathBoundaryTests.java	SNAPSHOT_SELECTION_ALLOCATION
+test	com/syy/taskflowinsight/tracking/compare/internal/TypeDescriptorCacheContractTests.java	CLASS_METADATA_CACHE
+test	com/syy/taskflowinsight/tracking/path/ComparePathValueContractTests.java	CANONICAL_PATH_ALLOCATION

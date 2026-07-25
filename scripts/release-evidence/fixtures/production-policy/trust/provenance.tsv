@@ -1,0 +1,2 @@
+scheme	keyId	materialPath	materialSha256
+SIGSTORE	https://issuer.example.test|builder/test	trust/provenance-material.pem	8e220fd1ddb2aeaa0e7f6166a526cd23f49d2f9dff76df7491fa205cf778e1de
