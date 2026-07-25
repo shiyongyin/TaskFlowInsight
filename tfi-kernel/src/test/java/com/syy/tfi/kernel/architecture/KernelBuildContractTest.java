@@ -205,6 +205,10 @@ class KernelBuildContractTest {
                 .contains("com.syy.tfi.kernel.Tfi")
                 .contains("`TFI` and `Tfi` are different Java types")
                 .contains("do not depend on or delegate to each other")
+                .contains("Kernel is neither a lightweight edition of the complete TFI line")
+                .contains("lower total cost of use")
+                .contains("### Usage cost")
+                .contains("### Cognitive cost")
                 .contains("TaskFlowInsight 4.0 RC train")
                 .contains("targets 1.0 as its first stable API baseline")
                 .contains("tfi-kernel Strict Perf Gate");
@@ -214,6 +218,10 @@ class KernelBuildContractTest {
                 .contains("com.syy.tfi.kernel.Tfi")
                 .contains("`TFI` 与 `Tfi` 是位于不同包中的不同 Java 类型")
                 .contains("互不依赖、互不委托")
+                .contains("Kernel 不是 TFI 完整功能线的轻量版")
+                .contains("总使用成本更低")
+                .contains("### 使用成本分析")
+                .contains("### 认知成本分析")
                 .contains("TaskFlowInsight 4.0 版本列车进入 RC")
                 .contains("首个稳定 API 基线目标为 1.0")
                 .contains("tfi-kernel Strict Perf Gate");

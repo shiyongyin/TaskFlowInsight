@@ -15,7 +15,7 @@ Business flow recording and object comparison for Java 21
 
 TaskFlowInsight records structured business execution flows and compares object state. The repository provides a complete, compatibility-oriented product line and a separate Kernel RC line.
 
-The two lines solve related problems but are not dependency tiers of one runtime. Choose one line for an application; do not place both Compare implementations on the same classpath.
+The two lines solve related problems, but they target different adopters and product boundaries. Choose a product line from the use case first, then choose Maven modules.
 
 ## Project status
 
@@ -27,7 +27,144 @@ The two lines solve related problems but are not dependency tiers of one runtime
 
 No benchmark number, compatibility baseline, or successful module build should be read as proof of a public release. The repository currently has CI and release-candidate gates, but no automated deploy or release workflow.
 
-## TaskFlowInsight, TFI, and Kernel
+## Choose from the product perspective
+
+### The shortest answer
+
+The complete TFI line is the application-facing product family. It has two adoption forms:
+
+- **Full aggregate:** one `TaskFlowInsight` coordinate brings in every complete-line module and the unified `TFI` facade.
+- **Selected modules:** adopt only the required Flow, Compare, Spring, or Ops capabilities while staying on the complete line.
+
+**The complete TFI line gives application teams execution insight and object-change capabilities they can use directly. Kernel gives platform, component, or controlled-pilot service teams a bounded recording foundation.**
+
+The complete line targets business applications such as order, approval, billing, and inventory services.
+
+Within recorded flows and stages, it helps developers, testers, and operators answer which steps ran, where work failed or slowed down, and what changed in business objects.
+
+Kernel records only the in-process facts that a host explicitly selects, using a bounded `Session -> Stage -> Record` model and deterministic JSON. The adopter owns masking, transport, storage, query, and presentation.
+
+Kernel is neither a lightweight edition of the complete TFI line nor a reduced tier of the full aggregate. Its smaller scope does not imply simpler adoption or a lower total cost of use.
+
+### Four choices
+
+| Choice | Product meaning | Current guidance |
+|---|---|---|
+| Full aggregate | Adopt the whole complete line through one coordinate and facade | Use for existing TFI or when most capabilities are needed |
+| Selected complete-line modules | Keep complete-line semantics while composing only required capabilities | Default recommendation for new applications |
+| Kernel Core | Record bounded flow facts explicitly; the adopter owns the output loop | Controlled pilot with a real question and named owners only |
+| Kernel + Compare | Map independent comparison results into bounded flow observations | Internal preview for a specific composition hypothesis only |
+
+### What the user receives
+
+| Product question | Complete TFI line | Kernel |
+|---|---|---|
+| Primary problem | Explain complex business execution, stage timing, and object changes | Capture a small, controlled, bounded set of facts; the host owns long-term semantics |
+| Primary adopter | Business application teams, Spring teams, and existing TFI users | Platform, SDK, and component teams, or service teams with a specific pilot question |
+| Recorded information | Session/Task details plus bounded Compare `outcome + completion` | Session/Stage/Record facts; Core does not compare objects |
+| Adoption experience | Unified facade, plain-Java API, or explicitly enabled Spring annotations | Explicit `begin/stage/call/record` in Core, with host-owned wrappers if needed |
+| Result | Human-readable flows, canonical JSON/Map, object differences, and optional Spring/Ops integration points | Completed Sessions go to synchronous sinks; the host can convert them to deterministic `tfi-flow/1` JSON |
+| Missing product loop | No built-in persistent history search, hosted UI, or compliance audit system | No default Sink, object comparison, Ops, storage, search, alerting, or UI |
+| Current guidance | Current recommended line, although 4.0 remains an unpublished source snapshot | Controlled RC pilot; product value and the 1.0 API still require real-service evidence |
+
+The complete-line column lists capabilities available in that product family. Selected-module users receive only the capabilities they include.
+
+"Full aggregate" describes its SDK module set. It does not mean every feature turns on automatically or that the aggregate is a hosted monitoring platform.
+
+Spring AOP is off by default. Most Ops endpoints, stores, and performance components require explicit wiring and protection.
+
+### Typical scenarios
+
+| Problem to solve | Recommended choice | Why |
+|---|---|---|
+| Ordinary logs cannot reconstruct an order, approval, billing, or inventory flow | Complete TFI line | A richer execution tree, status, messages, and timing explain one business operation |
+| Confirm what changed in a price, configuration, or order state | Complete TFI line plus Compare | Compare reports differences; Flow adds recorded stage context but does not prove causality |
+| Add annotations, comparison, or operational implementations to a new Spring service | Selected complete-line starters and Ops | Preserve complete-line semantics while adding only the capabilities in use |
+| Record flows in plain Java without an existing ingestion platform | Complete-line `tfi-flow-core` | Use the current complete Flow model and exporters without building the Kernel output loop |
+| Compare objects without recording a flow | Complete-line `tfi-compare` | Use Compare `outcome + completion`, paths, and rendering directly |
+| Existing code already uses `TFI`, `TfiFlow`, or complete-line Compare | Stay on the complete line | Kernel has no compatibility layer; migration changes APIs, model, schema, and operations |
+| Reduce dependencies while retaining the current TFI experience | Selected complete-line modules | This is the recommended "smaller" setup; it does not change the product boundary |
+| Embed fixed, size-bounded execution facts into a platform or SDK with an existing ingestion path | Controlled Kernel Core pilot | Centralize Sink, business Record conventions, security, retention, and runtime policy |
+| Test one real-service question that current tools cannot answer | Controlled Kernel Core pilot | Use a controlled, approved output route, or stay outside the production data loop |
+| Test bounded flow facts together with object-change summaries | Kernel + Compare internal preview | Evaluation must absorb dual-model, masking, classpath, and composition-test costs |
+
+Do not select Kernel only because it has fewer dependencies, classes, or JAR bytes. If every service invents its own sinks, Record codes, masking, and retention rules, a small local runtime becomes repeated platform engineering.
+
+### Selection outcome
+
+1. Choose the complete TFI line for direct flow explanation, object comparison, or Spring/Ops integration.
+2. Choose selected complete-line modules when the goal is only to reduce dependencies. Do not migrate to Kernel for that reason.
+3. Evaluate Kernel Core when a platform loop exists, or when one bounded service problem justifies owning the missing capabilities.
+4. Evaluate Kernel + Compare only after choosing a Kernel pilot that must add comparison summaries to the same flow facts. Use complete-line `tfi-compare` for ordinary object comparison.
+5. When uncertain, start with selected complete-line modules. Kernel is not the default entry for a new application.
+
+### Usage cost
+
+Cost is measured against a real-service pilot that is safe, testable, observable, disableable, and covered by a rollback drill. Adding a Maven dependency or printing sample JSON is not the baseline.
+
+- **Low:** the module owns the main responsibility; the application mostly calls and configures it.
+- **Medium:** the application selects modules, composes explicit pieces, or adds focused tests without building a new product subsystem.
+- **High:** the adopter must design missing capabilities, own a much wider change surface, or absorb RC change and cross-team approval.
+
+High cost means responsibility has moved; it does not imply low implementation quality. Ratings compare the four choices in this repository. They are not estimates of engineering time, budget, or production performance.
+
+| Cost dimension | Full aggregate | Selected complete line | Kernel Core | Kernel + Compare preview |
+|---|---|---|---|---|
+| First usable loop | Low: lifecycle/export/close exist; app sets data policy | Medium: choose and test modules | High: add Sink, Record code/data rules, security, pilot rollback | High: also own both cores and bridge |
+| Instrumentation | Low-medium: starter vs explicit Core | Low-medium: chosen API decides | Medium: explicit Session/Stage/Record | Medium: separate comparison and records; optional AOP |
+| Concept learning | Medium: unified entry, broad system | Medium: fewer domains, module boundaries | Medium: few terms, heavy ownership | High: two cores/bridge; Spring only with starter |
+| Dependency governance | High: widest dependency and auto-config surface | Low to medium: depends on selected modules | Medium: narrow runtime, source snapshot, RC | High: exclude complete Compare and verify dependency trees |
+| Output, security, operations | Medium: app owns access/retention | Medium: wire selected parts | High: host owns Record code/data rules and output | High: also own masking/budgets |
+| Testing | Medium: broad composition | Medium: lock selection | High: success, failure, disablement, truncation, sinks, Runtime close, pilot rollback | High: also keep truth independent from records |
+| Upgrade and migration | Low-medium: same line; test versions | Medium: facade/composition changes | High: unfrozen, incompatible API/schema | High: internal; no compatibility layer |
+| Organizational coordination | Medium: app/security/operations | Medium: app or platform owner sets modules | High: service/data/Record/output/rollback owners | High: add Compare; Spring only with starter |
+| Maturity risk | Medium: recommended line, but 4.0 is not released | Medium: the same complete product line | High: RC with real-service value still unproven | High: internal preview with open release gates |
+
+The four choices distribute cost differently:
+
+- **Full aggregate:** minimizes entry decisions but maximizes dependency and composition scope. Its convenience pays off when the application uses most of the included capabilities.
+- **Selected complete line:** requires an upfront boundary and module decision, then limits daily work to chosen capabilities. It is the repository's default recommendation for new applications; actual cost depends on the composition.
+- **Kernel Core:** the sample is simple; the production loop is not. An existing platform can share missing capabilities; otherwise a real-service pilot must justify the investment.
+- **Kernel + Compare preview:** combines both core models with composition and release risk. A starter/AOP pilot also adds Spring ownership.
+
+Runtime latency, allocation, bandwidth, and storage cost cannot be rated from dependency count or JAR size. Sampling, recorded content, object shape, sinks, and the ingestion path can dominate.
+
+Measure these costs in the target service and report absent evidence as `NOT_MEASURED`.
+
+Kernel uses synchronous sinks, so Sink latency and failure policy may dominate end-to-end runtime cost. Complete-line cost likewise depends on enabled modules, instrumentation scope, exporters, and operational configuration.
+
+### Cognitive cost
+
+Cognitive cost is not the number of public APIs or nouns. It also includes external systems, failure boundaries, and ownership decisions that adopters must understand to complete the product loop.
+
+| Role | Full aggregate | Selected complete line | Kernel Core | Kernel + Compare preview |
+|---|---|---|---|---|
+| Application developer | Facade plus Flow/Compare semantics | Selected APIs, instrumentation, boundaries | Session/Stage/Record lifecycle and degradation | Keep `CompareResult` truth separate from Records |
+| Architect or platform owner | Hidden modules, providers, auto-config | Selection, composition, dependencies | Runtime/thread owners, budgets, Record code/data, sinks | Two cores/bridge/classes; Spring only with starter |
+| Security and operations | Capture, masking, endpoints, stores, auth, retention | Selected output surface | Define classification, masking, access, timeout, failure, monitoring, retention | Also govern Compare masking and Record budgets |
+| Tester | Broad composition, async context, Compare completion | Lock module composition | Success/failure, disablement, truncation, sinks, Runtime close, pilot rollback | Prove truth and Record admission are independent; optional AOP |
+
+The aggregate has low entry-point load and higher end-to-end load. Selected modules have higher selection load and lower daily load.
+
+Kernel Core has low vocabulary load and high ownership load. Kernel + Compare adds dual-model and composition ownership.
+
+Platform teams can move Kernel cognitive load out of application teams and reuse one standard across consumers.
+
+A single-service pilot puts that load on the service team. Whether either organization lowers total cost still requires real-service evidence; API count cannot answer it.
+
+Kernel has not completed the KNL-03 real-service pilot. Whether it reduces diagnosis, business-understanding, or audit-assistance cost is still a product hypothesis.
+
+Passing tests, a smaller artifact, or a complete design cannot substitute for that evidence.
+
+### What neither line directly solves
+
+Neither line is a workflow engine or a cross-service distributed-tracing backend, historical search platform, or hosted visualization console.
+
+Flow records and object differences are not compliance evidence by themselves. An audit use case still needs transaction-commit correlation, masking, tamper resistance, persistence, access control, and retention.
+
+For turnkey storage, search, alerting, or an operations UI, evaluate a dedicated logging, tracing, APM, audit, or workflow product first. Then decide whether TFI business facts should feed that system.
+
+## Names and technical relationship
 
 The project name, Maven artifact names, and Java facade names are similar, but they do not identify the same runtime.
 
@@ -94,7 +231,9 @@ The reduction is primarily in model and runtime responsibility, not merely in de
 | Compatibility | Preserves current facades and module compatibility gates | RC API is not frozen and has no drop-in API or schema conversion layer |
 | Migration cost | Existing TFI applications stay on this line | Requires application-level redesign of entry points, model, output, config, and operations |
 
-## Choose a setup
+## Choose modules after choosing the product line
+
+The table below selects Maven modules; it does not decide the product line. To reduce dependencies while preserving current TFI semantics, use selected complete-line modules instead of switching to Kernel.
 
 | Requirement | Recommended choice | Reason |
 |---|---|---|
@@ -204,7 +343,7 @@ The first build may download Maven plugins and dependencies. In another local pr
 
 All dependency snippets below use `${tfi.version}`. Replace it only with a version that is actually available in your configured repository.
 
-## Full version
+## Full TFI through the aggregate
 
 The full version is the broadest complete-line option. It includes Flow Core, both complete-line Spring starters, Compare, and Ops, while preserving the unified `TFI` facade.
 
@@ -247,9 +386,9 @@ try {
 
 Export the flow before `endSession()`. Comparison truth comes from `CompareResult`; rendering is a presentation step and does not change the result.
 
-## Selective complete-line modules
+## Selective complete-line adoption
 
-Selective use keeps the current complete-line semantics while avoiding capabilities that the application does not need. This is the recommended “minimal” choice for current integrations.
+Selective adoption preserves current complete-line semantics while avoiding capabilities that the application does not use. This is the recommended "smaller" setup, not Kernel.
 
 ### Flow Core only
 
@@ -627,7 +766,7 @@ Consumers must still inspect their dependency tree and select one ecosystem. Mig
 The bridge and starter remain internal candidates. Build them only inside this reactor for evaluation.
 Do not add them to a production dependency set until the [KCS-10 release gate](docs/task/tfi-kernel-compare-integration/TASK-KCS-10-consumer-release-and-reactor-gates.md) and owner decision are complete.
 
-## Scope and trade-offs
+## Technical scope reference
 
 | Dimension | Full aggregate | Selective complete line | Kernel RC composition |
 |---|---|---|---|
@@ -645,16 +784,7 @@ The full aggregate optimizes integration convenience. Selective modules make dep
 
 The Kernel line optimizes explicit boundaries and bounded behavior, at the cost of compatibility and maturity.
 
-## Recommendations
-
-1. **Existing TFI application:** stay on the complete line. Move from the aggregate to selected modules only when the dependency reduction is worth testing the new composition.
-2. **New Spring application:** start with the specific Flow or Compare starter. Add Ops only for a concrete operational requirement.
-3. **Pure Java flow recording:** use `tfi-flow-core` for the current complete model. Evaluate `tfi-kernel` only when its smaller explicit model is the actual requirement and RC change is acceptable.
-4. **Pure object comparison:** use `tfi-compare` today. Evaluate `tfi-compare-core` only from source and only on a classpath that excludes `tfi-compare`.
-5. **Need every complete-line capability:** use `TaskFlowInsight`; its convenience is valuable when most of the aggregate is used.
-6. **Need Kernel + Compare:** run a controlled source pilot. Do not present the bridge or Kernel starter as a released production option before the final gates pass.
-
-When uncertain, select a module by ownership rather than by artifact count: Flow owns execution structure, Compare owns object truth, Spring starters own container wiring, and Ops owns exposure and storage.
+See the earlier [selection outcome](#selection-outcome) for adoption decisions. This technical table confirms module scope; it does not replace use-case, usage-cost, or cognitive-cost analysis.
 
 ## Configuration and operational boundaries
 
