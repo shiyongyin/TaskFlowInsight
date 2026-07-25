@@ -4,7 +4,7 @@
 > **状态**：完成
 > **审核状态**：审核通过（2026-07-11；owner 替换、乱序/重复关闭与 routing 回归 fresh 通过）
 > **依赖**：前置 `G0-green`；无其他生命周期卡前置；后续 Provider `P5` 只能在本卡通过后扩展本卡创建的测试。
-> **架构来源**：`docs/superpowers/plans/2026-07-10-tfi-flow-core-ssot-master.md` Wave 1；`docs/superpowers/plans/2026-07-10-tfi-flow-core-lifecycle-context.md` 的 `L1`。
+> **架构来源**：[当前架构 SSOT](../design-doc.md)的生命周期边界，以及 ADR-006、ADR-009。
 
 ---
 

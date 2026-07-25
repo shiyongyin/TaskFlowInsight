@@ -5,7 +5,7 @@
 > **reviewStatus**：`PASS`
 > **依赖**：`TASK-CMP-HRD-07` review PASS
 > **后续**：`TASK-CMP-HRD-05` 最小最终集成验证
-> **红队来源**：生产 MUST-4..7、HIGH-3，以及生产发布提示词 supply-chain/security gates
+> **审核来源**：生产 MUST-4..7、HIGH-3，以及生产发布策略中的 supply-chain/security gates
 
 ---
 
@@ -54,7 +54,7 @@
 
 1. verifier subcommand 固定为 `verify-policy`、`verify-supply-chain`、`verify-integrity`、`verify-all`；共用 bounded TSV/JSON/XML/path/hash
    parser，不按阶段建立 handler/plugin registry。DOCTYPE、external entity、symlink、absolute/`..`/backslash path、超限文件/字段全部失败。
-2. policy parser 逐 byte 封存外部 policy/authority；build toolchain、release executions、tool executions 与 raw measurements 按生产提示词
+2. policy parser 逐 byte 封存外部 policy/authority；build toolchain、release executions、tool executions 与 raw measurements 按生产发布策略
    full outer join。argv 不得从 shell 字符串二次解释，command spec 使用 ordinal argv TSV。
    collector CLI 只允许 `collect <evidence-dir> <policy>`、`secret-finalize <evidence-dir> <policy>` 和
    `attest-final <evidence-dir> <policy>`；前两者进入 execution closure，attest-final 只生成 final signed attestation/receipt，明确不进入
@@ -122,7 +122,7 @@ workflow/wrapper pin、fixtures 和合同；不得留下 completion audit 会误
 
 - [x] 复用成熟工具，仓库只持有可验证 adapter 与证据 closure。
 - [x] 三层 attestation 只解决真实信任边界，不进入 runtime middleware。
-- [x] 外部 authority 缺失时 NO_GO，不由实施 AI 代替 release owner。
+- [x] 外部 authority 缺失时 NO_GO，不由实施人员代替 release owner。
 
 ## 四、反馈
 

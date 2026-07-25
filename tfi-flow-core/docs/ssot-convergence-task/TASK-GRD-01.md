@@ -116,7 +116,7 @@ rg -n '\$\{revision\}' target/flattened-pom.xml tfi-*/target/flattened-pom.xml
 
 ### 当前基线验证
 
-- `shasum -a 256 docs/superpowers/plans/*.md`：五份指纹与 `INDEX.md` 全部一致。
+- ADR-005..010 accepted 状态与`INDEX.md`实施状态一致。
 - `./mvnw -pl tfi-flow-core test`：478 tests，0 failure/error/skipped，BUILD SUCCESS。
 - 仓库搜索：未发现 `distributionManagement`、额外 Maven repository 或 deploy/publish workflow。
 - 2026-07-10 第二次独立空仓复核：两个 GAV 仍由 Maven Central 返回 `artifact absent`；

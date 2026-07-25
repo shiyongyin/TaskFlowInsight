@@ -59,7 +59,7 @@
    不推送。所有 path 使用 NOFOLLOW、POSIX relative、无 `..`/反斜杠，重复/额外/missing row 失败。
    CLI 固定为 `java scripts/release-evidence/PublishArtifactAssembler.java assemble <evidence-dir> <production-policy.tsv>`；未知 mode、
    参数数量错误或 evidence/policy 不可寻址必须非零退出。
-5. primary coordinate/path 必须按发布提示词 Maven2 公式推导；checksum 内容是 lowercase digest + LF。assembler 输出
+5. primary coordinate/path 必须按发布策略中的 Maven2 公式推导；checksum 内容是 lowercase digest + LF。assembler 输出
    `metadata/publishable-artifacts.tsv` 和 `metadata/publishable-content.tsv`，不得信文件名自报坐标。
 6. content verifier 从 class access flag/source parser/Javadoc index 生成 type mapping；dummy `.java`/HTML、同名不同 source revision、
    sources extra/missing、public binary 无 Javadoc 都失败。

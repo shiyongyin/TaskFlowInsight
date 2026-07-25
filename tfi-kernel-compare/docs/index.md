@@ -4,7 +4,7 @@
 
 - [Design boundary](design-doc.md)
 - [Test plan](test-plan.md)
-- [Integration SSOT](../../docs/superpowers/specs/2026-07-21-tfi-kernel-compare-core-integration-ssot.md)
+- [Composition ADR](../../docs/adr/ADR-016-TFI-Kernel-Compare-Core-Composition.md)
 - [KCS task index](../../docs/task/tfi-kernel-compare-integration/INDEX.md)
 
 当前模块已实现 summary 与 opt-in canonical detail 的完整纯 Java Bridge。它可交接给 KCS-06 组合 Starter，

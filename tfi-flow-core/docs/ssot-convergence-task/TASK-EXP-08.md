@@ -4,8 +4,7 @@
 > **状态**：完成（2026-07-11；33 focused / 95 Export owner / 707 Core / API / 43 tfi-all / 7/7；100/100）
 > **审核状态**：审核通过（0 unresolved MUST / SHOULD）
 > **依赖**：前置 `TASK-EXP-04` 至 `TASK-EXP-07`、`TASK-GRD-06`、accepted G1/G3；后续 `TASK-EXP-09`
-> **架构来源**：ADR-005 direct removal、ADR-008 V2-only、
-> `docs/superpowers/specs/2026-07-11-exp-08-task-duration-cache-removal-design.md`
+> **架构来源**：ADR-005 direct removal、ADR-008 V2-only与[当前架构 SSOT](../design-doc.md)的 Export 边界。
 
 ---
 

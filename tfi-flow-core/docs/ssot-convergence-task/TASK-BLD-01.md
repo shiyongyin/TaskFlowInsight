@@ -2,7 +2,7 @@
 
 > **定位**：统一仓库插件版本和通用默认，同时保留 Core 严格门禁，并关闭标准 skip-tests install 回归。
 > **状态**：完成（2026-07-11）
-> **书面规格**：`docs/superpowers/specs/2026-07-11-bld-01-repository-parent-build-ssot-design.md`
+> **书面规格**：[当前架构 SSOT](../design-doc.md)与[任务索引](INDEX.md)
 > **审核状态**：审核通过（4/4 focused、711 Core、双 API、标准 install、七模块构建配置门禁；100/100）
 > **依赖**：`TASK-LFC-01..06`、`TASK-CTX-01..06`、`TASK-PRV-01..06`、`TASK-EXP-00..09`，均已完成
 > **架构来源**：受保护 master Task 1 / `B1` / Wave 5；当前事实对 B1 文件范围作必要扩展

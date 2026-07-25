@@ -113,7 +113,7 @@ Canonical Map 是类型权威，JSON 是该 Map tree 的 wire encoding，不能�
 | 修改文档 | `docs/product/architecture/README.md` | 记录 EXP-06 parity/owner 已闭环 |
 | 修改文档 | `tfi-flow-core/docs/ssot-convergence-task/INDEX.md` | 回填 EXP-06 状态、证据和下一张卡 |
 
-`src/main`、POM、manifest、ADR、五份 `docs/superpowers/plans/*.md` 与 V1 resources 不在修改清单中。
+`src/main`、POM、manifest、accepted ADR、当前架构 SSOT 与 V1 resources 不在修改清单中。
 
 ### Test-only bridge 精确接口
 
@@ -148,8 +148,6 @@ rg -x 'Status: ACCEPTED' docs/adr/ADR-008-TFI-Export-Snapshot-And-Schema.md
 rg -x 'G3_STATUS=ACCEPTED' docs/adr/ADR-008-TFI-Export-Snapshot-And-Schema.md
 rg -x 'G3_DECISION=V2_ONLY_CALLBACK_FREE_SCALARS_WITH_TAGGED_SPECIAL_VALUES' \
   docs/adr/ADR-008-TFI-Export-Snapshot-And-Schema.md
-shasum -a 256 docs/superpowers/plans/*.md
-
 ./mvnw -pl tfi-flow-core -Dtest=ExportV2ContractTests test
 ./mvnw -pl tfi-flow-core \
   -Dtest=ExportV2ContractTests,CanonicalExportV2ProjectionTests,MapExporterTest,JsonExporterTest,ExportV1GoldenTests,TaskTreeGateArchitectureTests test

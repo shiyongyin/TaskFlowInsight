@@ -3,8 +3,8 @@
 ## 1. 文档定位
 
 本文是 `tfi-kernel` 当前模块架构 SSOT，描述已经实现并受测试约束的边界。字段级机器合同见
-[schema.md](schema.md)，精确公共签名、默认算法和验收向量见
-[P1 执行合同](../../docs/superpowers/specs/2026-07-15-tfi-kernel-p1-execution-contract.md)。发生冲突时按
+[schema.md](schema.md)，公共签名见[API 清单](api-inventory.md)，默认算法和验收向量由
+[任务卡索引](../../docs/task/tfi-kernel/INDEX.md)及其合同测试共同约束。发生冲突时按
 [ADR-016](../../docs/adr/ADR-016-TFI-Kernel-Compare-Core-Composition.md) 的 Runtime owner 决策和
 [ADR-015](../../docs/adr/ADR-015-TFI-Kernel-Minimal-Execution-Foundation.md) 的最小内核边界处理。
 

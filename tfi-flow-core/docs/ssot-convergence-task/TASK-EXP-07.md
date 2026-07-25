@@ -4,7 +4,7 @@
 > **状态**：完成（2026-07-11；50 focused / 708 Core / API / 43 owner Console / 7/7）
 > **审核状态**：审核通过（0 unresolved MUST / SHOULD）
 > **依赖**：前置 `TASK-EXP-03`；与已完成 `TASK-EXP-06` 汇合后进入 `TASK-EXP-08`
-> **架构来源**：ADR-008 非 schema Console 决策；`docs/superpowers/specs/2026-07-11-console-style-timestamp-design.md`
+> **架构来源**：ADR-008 非 schema Console 决策与[当前架构 SSOT](../design-doc.md)的 Export 边界。
 
 ---
 

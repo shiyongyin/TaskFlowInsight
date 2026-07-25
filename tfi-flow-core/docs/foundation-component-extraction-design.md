@@ -466,7 +466,7 @@ try (ContextBinding ignored = runtime.attach(token)) {
 - Session、Task、Record 和 Fact 顺序确定，nested list/map 深不可修改；
 - 只接受 Core 支持的 callback-free `FlowValue`；
 - 显式携带 semantic schema version、`truncated`、drop reason、drop counters 和统计值；
-- 保留 source、recordedAt、可选 businessTime 与 AI-generated provenance；
+- 保留 source、recordedAt、可选 businessTime 与模型生成来源；
 - on-demand snapshot 与 terminal snapshot 使用同一 builder；
 - 对每个真实 terminal Session，进程内 sink callback 至多调用一次；不承诺跨进程 exactly-once 投递，sink failure 不回滚业务终态。
 
@@ -676,7 +676,7 @@ compare        -> flow-core（仅为 Registry/Logger）
 - [ ] code/kind/facts 与 title/summary 可独立读取，机器消费者不需要解析自然语言或 emoji。
 - [ ] CHANGE、METRIC、DECISION 的约定字段可无损 round-trip，数字不丢单位，before/after 不合并为文本。
 - [ ] record policy 在写入前完成拒绝/脱敏；被拒记录只增加 typed metric，不进入任何 sink/snapshot。
-- [ ] AI-generated record 保留来源与模型版本，不能覆盖原始业务记录。
+- [ ] 模型生成记录保留来源与模型版本，不能覆盖原始业务记录。
 
 ### 10.3 兼容与构建门禁
 
@@ -740,7 +740,7 @@ inventory，但不应执行 destructive API 删除、Context 模型重写或承�
 - 删除 Core 自建线程池、scheduler、Shutdown Hook 和 `System.out`。
 - 打断 model/context 双向依赖，收回 public mutable Session/TaskNode，同时保留 immutable business semantics。
 - 在 business record、fact、nested value 和活跃 Session 写入期建立完整容量上限。
-- 引入写入前 record policy，明确敏感数据与 AI-generated provenance。
+- 引入写入前 record policy，明确敏感数据与模型生成来源。
 - 让 `tfi-all` 只委托同一 Flow runtime。
 - 增加必选 terminal snapshot sink，闭合业务记录的消费路径。
 

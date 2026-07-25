@@ -19,7 +19,7 @@ MUST/HIGH 问题。
 以下现有能力可以继续用于真正的发布操作，但不属于本卡 DoD：
 
 - `scripts/prepare_tfi_compare_release_evidence.sh` 的外部 assignment/policy 模式；
-- `RELEASE-EVIDENCE-REVIEW-PROMPT.md` 的双人发布审批；
+- 由发布负责人和独立复核人执行的双人发布审批；
 - 生产 PGP/Sigstore signer、仓库 staging、push/tag/deploy。
 
 ## 二、目标（DoD）

@@ -103,7 +103,7 @@ Gate 阻塞。
 
 ## Links
 
-- [抽取设计 SSOT](../superpowers/specs/2026-07-15-tfi-kernel-extraction-design.md)
-- [P1 执行合同](../superpowers/specs/2026-07-15-tfi-kernel-p1-execution-contract.md)
+- [Kernel 当前架构 SSOT](../../tfi-kernel/docs/design-doc.md)
+- [Kernel Schema 合同](../../tfi-kernel/docs/schema.md)
 - [任务卡索引](../task/tfi-kernel/INDEX.md)
-- [独立红队评审](../superpowers/specs/2026-07-15-tfi-kernel-suite-redteam-review.md)
+- [Kernel API 清单](../../tfi-kernel/docs/api-inventory.md)

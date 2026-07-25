@@ -12,26 +12,11 @@
 发生不一致时按以下顺序处理，禁止实现者自行选一个方便的版本：
 
 1. 用户明确确认的 Gate 与 `ACCEPTED` ADR。
-2. 本索引的跨卡不变量、依赖图和“规划消歧”章节。
-3. `2026-07-10-tfi-flow-core-ssot-master.md` 的目标架构与 Wave 顺序。
-4. 四份专题计划的方法、文件、测试和精确值。
-5. 单张任务卡的执行跟踪内容。
+2. [当前架构 SSOT](../design-doc.md)描述的已实现边界与所有权。
+3. 本索引的跨卡不变量、依赖图和“规划消歧”章节。
+4. 单张任务卡的执行跟踪内容。
 
 任何真实冲突都必须回到设计层修订；任务卡无权改变公共契约或所有权边界。
-
-### 计划文件指纹
-
-计划文件受本地 `/docs/` ignore 规则影响。以下 SHA-256 用于检测拆卡后源计划是否被静默修改：
-
-| 计划 | SHA-256 |
-|------|---------|
-| contract guardrails | `3f73de28bdae2c57c713d222023e39e9e5672c5443a90c14bde7133ac01fea37` |
-| export snapshot | `42ffd3d031ae11628184d96abc03c5fd070a8d0ff274ed5a521921b50cc65617` |
-| lifecycle/context | `8b2bba52587564fe7b5b82103227c999f0b524eb35d08d8d8e517179eab65277` |
-| provider registry | `71b111cf0cb161fd0685b3ed65df64700f73691e437338a7bbc82860fab3432e` |
-| master | `4a7263274819557e1faaa8def1d104ec92a87b08bda89b0821aaa70d4449ed7b` |
-
-执行前必须重新运行 `shasum -a 256 docs/superpowers/plans/*.md`。指纹变化时先重新审计依赖与卡片，不直接继续。
 
 ## 2. 当前基线与 W0 门禁
 

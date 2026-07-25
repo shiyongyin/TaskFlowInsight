@@ -4,7 +4,7 @@
 
 本文是 `tfi-kernel-compare` 当前模块架构 SSOT，描述 KCS-04/05 已实现并由测试约束的 summary 与 canonical detail 能力。
 跨模块最终合同以
-[integration SSOT](../../docs/superpowers/specs/2026-07-21-tfi-kernel-compare-core-integration-ssot.md)
+[ADR-016](../../docs/adr/ADR-016-TFI-Kernel-Compare-Core-Composition.md)
 为准。Bridge 完整不等于组合 Starter 或发布 Gate 完整，也不得由本文推导出 Compare Core 已 `BASELINED`。
 
 ## 2. 职责边界

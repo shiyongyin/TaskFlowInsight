@@ -160,8 +160,6 @@ rg -x 'Status: ACCEPTED' docs/adr/ADR-008-TFI-Export-Snapshot-And-Schema.md
 rg -x 'G3_STATUS=ACCEPTED' docs/adr/ADR-008-TFI-Export-Snapshot-And-Schema.md
 rg -x 'G3_DECISION=V2_ONLY_CALLBACK_FREE_SCALARS_WITH_TAGGED_SPECIAL_VALUES' \
   docs/adr/ADR-008-TFI-Export-Snapshot-And-Schema.md
-shasum -a 256 docs/superpowers/plans/*.md
-
 ./mvnw -pl tfi-flow-core \
   -Dtest=JsonExporterTest,TaskTreeGateArchitectureTests test
 ./mvnw -pl tfi-flow-core \

@@ -4,8 +4,7 @@
 > **状态**：完成（2026-07-11；48 focused / 707 Core / API / Compare / 7/7；100/100）
 > **审核状态**：通过（0 unresolved MUST / SHOULD）
 > **依赖**：`TASK-BLD-01`、`TASK-GRD-05`、`TASK-GRD-06`
-> **架构来源**：master Task 2 / `B2`、ADR-005、
-> `docs/superpowers/specs/2026-07-11-bld-02-core-compare-defaults-ownership-design.md`
+> **架构来源**：master Task 2 / `B2`、ADR-005与[当前架构 SSOT](../design-doc.md)的配置所有权边界。
 
 ---
 

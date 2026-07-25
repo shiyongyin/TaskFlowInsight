@@ -178,7 +178,7 @@ ADR-015 的 Session/Stage/Record 模型、四个 Kernel SPI、线程封闭、单
 
 ## Links
 
-- [整合设计 SSOT](../superpowers/specs/2026-07-21-tfi-kernel-compare-core-integration-ssot.md)
+- [Kernel Compare Bridge 当前架构 SSOT](../../tfi-kernel-compare/docs/design-doc.md)
 - [ADR-015：Kernel 最小执行基座](ADR-015-TFI-Kernel-Minimal-Execution-Foundation.md)
 - [任务卡索引](../task/tfi-kernel-compare-integration/INDEX.md)
 - [任务卡质量审核](../task/tfi-kernel-compare-integration/REVIEW.md)

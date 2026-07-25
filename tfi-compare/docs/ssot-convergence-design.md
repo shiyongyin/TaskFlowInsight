@@ -6,11 +6,10 @@
 >
 > **设计基线**：2026-07-12 当前工作树
 >
-> **审核基线**：`convergence-review/red-team-review.md`（第一轮）与
-> `convergence-review/second-red-team-review.md`（第二轮；`S-01..S-07` 已在本版 Gate 前闭环）
+> **审核基线**：[收敛完成审核](convergence-review/completion-review.md)；`S-01..S-07` 已在本版 Gate 前闭环
 >
-> **实施状态**：`AUTHORIZED_NOT_STARTED`。用户已授权按现有任务包从`CMP-GRD-01`开始实施；当前仅完成
-> [全量实施提示词](ssot-convergence-task/IMPLEMENTATION-PROMPT.md)与状态交接，尚未启动任何实现卡或修改生产代码。
+> **实施状态**：`COMPLETE_W7_CMP_DOC_01`。任务包已完成，终态证据见
+> [收敛完成审核](convergence-review/completion-review.md)。
 
 ---
 
@@ -2121,7 +2120,7 @@ CMP_G1-G7均已接受并由ADR-011..014记录。二次红队及Gate前finding已
 | Compare JaCoCo阈值与Checkstyle/PMD finding baseline尚未实测批准 | 不能在设计文档中合理承诺具体数字或delta | W0生成报告与checksum baseline，阈值写POM、finding delta写门禁而不写长期文档 |
 | §12.3已完成静态乘积审计，但4.0实现尚不存在 | 当前只能确认消费合同、保守默认和hard组合，不能伪造实测性能 | 用户确认即接受本表；W0只采集同轴证据，不得自行换值，若证据推翻假设则暂停并提交用户确认的设计修订及ADR |
 | Core Registry不支持跨provider type原子bundle | custom Comparison/Tracking provider可能使用不同policy | 文档要求freeze前成组注册并以fingerprint诊断；不修改Core ADR-007或伪造事务 |
-| 任务包已获授权但尚未启动首卡 | 文档授权不能被误读为已有实现、测试或Review证据 | 接收实施提示词的AI严格从`CMP-GRD-01`开始；启动前其余任务卡保持`待实施`，W0未绿不得修改runtime |
+| 任务包存在串行依赖 | 跳过W0会让后续实现缺少可靠基线 | 实施严格从`CMP-GRD-01`开始；W0未绿不得修改runtime或启动后继卡 |
 
 ---
 
@@ -2154,10 +2153,8 @@ CMP_G1-G7均已接受并由ADR-011..014记录。二次红队及Gate前finding已
 
 ## 21. 实施授权记录
 
-用户于2026-07-12明确要求“从头开始实现”，并要求提供覆盖参考文档、源码核对、TDD、逐卡Code Review和五阶段回填的
-实施提示词。该指令记录为对既有16张任务卡的串行实施授权，不改变`CMP_G1..G7`、ADR-011..014、参数矩阵或任务owner。
+用户于2026-07-12明确要求“从头开始实现”，并确认覆盖参考文档、源码核对、TDD、逐卡 Code Review 和五阶段回填的
+串行交付流程。该授权不改变`CMP_G1..G7`、ADR-011..014、参数矩阵或任务owner。
 
-当前实施状态为`AUTHORIZED_NOT_STARTED`：实施入口是
-[IMPLEMENTATION-PROMPT.md](ssot-convergence-task/IMPLEMENTATION-PROMPT.md)，所有卡保持`待实施/未开始`；接收提示词的AI
-只能先把`CMP-GRD-01`标为`进行中`，完成W0证据、验证、Review和回填前不得修改runtime或启动后继卡。本次提示词交接本身
-不构成任何生产实现、测试通过或任务完成证据。
+当前实施状态为`COMPLETE_W7_CMP_DOC_01`：16张任务卡均已关闭，终态验证与审核结论记录在
+[收敛完成审核](convergence-review/completion-review.md)。

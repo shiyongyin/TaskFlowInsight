@@ -1,6 +1,6 @@
 # tfi-compare SSOT 收敛任务索引
 
-> **规划状态**：`COMPLETE`；总体设计、ADR、INDEX、16张五阶段任务卡与全量实施提示词已生成并完成结构自审
+> **规划状态**：`COMPLETE`；总体设计、ADR、INDEX与16张五阶段任务卡已生成并完成结构自审
 >
 > **实施状态**：`COMPLETE_W7_CMP_DOC_01`。`CMP-QLT-01`与`CMP-DOC-01`均已完成并审核通过；当前无活动实施任务
 >
@@ -27,10 +27,10 @@
 4. [Compare SSOT总体设计](../ssot-convergence-design.md)的目标架构、参数矩阵、失败合同、Wave和验收条件。
 5. 本索引的职责分配、依赖图、消费者矩阵和实施状态。
 6. 单张任务卡。任务卡无权更改accepted Gate、参数矩阵、跨卡不变量或其他卡的owner。
-7. [研究报告](../convergence-research/research.md)和
-   [红队报告](../convergence-review/second-red-team-review.md)仅作为现状证据与审计历史，不覆盖目标决策。
+7. [当前架构 SSOT](../design-doc.md)和
+   [收敛完成审核](../convergence-review/completion-review.md)记录实现事实与终态证据，不覆盖 accepted 决策。
 
-实施入口：[IMPLEMENTATION-PROMPT.md](IMPLEMENTATION-PROMPT.md)。推荐阅读路径：实施提示词 -> 本索引第2-8节 ->
+实施与验收入口：本索引第2-8节 ->
 当前任务卡阶段一至三 -> 总体设计相关章节 -> 任务卡列出的源码/测试 -> 实施后回填阶段四、五和本索引第14节。
 
 ## 2. Gate与ADR闭集
@@ -352,8 +352,8 @@ focused/module/consumer命令。任何任务卡若需要修改accepted参数、G
 
 ### 13.2 实施
 
-- [X]  用户明确回复“从头开始实现”并要求生成覆盖TDD、源码参考和任务卡回填的实施提示词。
-- [X]  全量实施入口`IMPLEMENTATION-PROMPT.md`已生成并限定从`CMP-GRD-01`串行启动。
+- [X]  用户明确回复“从头开始实现”并要求覆盖TDD、源码参考和任务卡回填。
+- [X]  实施限定从`CMP-GRD-01`串行启动。
 - [X]  实施前重新确认工作树基线，避免覆盖新增用户修改。
 - [X]  从`CMP-GRD-01`开始；不得跳过W0直接修改runtime。
 - [X]  W0逐member inventory与五类manifest已通过双向contract test。

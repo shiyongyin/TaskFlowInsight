@@ -4,8 +4,7 @@
 > **状态**：完成（2026-07-11；100/100）
 > **审核状态**：审核通过（2026-07-11；0 unresolved MUST / SHOULD）
 > **依赖**：`TASK-EXP-08` 完成并通过 Code Review；后续 `TASK-BLD-01/02`、`TASK-TST-01`、`TASK-DOC-01`
-> **架构来源**：ADR-005、ADR-008、EXP-01..08 完成证据、
-> `docs/superpowers/specs/2026-07-11-exp-09-export-ssot-convergence-design.md`
+> **架构来源**：ADR-005、ADR-008、EXP-01..08完成证据与[当前架构 SSOT](../design-doc.md)的 Export 边界。
 
 ---
 
