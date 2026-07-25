@@ -13,7 +13,7 @@
 
 </div>
 
-TaskFlowInsight 用于记录结构化的业务执行流程，并比较对象状态。仓库同时维护兼容性优先的完整功能线，以及独立的 Kernel/Compare 精简组合线。
+TaskFlowInsight 用于记录结构化的业务执行流程，并比较对象状态。仓库同时维护兼容性优先的完整功能线，以及独立的 Kernel RC 线。
 
 两条线解决相关问题，但不是同一运行时的高低配置。一个应用应选择其中一条，不能把两套 Compare 实现放在同一运行时 classpath。
 
@@ -27,6 +27,73 @@ TaskFlowInsight 用于记录结构化的业务执行流程，并比较对象状�
 
 基准测试数字、兼容基线或单模块构建成功都不代表已经公开发布。仓库目前具备 CI 与发布候选门禁，但没有自动部署或发布工作流。
 
+## TaskFlowInsight、TFI 与 Kernel 的关系
+
+项目名、Maven 制品名和 Java 门面名称相似，但它们并不代表同一个运行时。
+
+### 名称及准确含义
+
+| 名称 | 类型 | 产品线 | 实际含义 |
+|---|---|---|---|
+| TaskFlowInsight / TFI | 项目简称 | 整个仓库 | 同时包含完整功能线与 Kernel RC 线的项目族 |
+| `com.syy:TaskFlowInsight` | Maven 制品 | 完整 | `tfi-all` 目录产出的聚合包 |
+| `com.syy.taskflowinsight.api.TFI` | Java 类 | 完整 | 聚合包提供的大写统一门面 |
+| `tfi-flow-core` / `TfiFlow` | Maven 制品 / Java 类 | 完整 | 当前纯 Java Flow 实现及其 Flow-only 门面 |
+| `tfi-kernel` | Maven 制品 | Kernel | 使用 `Session -> Stage -> Record` 模型的独立 RC 流程记录运行时 |
+| `com.syy.tfi.kernel.Tfi` | Java 类 | Kernel | Kernel 延迟创建的默认 `KernelRuntime` 的静态门面 |
+| `KernelRuntime` | Java 类 | Kernel | 显式拥有 Kernel 配置、上下文、诊断、Sink 与关闭状态的实例 |
+
+`TFI` 与 `Tfi` 是位于不同包中的不同 Java 类型。Kernel 的 `Tfi` 门面不是完整功能线 `TFI` 门面的兼容别名。
+
+### 当前关系
+
+```text
+TaskFlowInsight 仓库与 4.0 版本列车
+├── 完整功能线                                  当前推荐
+│   ├── tfi-flow-core + tfi-flow-spring-starter
+│   ├── tfi-compare + tfi-compare-spring-starter
+│   ├── tfi-ops-spring
+│   └── tfi-all -> com.syy:TaskFlowInsight -> TFI 门面
+└── Kernel RC 线                                源码试用 / 内部预览
+    ├── tfi-kernel -> KernelRuntime / Tfi
+    ├── tfi-compare-core
+    ├── tfi-kernel-compare
+    └── tfi-kernel-compare-spring-starter
+```
+
+两条线之间有意不画依赖箭头。
+
+1. 完整 `TaskFlowInsight` 聚合包不包含 `tfi-kernel` 或任何 Kernel/Compare 组合制品。
+2. `tfi-flow-core` 与 `tfi-kernel` 当前互不依赖、互不委托，也没有在两者之间迁移任何存量 API。
+3. Kernel 不是隐藏在 `TFI` 下面的内部引擎，不是 Flow Core 的精简配置，也不是已经确定的完整功能线下一版本。
+4. 两个流程记录核心制品使用不同包根，在 classpath 层面可以同时存在；但同时运行两套记录 owner 时，必须明确所有权、采样、导出与关闭规则。
+   Kernel Spring 组合不是混合运行时兼容层；其启动守卫只检测重复 Compare Core 类与旧 tracking shell，不会检测每一个完整线制品。
+5. 长期并行、委托或大版本替换只能在 Kernel 真实服务试用后决定，目前没有此类结论。
+
+两条线都继承 Reactor 版本 `4.0.0-SNAPSHOT`。Kernel 所说的“首个稳定 API 基线 1.0”是该模块未来的兼容里程碑，不是当前 Maven 制品版本。
+
+### 为什么单独建立 Kernel
+
+Flow Core 已经承担 Provider、托管上下文、兼容、异步传播、快照和多种导出器等真实合同。
+直接在原模块中删除这些合同会破坏完整功能线，因此 Kernel 使用独立包和制品，验证更窄的运行时模型能否产生独立价值。
+
+Kernel 缩减的首先是模型与运行时职责，而不只是依赖数量：两个纯 Java Core 的运行时第三方依赖都只有 `slf4j-api`。
+
+| 维度 | 完整 Flow（`tfi-flow-core` 及其集成） | Kernel RC 线 |
+|---|---|---|
+| 当前定位 | 本仓库当前推荐的集成路线 | 用于验证更窄运行时边界的受控源码试用 |
+| Flow 模型 | `Session -> TaskNode -> Message`，包含标签、属性和类型化消息 | `Session -> Stage -> Record`；机器事实由 `type + code + data` 表达 |
+| Java 主入口 | 聚合包中的 `TFI`，或 Flow-only 的 `TfiFlow` | 静态 `Tfi`，或显式 `KernelRuntime` 实例 |
+| 运行时所有权 | 门面通过 Provider Registry 和托管上下文设施路由 | 每个 `KernelRuntime` 独立拥有配置、一个 ThreadLocal、诊断、Sink 与关闭状态 |
+| 扩展方式 | Provider Registry、ServiceLoader、Flow Provider 与 Export Provider | 四个编程式 SPI：`FlowSink`、`Sampler`、`IdGenerator`、`KernelClock` |
+| 跨线程模型 | 托管 Context 快照与传播设施 | `capture/wrap` 创建通过 `parentSessionId` 关联的独立子 Session，不合并树 |
+| 输出 | Console、canonical JSON、Map 与可替换 Export Provider | Console、确定性 `tfi-flow/1` JSON；完成态 Session 交给同步 Sink |
+| 资源行为 | 更广的兼容与上下文合同，以及模块自己的质量和资源边界 | 接纳时深复制，并显式限制 Stage、Session 字节、Record 字节和属性数量 |
+| 对象比较 | 增加完整 `tfi-compare` 及其集成 | Kernel 只记录显式标量变化；Compare Core 与 Bridge 是独立预览制品 |
+| Spring 与运维 | 提供专用 Spring Starter 和 Ops 实现 | Kernel Core 均不提供；Kernel 组合 Starter 仍没有 Ops 能力 |
+| 兼容性 | 保留当前门面与模块兼容门禁 | RC API 尚未冻结，也没有原位 API 或 Schema 转换层 |
+| 迁移成本 | 存量 TFI 应用保持该产品线 | 必须重新设计应用入口、模型、输出、配置与运维接入 |
+
 ## 先选使用方式
 
 | 需求 | 推荐选择 | 原因 |
@@ -38,7 +105,7 @@ TaskFlowInsight 用于记录结构化的业务执行流程，并比较对象状�
 | 由 Spring 管理对象比较 | `tfi-compare-spring-starter` | 每个 Spring ApplicationContext 使用一套 Compare 运行时，Flow 联动需显式开启 |
 | 需要 Actuator、指标、健康检查、REST 或内存存储 | 增加 `tfi-ops-spring` 并装配所需组件 | 运维实现与核心模块分离 |
 | 源码试用最小显式流程记录 | `tfi-kernel` | 小型 `Session -> Stage -> Record` 模型与确定性 JSON，仅限 RC |
-| 试用 Kernel + Compare 精简组合 | 内部预览模块 | 可用于评估，当前不能作为生产依赖推荐 |
+| 试用 Kernel + Compare 组合 | 内部预览模块 | 可用于评估，当前不能作为生产依赖推荐 |
 
 优先选择能够独立拥有所需能力的最小当前模块。只有在依赖便利性和统一门面比窄 classpath 更重要时，才使用聚合包。
 
@@ -73,7 +140,7 @@ tfi-examples
 
 聚合包包含上图五个完整功能线模块，不包含 `tfi-kernel`、`tfi-compare-core`，也不包含两个 Kernel/Compare 集成模块。
 
-### 精简组合线
+### Kernel 模块依赖图
 
 ```text
 tfi-kernel-compare-spring-starter
@@ -82,7 +149,7 @@ tfi-kernel-compare-spring-starter
     └── tfi-compare-core
 ```
 
-精简 Spring Starter 还会使用 Spring Boot，并把 AOP 作为可选能力。它会在构建或启动边界主动拒绝完整线的 Flow、Compare、Starter、Ops 与聚合制品。
+Kernel Spring Starter 还会使用 Spring Boot，并把 AOP 作为可选能力。它自身的 POM 排除完整线依赖；应用启动守卫另行检测重复 Compare Core 类与旧 tracking shell。
 
 ### 关系规则
 
@@ -95,11 +162,11 @@ tfi-kernel-compare-spring-starter
 
 | Reactor 模块 | 产品线 | 职责与边界 | 状态 |
 |---|---|---|---|
-| `tfi-kernel` | 精简 | 最小纯 Java 流程记录器，提供显式 Stage、Call、Record、同步 Sink 与确定性 `tfi-flow/1` JSON | RC |
+| `tfi-kernel` | Kernel | 最小纯 Java 流程记录器，提供显式 Stage、Call、Record、同步 Sink 与确定性 `tfi-flow/1` JSON | RC |
 | `tfi-flow-core` | 完整 | 管理 Session、Task、Message、Context、Provider、异步上下文传播及 Console/Map/JSON 导出 | 当前完整线 |
-| `tfi-compare-core` | 精简 | 提供比较真值、资源边界、typed path、canonical projection 与渲染模型，不依赖 Flow 或 Spring | 技术预览 |
-| `tfi-kernel-compare` | 精简 | 把已有 `CompareResult` 映射为 Kernel summary 与可选脱敏 detail，不拥有业务 action 或 Sink | 内部候选 |
-| `tfi-kernel-compare-spring-starter` | 精简 | 在一个 Spring Context 中组装 Kernel、Compare Core 与 Bridge；程序化使用优先，AOP 可选 | 内部候选 |
+| `tfi-compare-core` | Kernel | 提供比较真值、资源边界、typed path、canonical projection 与渲染模型，不依赖 Flow 或 Spring | 技术预览 |
+| `tfi-kernel-compare` | Kernel | 把已有 `CompareResult` 映射为 Kernel summary 与可选脱敏 detail，不拥有业务 action 或 Sink | 内部候选 |
+| `tfi-kernel-compare-spring-starter` | Kernel | 在一个 Spring Context 中组装 Kernel、Compare Core 与 Bridge；程序化使用优先，AOP 可选 | 内部候选 |
 | `tfi-compare` | 完整 | 完整 Compare 运行时，以及兼容门面、SPI、列表 API、tracking、merge、query、summary 与 rendering | 当前完整线 |
 | `tfi-flow-spring-starter` | 完整 | Flow 自动配置、`@TfiTask` AOP、SpEL、脱敏与上下文配置 | 当前完整线 |
 | `tfi-compare-spring-starter` | 完整 | 每个 Spring ApplicationContext 一套 Compare Policy、Runtime、Engine 与脱敏图，可选接入 Flow tracking | 当前完整线 |
@@ -109,7 +176,7 @@ tfi-kernel-compare-spring-starter
 
 `tfi-kernel` 随 TaskFlowInsight 4.0 版本列车进入 RC。它自身的首个稳定 API 基线目标为 1.0，但在真实服务试用和发布决策完成前不会冻结该 API。
 
-`tfi-compare-core` 已实现并验证核心行为，但基线和最终组合发布门禁尚未完成。Bridge 与精简 Spring Starter 不能被描述为已发布或生产就绪的制品。
+`tfi-compare-core` 已实现并验证核心行为，但基线和最终组合发布门禁尚未完成。Bridge 与 Kernel Spring Starter 不能被描述为已发布或生产就绪的制品。
 
 ## 版本与源码构建
 
@@ -339,13 +406,26 @@ Ops 依赖 Flow Core，并把 Compare 作为可选能力。需要自动装配 Co
 
 Actuator 暴露与端点访问仍需要 Spring Management 配置和应用安全控制。任何端点暴露到可信网络之外前，都应完成安全审查。
 
-## 精简组合线预览
+## Kernel RC 线
 
-精简组合线使用新的运行时模型，不是完整功能线的原位替代。它不携带完整功能线的兼容门面、全局 Provider 查找、默认后台设施与 Ops 能力。
+Kernel 线采用独立的运行时设计，不是完整功能线中的较小依赖组合。它有意移除了完整线的兼容门面、Provider Registry、托管上下文与导出器基础设施，以及 Ops 能力。
 
-在 Kernel 与精简组合发布门禁关闭前，仅用于源码试用。API 仍可能调整，迁移工作也尚未结束。
+在所属发布门禁关闭前，只能进行受控源码试用。`tfi-kernel` 处于 RC，Compare Core 与两个组合制品的预览限制更严格。
+
+### Kernel 相关模块
+
+| 模块 | 内部直接依赖 | 增加的能力 | 明确不增加的能力 | 状态 |
+|---|---|---|---|---|
+| `tfi-kernel` | 无 | 有界流程记录、确定性 JSON、实例 Runtime、静态门面、四个 SPI | 对象比较、Spring、持久化、内建网络出口、Ops | RC |
+| `tfi-compare-core` | 无 | 比较真值、资源边界、typed path、canonical projection、脱敏安全地板 | 流程记录、Kernel Record、Spring、完整线兼容 API | 技术预览 |
+| `tfi-kernel-compare` | 两个 Core | 把已有 `CompareResult` 映射为 Kernel summary 与可选安全 detail 前缀 | 执行业务 action、修改 CompareResult 结论、Sink、线程、Spring | 内部候选 |
+| `tfi-kernel-compare-spring-starter` | `tfi-kernel-compare` | ApplicationContext 运行时、生命周期、配置、制品守卫、可选 AOP | Actuator、指标、Store、HTTP、队列、重试、异步导出 | 内部候选 |
+
+两个 Core 始终可以独立使用，并且永不互相依赖。Bridge 是位于两个 Core 之上的独立纯 Java 组合模块，Starter 是位于 Bridge 之上的独立 Spring Boot 集成模块。
 
 ### 只用 Kernel
+
+从源码完成本地构建后，引入 RC 制品：
 
 ```xml
 <dependency>
@@ -355,24 +435,75 @@ Actuator 暴露与端点访问仍需要 Spring Management 配置和应用安全�
 </dependency>
 ```
 
+#### 选择入口
+
+| 入口 | 所有权模型 | 适用场景 |
+|---|---|---|
+| `Tfi` | 一个延迟创建的默认 Runtime 的静态门面；`Tfi.configure` 只影响后续 Session | 小型应用明确只维护一套进程级 Kernel 配置 |
+| `KernelRuntime` | 配置在创建时冻结、彼此隔离且实现 `AutoCloseable` 的显式实例 | 依赖注入、多实例、测试隔离、显式 Sink 所有权或受控关闭 |
+
+Kernel 的 `Tfi` 类只是 Kernel API 的便利门面，不会委托给完整功能线的 `TFI` 类。
+
+#### 记录并接收完成态流程
+
 ```java
 import com.syy.tfi.kernel.KernelConfig;
 import com.syy.tfi.kernel.KernelRuntime;
 import com.syy.tfi.kernel.Stage;
+import com.syy.tfi.kernel.Tfi;
+import com.syy.tfi.kernel.spi.FlowSink;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
-try (KernelRuntime runtime = KernelRuntime.create(KernelConfig.defaults());
-     Stage flow = runtime.begin("order.submit")) {
-    flow.attr("requestId", "req-1001");
-    String state = runtime.call("inventory.reserve", () -> "RESERVED");
-    flow.change("order.status", "CREATED", state);
+AtomicReference<String> completedJson = new AtomicReference<>();
+KernelConfig defaults = KernelConfig.defaults();
+FlowSink sink = session -> completedJson.set(Tfi.toJson(session));
+KernelConfig config = new KernelConfig(
+        true,
+        List.of(sink),
+        defaults.sampler(),
+        defaults.idGenerator(),
+        defaults.clock(),
+        defaults.maxStages(),
+        defaults.maxSessionEncodedBytes(),
+        defaults.maxRecordEncodedBytes(),
+        defaults.maxAttrs());
 
-    String activeSnapshot = runtime.currentToJson();
+try (KernelRuntime runtime = KernelRuntime.create(config)) {
+    try (Stage flow = runtime.begin("order.submit")) {
+        flow.attr("requestId", "req-1001");
+        String state = runtime.call("inventory.reserve", () -> "RESERVED");
+        flow.change("order.status", "CREATED", state);
+        flow.message("order accepted");
+    }
 }
+
+String json = completedJson.get();
 ```
 
-资源按声明的逆序关闭，因此先关闭 Stage，再关闭 Runtime。默认配置没有 `FlowSink`，不会自动输出日志、写入文件、向消息队列发布消息或发起网络请求。
+关闭根 `Stage` 会冻结 Session，并按配置顺序同步调用 Sink。
+`runtime.currentToJson()` 与 `runtime.currentToConsole()` 只读取活动快照：它们不会关闭或发布 Session。`Tfi.toJson(session)` 只是纯转换，不代表数据已经获准出境。
 
-需要接收已冻结的完成态 Session 时，应配置同步 `FlowSink`。宿主应用负责脱敏、超时、重试、持久化与数据出境策略。
+默认配置没有 Sink，因此不会通过 Sink 发布 Session 或业务记录，也不会自动写入文件、发布消息或发起网络请求。
+
+非法输入、跨线程、放弃未完成 Session 或基础设施失败等诊断路径仍可能输出限频 WARN。
+
+生产 Sink 必须自行负责脱敏、目的地授权、超时、持久化、留存与失败策略。
+
+#### Runtime 合同
+
+| 关注点 | Kernel 行为 |
+|---|---|
+| 业务透明性 | 即使记录被关闭、采样拒绝、没有上下文或普通设施失败，`stage/call` 仍恰好执行一次 callback，并保留返回对象和业务异常身份 |
+| 生命周期 | `begin` 打开根 Session；嵌套 `begin` 转为子 Stage；关闭根 Stage 后冻结并发布 `OK` 或 `ERROR`；`clear` 放弃未完成状态且不发布 |
+| 线程所有权 | Session 树与预算账本只允许 owner 线程修改；跨线程使用 Stage 会被诊断并转为 no-op |
+| 上下文接力 | `capture().wrap(...)` 每次执行都会创建新的链接子 Session；`parentSessionId` 连接源 Session，但不会共享或合并可变 Stage 树 |
+| 数据模型 | 机器消费方读取 `Record.type + code + data`；自然语言 `text` 只用于展示；接纳的结构化数据会深复制为不可变 JSON-like 值闭集 |
+| 默认预算 | 64 个 Stage、12 KiB 编码后 Session、2 KiB 编码后 Record 或属性值、32 个属性，固定最大栈深 64 |
+| 截断 | 预算按 escaping 后 UTF-8 字节计算；候选数据要么原子接纳、要么拒绝，并通过 `truncated/incompleteReasons` 保留不完整事实 |
+| 关闭 | `KernelRuntime.close()` 幂等且不可逆，会停止新发布，并等待已经登记的同步 Sink 调用返回 |
+
+Kernel 没有 Registry、ServiceLoader、后台线程、异步队列、重试循环或 shutdown hook。它只有 `FlowSink`、`Sampler`、`IdGenerator` 与 `KernelClock` 四个编程式扩展点。
 
 ### 只用 Compare Core
 
@@ -386,22 +517,38 @@ try (KernelRuntime runtime = KernelRuntime.create(KernelConfig.defaults());
 </dependency>
 ```
 
-继续调用 `CompareRuntime.defaults().engine()`，并让业务代码依赖 `CompareOperations`，与前文示例一致。
+继续调用 `CompareRuntime.defaults().engine()`，并让业务代码依赖 `CompareOperations`，与完整线 Compare 示例一致。
 
-不能同时引入 `tfi-compare-core` 与 `tfi-compare`。Core 有意移除了完整模块的 Flow 依赖、兼容门面、SPI 集成、tracking adapter、query helper 等外围 API。
+不能同时引入 `tfi-compare-core` 与 `tfi-compare`：两个制品包含重叠类名。Compare Core 有意移除了完整模块的 Flow 依赖、兼容门面、SPI 集成、tracking adapter、query helper 等外围 API。
 
 ### Kernel + Compare Bridge
 
-`tfi-kernel-compare` 接受宿主选择的 `CompareOperations`，向当前 Kernel `Stage` 写入有界 summary 和可选脱敏 detail。
+Bridge 不会把比较逻辑塞入 Kernel。它保持业务真值与观测记录分离：
 
-Bridge 只用于观测。业务判断必须直接读取返回的 `CompareResult`，不能依赖 Record 是否成功写入 Kernel 预算。
+```text
+before / after
+     |
+     v
+CompareOperations ----> CompareResult ----> 业务判断
+                              |
+                              v
+                    KernelCompareRecorder
+                              |
+                              v
+Kernel Stage ----> KCOMPARE_SUMMARY_V1 + 可选安全 detail 前缀
+                              |
+                         关闭根 Stage
+                              v
+                         FlowSink
+```
 
-精简 Spring Starter 会组装 `KernelRuntime`、Compare Core 与 `KernelCompareRecorder`。业务代码可以注入 Runtime、`CompareOperations` 与 Recorder：
+`tfi-kernel-compare` 接受宿主选择的 `CompareOperations`，向当前 Kernel `Stage` 写入有界 summary 和可选脱敏 detail。它不拥有业务 action、不重判比较真值、不创建线程，也不向 Sink 发布。
+
+业务判断必须直接读取 `CompareResult`，不能依赖 Record 是否成功写入 Kernel 预算。业务逻辑需要比较结果时，应先比较，再记录结果：
 
 ```java
 import com.syy.taskflowinsight.api.CompareOperations;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
-import com.syy.tfi.kernel.KernelRuntime;
 import com.syy.tfi.kernel.Stage;
 import com.syy.tfi.kernel.compare.KernelCompareRecorder;
 
@@ -414,11 +561,34 @@ try (Stage flow = kernelRuntime.begin("order.update")) {
 }
 ```
 
-该 Starter 仍是内部发布候选，只能在当前 Reactor 内构建评估。
+默认 Record Policy 最多尝试写一条 summary，不写 detail；Kernel 仍可能拒绝该 Record。
+开启 detail 后，Bridge 最多记录 32 条 canonical 脱敏变更，并在 Kernel 第一次预算拒绝时停止。
 
-在 [KCS-10 发布门禁](docs/task/tfi-kernel-compare-integration/TASK-KCS-10-consumer-release-and-reactor-gates.md)与负责人决策完成前，不应加入生产依赖集合。
+### Kernel Spring 组合
 
-可选 AOP 还需要 `spring-boot-starter-aop`，并且默认关闭：
+Kernel Starter 会为当前 ApplicationContext 组装或接纳唯一的 `KernelRuntime` 与 Compare Runtime，再补齐 Compare、脱敏/投影和 Recorder 对象。三项能力使用独立开关：
+
+```yaml
+tfi:
+  kernel:
+    enabled: true
+  compare:
+    enabled: true
+  kernel-compare:
+    enabled: true
+    max-recorded-changes: 0
+```
+
+设置 `tfi.kernel-compare.enabled=false` 只移除 Record Policy 与 Recorder，两个 Core Runtime 仍然存在。配置在 ApplicationContext 启动时冻结，不支持动态刷新。
+
+Kernel 侧允许应用提供单个 SPI、一个完整 `KernelConfig` 或一个完整 `KernelRuntime`。
+Compare 侧允许提供自定义 `ComparePolicy` 或一个完整 Compare Runtime；当前 Context 中一个安全的 `MaskingPolicy` 可以替换默认实现。
+
+混用配置层级，或替换由 Runtime 提供的 Engine 和组合层 Recorder，会阻止启动，而不是形成不完整的 Bean 集合。
+
+自定义 `KernelRuntime` 会由该 ApplicationContext 接管并随其关闭。应用不能在多个 Context 之间复用同一个 Kernel Runtime 实例，也不能在所属 Context 关闭后继续使用。
+
+可选 AOP 还需要 `spring-boot-starter-aop`，并且默认关闭。只开启配置但缺少该依赖时会阻止启动，不会静默回退：
 
 ```yaml
 tfi:
@@ -437,11 +607,24 @@ public void update(@TfiTrackTarget("order") Order order) {
 }
 ```
 
-目标参数不能为 null。默认 Record Policy 只写 summary；AOP Record 是内存观测事实，不能证明外层事务最终提交。
+该 AOP 路径使用固定注解而不是 SpEL。`@TfiTracked` 只能用于 public 方法，operation 必须匹配 `[a-z][a-z0-9._-]{0,62}`。
+
+每个方法至少要声明一个 target，调用时所有 target 参数都必须非 null。target 名必须唯一并匹配 `[a-z][a-z0-9_-]{0,63}`，接口与实现上的声明必须一致。
+
+默认策略仍只写 summary；Record 是内存观测事实，不能证明外层事务最终提交。
+
+Starter 模块自身的 Maven 构建会禁止完整 Flow、完整 Compare、完整线 Starter、Ops、Examples 与聚合包。该 Enforcer 规则不会传递给消费者项目。
+
+应用启动时，守卫会拒绝重复的 `CompareRuntime.class` 资源和旧 `TrackingProvider.class` 标记。
+
+消费者仍需检查自己的依赖树并只选择一套生态。迁移是应用重构，不是替换 Maven 坐标；Starter 不会加载旧门面、tracking delegate 或配置别名。
+
+Bridge 与 Starter 仍是内部候选，只能在当前 Reactor 内构建评估。
+在 [KCS-10 发布门禁](docs/task/tfi-kernel-compare-integration/TASK-KCS-10-consumer-release-and-reactor-gates.md)与负责人决策完成前，不应加入生产依赖集合。
 
 ## 范围与取舍
 
-| 维度 | 完整聚合包 | 完整功能线按需精简 | 精简组合线预览 |
+| 维度 | 完整聚合包 | 完整功能线按需精简 | Kernel RC 组合 |
 |---|---|---|---|
 | 包含范围 | Flow、Compare、两个 Spring Starter、Ops、统一门面 | 只包含选中的完整线能力 | Kernel、Compare Core、Bridge、可选 Spring 组合 |
 | Flow 模型 | Session、Task、Message、Provider、Context、异步传播 | 选择 Flow 时使用相同模型 | Session、Stage、Record、显式调用、同步 Sink |
@@ -455,7 +638,7 @@ public void update(@TfiTrackTarget("order") Order order) {
 
 完整聚合包优化接入便利性；按需模块明确依赖归属，同时保持当前模型。
 
-精简组合线优化显式边界与有界行为，但会付出兼容性和成熟度成本。
+Kernel 线优化显式边界与有界行为，但会付出兼容性和成熟度成本。
 
 ## 使用推荐
 
@@ -464,7 +647,7 @@ public void update(@TfiTrackTarget("order") Order order) {
 3. **纯 Java 流程记录：** 当前完整模型选择 `tfi-flow-core`；只有确实需要更小显式模型且能接受 RC 变化时，才试用 `tfi-kernel`。
 4. **纯对象比较：** 当前使用 `tfi-compare`；`tfi-compare-core` 只从源码试用，并确保 classpath 排除 `tfi-compare`。
 5. **需要全部完整线能力：** 选择 `TaskFlowInsight`；当应用确实使用聚合包的大部分能力时，它的便利性才有价值。
-6. **需要精简 Flow + Compare：** 进行受控源码试用。在最终门禁通过前，不得把 Bridge 或精简 Starter 描述为已发布生产选项。
+6. **需要 Kernel + Compare：** 进行受控源码试用。在最终门禁通过前，不得把 Bridge 或 Kernel Starter 描述为已发布生产选项。
 
 无法确定时，应按职责所有权选模块，而不是按制品数量选：Flow 管执行结构，Compare 管对象真值，Spring Starter 管容器装配，Ops 管暴露与存储。
 
@@ -475,10 +658,10 @@ public void update(@TfiTrackTarget("order") Order order) {
 | `tfi.annotation.enabled` | Flow Spring Starter | 启用 `@TfiTask` AOP，默认关闭 |
 | `tfi.context.*` | Flow Spring Starter | 上下文生命周期与传播配置 |
 | `tfi.security.*` | Flow Spring Starter | Flow 侧脱敏与安全配置 |
-| `tfi.compare.*` | Compare Spring Starter 或精简 Starter | 不可变比较策略与资源边界 |
+| `tfi.compare.*` | Compare Spring Starter 或 Kernel Starter | 不可变比较策略与资源边界 |
 | `tfi.compare.tracking.enabled` | Compare Spring Starter | 连接 Compare 与 Flow tracking，默认关闭且要求 Flow Starter |
-| `tfi.kernel.*` | 精简 Spring Starter | Kernel 开关与四项资源预算；SPI 实现和 Sink 通过本地 Bean 装配 |
-| `tfi.kernel-compare.*` | 精简 Spring Starter | Bridge 与可选 AOP 配置，AOP 默认关闭 |
+| `tfi.kernel.*` | Kernel Spring Starter | Kernel 开关与四项资源预算；SPI 实现和 Sink 通过本地 Bean 装配 |
+| `tfi.kernel-compare.*` | Kernel Spring Starter | Bridge 与可选 AOP 配置，AOP 默认关闭 |
 | `tfi.store.*`、`tfi.actuator.*`、`tfi.endpoint.*` | Ops | 显式装配的 Store 与端点配置，需要分别核对各组件默认值 |
 
 配置不能替代边界设计。比较和 Sink 都应设置有限预算，标签中不得放入敏感业务值，运维端点只能通过应用自身的认证与网络控制对外暴露。
@@ -550,7 +733,7 @@ API 兼容检查使用所属模块的 `api-compat` Profile，由相关 CI 工作
 | Kernel | [设计文档](tfi-kernel/docs/design-doc.md)、[JSON Schema](tfi-kernel/docs/schema.md)、[API 清单](tfi-kernel/docs/api-inventory.md) |
 | Compare Core | [设计边界](tfi-compare-core/docs/design-doc.md) |
 | Kernel/Compare Bridge | [内部状态与导航](tfi-kernel-compare/docs/index.md) |
-| 精简 Spring 组合 | [内部状态](tfi-kernel-compare-spring-starter/docs/index.md)、[迁移边界](tfi-kernel-compare-spring-starter/docs/migration.md) |
+| Kernel Spring 组合 | [内部状态](tfi-kernel-compare-spring-starter/docs/index.md)、[迁移边界](tfi-kernel-compare-spring-starter/docs/migration.md) |
 
 ## 贡献与许可证
 
