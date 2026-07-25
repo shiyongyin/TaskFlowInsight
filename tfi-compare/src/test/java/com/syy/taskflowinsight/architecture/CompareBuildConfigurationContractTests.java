@@ -109,6 +109,22 @@ class CompareBuildConfigurationContractTests {
     }
 
     @Test
+    void staticBaselineRunsAfterReportGenerators() throws Exception {
+        Element rootProject = parse(repositoryRoot().resolve("pom.xml"));
+        List<String> pluginOrder = directChildren(
+                directChild(directChild(rootProject, "build"), "plugins"), "plugin").stream()
+                .map(plugin -> childText(plugin, "artifactId"))
+                .toList();
+
+        assertThat(pluginOrder)
+                .as("子模块的基线执行会沿用父POM插件位置，必须晚于Checkstyle和PMD报告生成")
+                .containsSubsequence(
+                        "maven-checkstyle-plugin",
+                        "maven-pmd-plugin",
+                        "exec-maven-plugin");
+    }
+
+    @Test
     void compareOwnsFourSpaceCheckstyleAuthorityWithoutExclusions() throws Exception {
         Path root = repositoryRoot();
         Element project = parse(root.resolve("tfi-compare/pom.xml"));
