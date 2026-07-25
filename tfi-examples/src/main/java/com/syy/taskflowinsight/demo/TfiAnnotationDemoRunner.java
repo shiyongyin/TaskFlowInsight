@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>当 {@code tfi.annotation.enabled=true} 时自动启动，
  * 依次执行简单任务、条件任务、采样任务、参数化任务和异常任务，
- * 展示 {@code @TfiTask} / {@code @TfiTrack} 的完整用法。</p>
+ * 展示唯一声明式入口 {@code @TfiTask} 的完整用法。</p>
  *
  * @since 3.0.0
  */

@@ -67,7 +67,6 @@ tfi:
   context:
     max-age-millis: 3600000
     leak-detection-enabled: false
-    cleanup-enabled: false
 ```
 
 **生产配置（推荐）**：
@@ -81,8 +80,6 @@ tfi:
     max-age-millis: 1800000           # 30分钟（缩短存活时间）
     leak-detection-enabled: true       # 开启泄漏检测
     leak-detection-interval-millis: 30000  # 30秒检测一次
-    cleanup-enabled: true              # 开启自动清理
-    cleanup-interval-millis: 30000     # 30秒清理一次
 ```
 
 **高负载配置**：
@@ -96,8 +93,6 @@ tfi:
     max-age-millis: 600000            # 10分钟（更积极的超时）
     leak-detection-enabled: true
     leak-detection-interval-millis: 15000  # 15秒检测一次
-    cleanup-enabled: true
-    cleanup-interval-millis: 15000    # 15秒清理一次
 ```
 
 #### Step 3: 验证部署
@@ -132,8 +127,9 @@ grep "Applied tfi.context properties" app.log
 | `tfi.context.max-age-millis` | Long | `3600000` | 上下文最大存活时间（ms） | `1800000` |
 | `tfi.context.leak-detection-enabled` | Boolean | `false` | 是否启用泄漏检测 | `true` |
 | `tfi.context.leak-detection-interval-millis` | Long | `60000` | 泄漏检测间隔（ms） | `30000` |
-| `tfi.context.cleanup-enabled` | Boolean | `false` | 是否启用自动清理 | `true` |
-| `tfi.context.cleanup-interval-millis` | Long | `60000` | 清理间隔（ms） | `30000` |
+
+Starter 只配置 `SafeContextManager` 的唯一 detector。4.0 已删除第二 cleaner 的两个配置键，
+继续配置它们不会产生合法绑定，且会让运维误以为系统存在两套清理周期。
 
 ### 3.2 配置调优指南
 
@@ -143,7 +139,8 @@ grep "Applied tfi.context properties" app.log
 tfi:
   context:
     max-age-millis: 300000        # 5分钟（短事务）
-    cleanup-interval-millis: 10000 # 10秒清理
+    leak-detection-enabled: true
+    leak-detection-interval-millis: 10000 # 10秒检测
 ```
 
 #### 场景 2：长事务场景（批处理）
@@ -152,7 +149,8 @@ tfi:
 tfi:
   context:
     max-age-millis: 7200000       # 2小时
-    cleanup-interval-millis: 120000 # 2分钟清理
+    leak-detection-enabled: true
+    leak-detection-interval-millis: 120000 # 2分钟检测
 ```
 
 #### 场景 3：线程池密集场景
@@ -163,8 +161,6 @@ tfi:
     max-age-millis: 600000        # 10分钟
     leak-detection-enabled: true
     leak-detection-interval-millis: 15000
-    cleanup-enabled: true
-    cleanup-interval-millis: 15000
 ```
 
 #### 场景 4：禁用 TFI（紧急回退）
@@ -406,9 +402,9 @@ Step 3: 堆内存分析
         → jmap -dump:format=b,file=heap.hprof <pid>
         → MAT 分析 ThreadLocal 引用链
 
-Step 4: 确认清理配置
-        → tfi.context.cleanup-enabled=true
-        → cleanup-interval-millis 是否合理
+Step 4: 确认唯一 detector 配置
+        → tfi.context.leak-detection-enabled=true
+        → leak-detection-interval-millis 是否合理
 
 Step 5: 排查未关闭的 Stage
         → 检查 try-with-resources 是否正确使用
@@ -419,10 +415,10 @@ Step 5: 排查未关闭的 Stage
 
 | 原因 | 解决 |
 |------|------|
-| 清理未启用 | `tfi.context.cleanup-enabled=true` |
+| 泄漏检测未启用 | `tfi.context.leak-detection-enabled=true` |
 | 超时太长 | 缩短 `max-age-millis` |
 | Stage 未关闭 | 使用 try-with-resources |
-| 线程池未清理 | 使用 `TFIAwareExecutor` 包装线程池 |
+| 异步任务未传播 Context | 使用 `ContextPropagatingExecutor.wrap(ExecutorService)` 包装调用方线程池 |
 
 ---
 
@@ -601,8 +597,6 @@ data:
         max-age-millis: 1800000
         leak-detection-enabled: true
         leak-detection-interval-millis: 30000
-        cleanup-enabled: true
-        cleanup-interval-millis: 30000
 ```
 
 ---
@@ -727,7 +721,7 @@ logging:
 
 4. 永久修复：
    - 根据分析结果调整配置
-   - 开启 cleanup + leak-detection
+   - 开启 leak-detection 并设置合理检测间隔
    - 评估是否需要升级 Starter 版本
 ```
 

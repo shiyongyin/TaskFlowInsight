@@ -13,7 +13,7 @@ import lombok.Data;
 @Data
 @Builder
 public class MergeConflict {
-    
+
     /**
      * 冲突字段名
      */
@@ -53,6 +53,12 @@ public class MergeConflict {
      * 是否可自动解决
      */
     private boolean autoResolvable;
+
+    /**
+     * 为发布文档显式声明 builder 类型；Lombok 继续注入既有 fluent API。
+     */
+    public static class MergeConflictBuilder {
+    }
     
     /**
      * 获取冲突摘要

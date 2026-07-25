@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.syy</groupId>
         <artifactId>taskflowinsight-parent</artifactId>
-        <version>3.0.0</version>
+        <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -35,6 +35,11 @@
         <dependency>
             <groupId>com.syy</groupId>
             <artifactId>tfi-compare</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.syy</groupId>
+            <artifactId>tfi-compare-spring-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -85,6 +90,21 @@
 
     <build>
         <plugins>
+            <!-- Contract tests inspect the aggregate service resources before the test phase. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <!-- 将生命周期主 JAR 提前构建；新增第二个 execution 会在 package 阶段重复挂载主产物。 -->
+                        <id>default-jar</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- japicmp for API compatibility check -->
             <plugin>
                 <groupId>com.github.siom79.japicmp</groupId>
@@ -95,7 +115,7 @@
                         <dependency>
                             <groupId>${project.groupId}</groupId>
                             <artifactId>${project.artifactId}</artifactId>
-                            <version>3.0.0</version>
+                            <version>${tfi.api.baseline.version}</version>
                             <type>${project.packaging}</type>
                         </dependency>
                     </oldVersion>
@@ -107,15 +127,11 @@
                     <parameter>
                         <accessModifier>public</accessModifier>
                         <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
-                        <breakBuildOnSourceIncompatibleModifications>false</breakBuildOnSourceIncompatibleModifications>
-                        <excludes>
-                            <exclude>com.syy.taskflowinsight.internal</exclude>
-                            <exclude>com.syy.taskflowinsight.demo</exclude>
-                        </excludes>
+                        <breakBuildOnSourceIncompatibleModifications>true</breakBuildOnSourceIncompatibleModifications>
                         <includes>
                             <include>com.syy.taskflowinsight.api.TFI</include>
                         </includes>
-                        <ignoreMissingClasses>true</ignoreMissingClasses>
+                        <ignoreMissingClasses>false</ignoreMissingClasses>
                     </parameter>
                 </configuration>
             </plugin>
@@ -124,7 +140,36 @@
 
     <profiles>
         <profile>
+            <id>skip-coverage-for-strict-perf-gate</id>
+            <activation>
+                <property>
+                    <name>tfi.perf.strict</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <properties>
+                <!-- strict任务只执行同轴性能契约，覆盖率由常规全量测试任务独立负责。 -->
+                <jacoco.skip>true</jacoco.skip>
+            </properties>
+        </profile>
+        <profile>
+            <id>skip-coverage-when-tests-skipped</id>
+            <activation>
+                <property>
+                    <name>skipTests</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <properties>
+                <jacoco.skip>true</jacoco.skip>
+            </properties>
+        </profile>
+        <profile>
             <id>api-compat</id>
+            <properties>
+                <!-- API job 已由独立测试 job 提供覆盖率证据；skipTests 时不能用空数据执行 JaCoCo gate。 -->
+                <jacoco.skip>true</jacoco.skip>
+            </properties>
             <build>
                 <plugins>
                     <plugin>

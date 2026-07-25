@@ -5,7 +5,6 @@
 [![Java](https://img.shields.io/badge/Java-21+-orange.svg)](https://www.oracle.com/java/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.5-green.svg)](https://spring.io/projects/spring-boot)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-85%25-brightgreen.svg)](.)
 [![tfi-all CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml)
 [![tfi-compare CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-compare-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-compare-ci.yml)
 [![tfi-flow-core CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-flow-core-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-flow-core-ci.yml)
@@ -47,13 +46,15 @@ public void processOrder(Order order) {
 
 ## 📦 Module Structure
 
-TFI uses a Maven multi-module architecture, split by responsibility into 6 modules:
+TFI uses a Maven multi-module architecture, split by responsibility into 8 reactor modules:
 
 ```
 TaskFlowInsight (parent)
+├── tfi-kernel              Minimal plain-Java flow recording kernel (RC)
 ├── tfi-flow-core           Core flow engine (Session/Task/Stage/Message)
 ├── tfi-flow-spring-starter Spring Boot auto-config + AOP annotation support
 ├── tfi-compare             Smart comparison engine (deep diff + change tracking)
+├── tfi-compare-spring-starter Spring Boot integration for comparison
 ├── tfi-ops-spring          Ops & monitoring (Actuator/Metrics/Store/Performance)
 ├── tfi-examples            Examples & demos (Demo/Benchmark)
 └── tfi-all                 All-in-one aggregate module
@@ -61,6 +62,8 @@ TaskFlowInsight (parent)
 
 **Module dependencies:**
 ```
+tfi-kernel (standalone; no dependency on the legacy TFI modules)
+
 tfi-flow-core  ←─  tfi-flow-spring-starter  ←─┐
       ↑                                        │
 tfi-compare  ←──  tfi-ops-spring  ←────────────┤
@@ -68,6 +71,16 @@ tfi-compare  ←──  tfi-ops-spring  ←────────────�
                   tfi-all (aggregates all)  ────┘
                   tfi-examples (depends on all)
 ```
+
+**Choose by need:**
+
+| Need | Module |
+|------|--------|
+| Minimal explicit flow recording in plain Java, typed actions, deterministic JSON | `tfi-kernel` |
+| Spring AOP, automatic comparison, Actuator, metrics, or storage | Existing TFI modules / `tfi-all` |
+| Object comparison without flow recording | `tfi-compare` |
+
+`tfi-kernel` ships on the TaskFlowInsight 4.0 RC train, while its own first stable API baseline is 1.0. That baseline is not frozen, and the module remains independent from `tfi-flow-core`, until the real-service pilot and release decision are complete.
 
 ---
 
@@ -93,7 +106,7 @@ TFI provides **dual-core capabilities** in one lightweight package:
 | **🔍 Change Tracking** | Smart deep object comparison and diff detection |
 | **📊 Real-time Monitoring** | Spring Boot Actuator + Prometheus metrics |
 | **🚀 Zero Config** | Just add `@TfiTask` and go |
-| **⚡ Production Ready** | <5MB memory, <1% CPU, 66K+ TPS |
+| **⚡ Verifiable Delivery** | Module CI gates, static-analysis ratchets, and reproducible JMH workflows |
 
 ---
 
@@ -104,15 +117,13 @@ TFI provides **dual-core capabilities** in one lightweight package:
 | **Setup Time** | < 2 min | ~1 hour | Hours/Days | N/A |
 | **Flow Visualization** | ✅ Tree view | ❌ | ⚠️ Traces only | ❌ Scattered |
 | **Change Tracking** | ✅ Deep diff | ✅ Basic audit | ❌ | ❌ |
-| **Memory** | **<5 MB** | ~20 MB | 50-100 MB | ~0 |
-| **CPU Overhead** | **<1%** | ~3% | 5-15% | ~0 |
-| **Throughput** | **66,000+ TPS** | ~20,000 | N/A | N/A |
 | **Config Complexity** | **Zero config** | Medium | Complex | None |
 | **Spring Integration** | ✅ Deep | ⚠️ Basic | ✅ | N/A |
 | **Business Context** | ✅ Built-in | ⚠️ Limited | ❌ Custom needed | ❌ |
 | **Cost** | **Free & Open** | Free & Open | $$$$ | Free |
 
-**TFI's unique position**: The **only** library combining flow visualization + change tracking with enterprise-grade performance.
+**TFI's position**: one library combines flow visualization and change tracking; performance must be
+measured with the included JMH workloads on the target JDK and hardware.
 
 ---
 
@@ -125,44 +136,28 @@ TFI provides **dual-core capabilities** in one lightweight package:
 
 ### 1. Add Dependency
 
-**All-in-one (recommended):**
+**Pure Java comparison:**
 ```xml
-<dependency>
-    <groupId>com.syy</groupId>
-    <artifactId>tfi-all</artifactId>
-    <version>3.0.0</version>
-</dependency>
-```
-
-**Pick what you need:**
-```xml
-<!-- Flow tracking only -->
-<dependency>
-    <groupId>com.syy</groupId>
-    <artifactId>tfi-flow-spring-starter</artifactId>
-    <version>3.0.0</version>
-</dependency>
-
-<!-- Comparison engine only -->
 <dependency>
     <groupId>com.syy</groupId>
     <artifactId>tfi-compare</artifactId>
-    <version>3.0.0</version>
-</dependency>
-
-<!-- Ops & monitoring (Actuator + Metrics) -->
-<dependency>
-    <groupId>com.syy</groupId>
-    <artifactId>tfi-ops-spring</artifactId>
-    <version>3.0.0</version>
+    <version>4.0.0</version>
 </dependency>
 ```
 
-### 2. Enable TFI (Spring Boot)
+**Spring Boot comparison:**
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-compare-spring-starter</artifactId>
+    <version>4.0.0</version>
+</dependency>
+```
+
+### 2. Use Spring Boot Auto-configuration
 
 ```java
 @SpringBootApplication
-@EnableTfi
 public class YourApplication {
     public static void main(String[] args) {
         SpringApplication.run(YourApplication.class, args);
@@ -333,19 +328,19 @@ curl http://localhost:19090/actuator/taskflow
 curl http://localhost:19090/actuator/prometheus | grep tfi
 ```
 
-### 6. Thread Safety & Zero Leaks
+### 6. Thread Safety & Lifecycle Cleanup
 Built for concurrent production environments:
 - **ThreadLocal isolation**: Independent context per thread
 - **AutoCloseable pattern**: `try-with-resources` auto-cleanup
 - **Weak references**: Prevent memory retention
-- **Leak detection**: `ZeroLeakThreadLocalManager` monitoring
-- **Async propagation**: `TFIAwareExecutor` for thread pools
+- **Leak observability**: `SafeContextManager.metrics()` publishes typed `ContextMetrics`
+- **Async propagation**: `ContextSnapshot` and `ContextPropagatingExecutor`
 
 ---
 
-## 🔬 The Smartest Comparison Engine
+## 🔬 Change Comparison Engine
 
-TFI's **change tracking** is powered by a deep comparison engine. It's the **only** system combining type system, path deduplication, and algorithm optimization for smart diff detection.
+TFI's **change tracking** combines a type system, path deduplication, and multiple diff strategies.
 
 ### Three Pain Points → TFI Solutions
 
@@ -467,8 +462,6 @@ public class Money {
 |-----------|-------------------|--------|
 | **Core Purpose** | 🐛 Debug tool (real-time) | 📋 Audit system (persistent) |
 | **Config Complexity** | ⚡ Zero config (`@TfiTask`) | ⚙️ Medium (Repository + Entity mapping) |
-| **Performance (TPS)** | **66,000+** ⚡ | ~20,000 (3.3x gap) |
-| **Memory** | **<5 MB** 🪶 | ~20 MB |
 | **Flow Visualization** | ✅ Built-in tree | ❌ None |
 | **Type System** | `@Entity`/`@ValueObject`/`@Key` | `@Entity` (JPA only) |
 | **Path Deduplication** | ✅ PathDeduplicator | ❌ Raw paths |
@@ -601,18 +594,18 @@ public SyncResult syncData(DataSource source, DataTarget target) {
 │                           │  • Performance monitor    │
 ├───────────────────────────┼──────────────────────────┤
 │  tfi-flow-core            │  tfi-compare             │
-│  • Session/Task/Stage     │  • CompareService        │
-│  • SafeContextManager     │  • DiffDetector/Facade   │
-│  • ZeroLeakThreadLocal    │  • SnapshotProvider      │
-│  • TFI API facade         │  • PathDeduplicator      │
-│  • Exporters (Console/JSON)│ • LCS/TypeSystem/Cache  │
+│  • Session/Task/Stage     │  • CompareRuntime/Engine │
+│  • SafeContextManager     │  • Request-local kernel  │
+│  • ContextMetrics         │  • Typed ComparePath     │
+│  • TFI API facade         │  • Entity/List/Set/Map   │
+│  • Exporters (Console/JSON)│ • Typed result evidence │
 └───────────────────────────┴──────────────────────────┘
 ```
 
 ### Design Principles
-1. **Zero-leak guarantee**: All contexts use try-with-resources or explicit cleanup
-2. **Graceful degradation**: Disabled TFI = complete no-op (zero overhead)
-3. **Exception safety**: TFI never throws to user code
+1. **Explicit lifecycle**: Contexts use try-with-resources or explicit cleanup, with typed leak metrics
+2. **Graceful degradation**: Disabled TFI uses documented no-op paths and fast guards
+3. **Exception boundaries**: Framework failures degrade per API contract; business and JVM-fatal failures propagate
 4. **Performance first**: Fast-path checks, lazy init, aggressive caching
 5. **Thread-safe**: All public APIs are concurrent-safe
 
@@ -627,19 +620,15 @@ public SyncResult syncData(DataSource source, DataTarget target) {
 
 ## 🚀 Performance
 
-| Metric | Value | Notes |
-|--------|-------|-------|
-| **Memory** | < 5 MB | 10x lighter than competitors |
-| **CPU Overhead** | < 1% | Negligible throughput impact |
-| **Latency** | < 15 μs | Sub-millisecond per operation |
-| **Throughput** | **66,000+ TPS** | Benchmark verified |
-| **Cache Hit Rate** | 95%+ | Caffeine optimized |
-| **Test Coverage** | 85%+ | 350+ test classes |
+Performance results are environment- and workload-specific. Run the forked JMH harness on the target
+JDK and hardware; compare only reports generated with the same JVM options and sampling plan.
 
 ```bash
-# Run JMH benchmarks
-./mvnw -pl tfi-examples -P bench exec:java \
-  -Dexec.mainClass=com.syy.taskflowinsight.benchmark.BenchmarkRunner
+# Generate routing and legacy reports under tfi-examples/target/perf/
+./mvnw -pl tfi-examples -Pbench -DskipTests compile \
+  org.codehaus.mojo:exec-maven-plugin:3.5.0:exec \
+  -Dexec.executable=java -Dexec.classpathScope=runtime \
+  '-Dexec.args=-cp %classpath com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner'
 ```
 
 ---
@@ -650,43 +639,18 @@ TFI **works out of the box** with sensible defaults. Customize via `application.
 
 ```yaml
 tfi:
-  enabled: true  # Master switch
-
   annotation:
     enabled: true  # @TfiTask/@TfiTrack support
-
-  change-tracking:
-    enabled: true
-    snapshot:
-      enable-deep: true  # Deep object traversal
-      max-depth: 10      # Prevent infinite recursion
-
   compare:
-    auto-route:
-      entity:
-        enabled: true  # Auto-detect @Entity for list comparison
-      lcs:
-        enabled: true  # LCS algorithm for move detection
-    numeric:
-      float-tolerance: 1e-12
-      relative-tolerance: 1e-9
-    datetime:
-      default-format: "yyyy-MM-dd HH:mm:ss"
-      tolerance-ms: 0
-
-  api:
-    routing:
-      enabled: false        # v4.0.0 Provider routing (experimental)
-      provider-mode: auto
-
-  render:
+    enabled: true
+    max-depth: 10
+    max-elements: 1000
+    max-result-value-chars: 4096
+    tracking:
+      enabled: true
     masking:
-      enabled: true  # PII protection
-    mask-fields:
-      - password
-      - secret
-      - token
-      - internal*  # Wildcard support
+      additional-rules:
+        - "PROPERTY:customerSecret"
 ```
 
 Default port: **19090**
@@ -699,6 +663,8 @@ Each module has its own GitHub Actions CI workflow:
 
 | Workflow | Module | Scope |
 |----------|--------|-------|
+| tfi-kernel CI | tfi-kernel | Verify + JaCoCo + Static Analysis + Sample Compile |
+| tfi-kernel Strict Perf Gate | tfi-kernel | Fixed-runner JMH + exact Failsafe execution check |
 | tfi-flow-core CI | tfi-flow-core | Test + JaCoCo + Static Analysis |
 | tfi-flow-spring-starter CI | tfi-flow-spring-starter | Test + JaCoCo + Static Analysis |
 | tfi-compare CI | tfi-compare | Test + JaCoCo + Static Analysis + OWASP |
@@ -719,6 +685,8 @@ Each module has its own GitHub Actions CI workflow:
 ### Reference
 - [🔧 v3→v4 Migration Guide](docs/MIGRATION_GUIDE_v3_to_v4.md)
 - [🏛️ Architecture Overview](CLAUDE.md) - System design & principles
+- [tfi-kernel Design](tfi-kernel/docs/design-doc.md) - RC boundaries, lifecycle, output, and release gates
+- [tfi-flow/1 Schema](tfi-kernel/docs/schema.md) - Canonical JSON field semantics
 
 ### Support
 - [❓ FAQ](FAQ.md) - Common questions
@@ -735,9 +703,11 @@ Each module has its own GitHub Actions CI workflow:
 - **Advanced comparison**: EntityListStrategy (move detection), LCS algorithm, precision control
 - **Path system**: PathDeduplicator for clean diff output
 - **Monitoring**: DegradationManager (adaptive load), Prometheus metrics
-- **Testing**: 350+ test classes, 85%+ coverage
+- **Testing**: JUnit 5 suites with JaCoCo and module-specific CI gates
 
 ### 🔨 v4.0.0 (In Development)
+- One canonical Compare execution graph; no public standalone snapshot or reflective path navigator API
+- `tfi-kernel` RC pilot and evidence-gated 1.0 API decision
 - Provider routing mechanism (`tfi.api.routing`)
 - Multi-module Maven architecture
 - Per-module CI/CD pipelines

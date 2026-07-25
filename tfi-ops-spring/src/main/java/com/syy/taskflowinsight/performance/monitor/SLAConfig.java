@@ -16,6 +16,12 @@ import lombok.Data;
 @Data
 @Builder
 public class SLAConfig {
+
+    /**
+     * 为发布文档显式声明 builder 类型；Lombok 继续注入既有默认值与 fluent API。
+     */
+    public static class SLAConfigBuilder {
+    }
     
     /**
      * 指标名称

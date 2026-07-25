@@ -1,6 +1,7 @@
 package com.syy.taskflowinsight.store;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
@@ -9,7 +10,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Caffeine缓存存储实现
@@ -78,14 +78,16 @@ public class CaffeineStore<K, V> implements Store<K, V> {
         
         // 配置驱逐监听
         if (config.isLogEvictions()) {
-            builder.removalListener((key, value, cause) -> 
-                log.debug("Cache eviction: key={}, cause={}", key, cause));
+            builder.removalListener((key, value, cause) ->
+                log.debug("Cache eviction: cause={}", cause));
         }
         
         // 构建缓存
         if (config.getLoader() != null) {
             @SuppressWarnings("unchecked")
-            LoadingCache<K, V> loadingCache = (LoadingCache<K, V>) builder.build(config.getLoader());
+            CacheLoader<K, V> loader = (CacheLoader<K, V>) config.getLoader();
+            LoadingCache<K, V> loadingCache = (LoadingCache<K, V>) builder.build(
+                    new ConfidentialCacheLoader<>(loader));
             return loadingCache;
         } else {
             return builder.build();

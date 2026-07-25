@@ -37,7 +37,7 @@ public class SpringIntegrationChapter implements DemoChapter {
 
     @Override
     public String getDescription() {
-        return "@TfiTask / Actuator / 配置体系 / @EnableTfi 完整指南";
+        return "@TfiTask / Actuator / Compare Starter 完整指南";
     }
 
     @Override
@@ -118,20 +118,16 @@ public class SpringIntegrationChapter implements DemoChapter {
         System.out.println("  ┌─── 核心配置项 ─────────────────────────────────────────────┐");
         System.out.println("  │                                                              │");
         System.out.println("  │  tfi:                                                        │");
-        System.out.println("  │    enabled: true              # 主开关（默认 false）         │");
         System.out.println("  │    annotation:                                               │");
         System.out.println("  │      enabled: true            # @TfiTask 注解支持            │");
         System.out.println("  │                                                              │");
-        System.out.println("  │    change-tracking:                                          │");
-        System.out.println("  │      enabled: true            # 变更追踪开关                 │");
-        System.out.println("  │      snapshot:                                               │");
-        System.out.println("  │        max-depth: 10          # 最大遍历深度                 │");
-        System.out.println("  │        time-budget-ms: 1000   # 单次快照时间预算             │");
-        System.out.println("  │                                                              │");
         System.out.println("  │    compare:                                                  │");
-        System.out.println("  │      auto-route:                                             │");
-        System.out.println("  │        entity.enabled: true   # Entity 列表自动路由          │");
-        System.out.println("  │        lcs.enabled: true      # LCS 策略开关                 │");
+        System.out.println("  │      enabled: true            # 当前上下文比较入口           │");
+        System.out.println("  │      max-depth: 10             # 逻辑深度上限                │");
+        System.out.println("  │      max-compared-nodes: 10000 # 单次节点预算                │");
+        System.out.println("  │      max-elements: 1000        # 两侧容器元素预算            │");
+        System.out.println("  │      tracking:                                               │");
+        System.out.println("  │        enabled: true          # 接入当前 Flow advice         │");
         System.out.println("  │                                                              │");
         System.out.println("  └──────────────────────────────────────────────────────────────┘");
         System.out.println();
@@ -228,11 +224,11 @@ public class SpringIntegrationChapter implements DemoChapter {
         System.out.println("  │  4. 生产环境开启 Actuator + Prometheus 监控                  │");
         System.out.println("  │     → 实时观测 TFI 运行状态和性能指标                       │");
         System.out.println("  │                                                              │");
-        System.out.println("  │  5. 敏感字段使用 tfi.change-tracking.snapshot.exclude-patterns│");
-        System.out.println("  │     → 自动脱敏 password/secret/token 等                     │");
+        System.out.println("  │  5. 敏感字段追加 tfi.compare.masking.additional-rules       │");
+        System.out.println("  │     → 使用 typed path rule 扩大默认安全脱敏范围             │");
         System.out.println("  │                                                              │");
-        System.out.println("  │  6. 通过 tfi.enabled=false 可完全无损禁用                    │");
-        System.out.println("  │     → 禁用后 TFI 所有操作退化为空实现（零开销）             │");
+        System.out.println("  │  6. Compare、tracking 与 annotation 使用各自 canonical key   │");
+        System.out.println("  │     → 纯 Java Flow 开关只由程序化 API 拥有                  │");
         System.out.println("  │                                                              │");
         System.out.println("  └──────────────────────────────────────────────────────────────┘");
     }

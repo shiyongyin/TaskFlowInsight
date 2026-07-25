@@ -3,8 +3,6 @@ package com.syy.taskflowinsight.context;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
 import lombok.Getter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayDeque;
@@ -14,19 +12,19 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 线程上下文管理器
- * 提供线程级别的任务栈和会话管理，支持嵌套任务和上下文快照
- * 
- * 设计原则：
- * - 强制资源管理：必须通过try-with-resources使用
- * - 线程封闭：每个线程独立的上下文实例
- * - 任务栈管理：支持任务嵌套和自动清理
- * - 快照传播：支持跨线程的上下文传递
- * - 零泄漏设计：自动清理未关闭的资源
+ * 一个线程绑定内的 Session 与 LIFO 任务栈 owner。
+ *
+ * <p>G2 要求一 Session 一 Context；本类型负责业务终态和任务树，{@link SafeContextManager}
+ * 负责 ThreadLocal、registry 与泄漏调度。跨线程只能传递 {@link ContextSnapshot}，
+ * 不能共享本实例。</p>
+ *
+ * <p>正常调用方应使用 try-with-resources。泄漏检测器可能跨线程强制结束实例，
+ * 因此任务栈生命周期操作在实例锁内串行，而 manager 注销固定在锁外。</p>
+ *
+ * @since 3.0.0
+ * @see ContextScope
  */
 public class ManagedThreadContext implements AutoCloseable {
-    
-    private static final Logger logger = LoggerFactory.getLogger(ManagedThreadContext.class);
     
     private final String contextId;
     private final long threadId;
@@ -35,14 +33,22 @@ public class ManagedThreadContext implements AutoCloseable {
     // 弱引用持有创建线程，用于泄漏检测时精确判断线程存活，且不阻止线程对象被 GC
     private final WeakReference<Thread> ownerThreadRef;
     private final long createdNanos;
+    /*
+     * taskStack 本身非线程安全。除 owner 线程外，泄漏检测器/关闭钩子也可能跨线程调用
+     * close()，因此所有触碰 taskStack 的生命周期方法均以本实例为锁互斥。
+     */
     private final Deque<TaskNode> taskStack;
     // 手动声明了 getCurrentSession()，不再由 Lombok 生成，以避免重复方法警告
-    private Session currentSession;
+    private volatile Session currentSession;
     private volatile boolean closed = false;
+    private final boolean ownsSessionTermination;
+    private final ContextTerminalProbe terminalProbe;
+    private volatile boolean sessionTerminalInProgress;
 
     /**
-     * 显式提供布尔型getter以符合调用方期望
-     * 一些代码使用了 isClosed() 语义，这里确保可用
+     * 判断该 owner 是否已完成引用清理；终态发布失败时也会返回 true，防止重复释放。
+     *
+     * @return 已进入任一终止路径时为 true
      */
     public boolean isClosed() {
         return closed;
@@ -96,6 +102,15 @@ public class ManagedThreadContext implements AutoCloseable {
      * 私有构造函数，通过静态工厂方法创建
      */
     private ManagedThreadContext() {
+        this(null, true, ContextTerminalProbe.NO_OP);
+    }
+
+    ManagedThreadContext(ContextTerminalProbe terminalProbe) {
+        this(null, true, terminalProbe);
+    }
+
+    private ManagedThreadContext(
+            Session session, boolean ownsSessionTermination, ContextTerminalProbe terminalProbe) {
         this.contextId = UUID.randomUUID().toString();
         Thread current = Thread.currentThread();
         this.threadId = current.threadId();
@@ -103,6 +118,19 @@ public class ManagedThreadContext implements AutoCloseable {
         this.ownerThreadRef = new WeakReference<>(current);
         this.createdNanos = System.nanoTime();
         this.taskStack = new ArrayDeque<>();
+        this.currentSession = session;
+        this.ownsSessionTermination = ownsSessionTermination;
+        this.terminalProbe = terminalProbe == null ? ContextTerminalProbe.NO_OP : terminalProbe;
+        if (session != null) {
+            this.taskStack.push(session.getRootTask());
+        }
+    }
+
+    static ManagedThreadContext nonOwning(Session session) {
+        if (session == null) {
+            throw new NullPointerException("Session cannot be null");
+        }
+        return new ManagedThreadContext(session, false, ContextTerminalProbe.NO_OP);
     }
     
     /**
@@ -113,21 +141,17 @@ public class ManagedThreadContext implements AutoCloseable {
      */
     public static ManagedThreadContext create(String rootTaskName) {
         ManagedThreadContext context = new ManagedThreadContext();
-        
-        // 注册到SafeContextManager
-        SafeContextManager manager = SafeContextManager.getInstance();
-        ManagedThreadContext existing = manager.getCurrentContext();
-        if (existing != null && !existing.closed) {
-            logger.debug("Creating new context while existing context is active. "
-                + "Existing context will be closed: {}", existing.contextId);
-            existing.close();
-        }
-        
+
+        /*
+         * 先完成 Session 校验与构造，再发布新身份。若构造失败，当前线程原有 Context 必须继续可用；
+         * 成功后的 replacement 统一由 manager 原子换绑并在状态锁外清理，避免出现两个替换入口。
+         */
         // 创建会话
         context.startSession(rootTaskName);
-        
+
         // 注册新上下文
-        manager.registerContext(context);
+        SafeContextManager manager = SafeContextManager.getInstance();
+        manager.bindNewContext(context);
         
         return context;
     }
@@ -148,16 +172,18 @@ public class ManagedThreadContext implements AutoCloseable {
      * @param rootTaskName 根任务名称
      * @return 创建的会话
      */
-    public Session startSession(String rootTaskName) {
+    public synchronized Session startSession(String rootTaskName) {
         checkNotClosed();
         
         if (currentSession != null && currentSession.isActive()) {
             throw new IllegalStateException("Session already active: " + currentSession.getSessionId());
         }
         
-        // 使用现有Session API
+        /*
+         * Session 的运行时 owner 是本 Context。这里不再写 legacy Session 静态注册表，
+         * 否则 Session 与 SafeContextManager 会同时声明“当前会话”，形成两个状态源。
+         */
         Session session = Session.create(rootTaskName);
-        session.activate();
         this.currentSession = session;
         
         // 根任务自动入栈
@@ -167,31 +193,15 @@ public class ManagedThreadContext implements AutoCloseable {
     }
     
     /**
-     * 结束当前会话
+     * 正常结束当前 Session 及其唯一 Context。
+     *
+     * <p>G2 采用“一 Session 一 Context”，因此会话结束不能只清空 Session 引用；
+     * 必须复用统一终止路径，在同一临界区完成任务树并在锁外注销 Context，避免遗留
+     * ThreadLocal/registry owner。锁由 {@link #finish(ContextOutcome, Throwable, String)}
+     * 内部管理，避免外层 monitor 包住 manager 注销。
      */
     public void endSession() {
-        checkNotClosed();
-        
-        if (currentSession == null) {
-            return;
-        }
-        
-        // 清理未完成的任务
-        while (!taskStack.isEmpty()) {
-            TaskNode task = taskStack.peek();
-            if (task.getStatus().isActive()) {
-                endTask();
-            } else {
-                taskStack.pop();
-            }
-        }
-        
-        // 完成会话
-        if (currentSession.isActive()) {
-            currentSession.complete();
-        }
-        
-        currentSession = null;
+        finish(ContextOutcome.SUCCESS, null, null);
     }
     
     /**
@@ -200,7 +210,7 @@ public class ManagedThreadContext implements AutoCloseable {
      * @param taskName 任务名称
      * @return 创建的任务节点
      */
-    public TaskNode startTask(String taskName) {
+    public synchronized TaskNode startTask(String taskName) {
         checkNotClosed();
         
         if (currentSession == null) {
@@ -224,7 +234,7 @@ public class ManagedThreadContext implements AutoCloseable {
      * 
      * @return 结束的任务节点
      */
-    public TaskNode endTask() {
+    public synchronized TaskNode endTask() {
         checkNotClosed();
         
         if (taskStack.isEmpty()) {
@@ -247,7 +257,7 @@ public class ManagedThreadContext implements AutoCloseable {
      * 
      * @return 上下文快照
      */
-    public ContextSnapshot createSnapshot() {
+    public synchronized ContextSnapshot createSnapshot() {
         checkNotClosed();
         
         String sessionId = currentSession != null ? currentSession.getSessionId() : null;
@@ -257,16 +267,31 @@ public class ManagedThreadContext implements AutoCloseable {
     }
     
     /**
-     * 从快照恢复上下文（在新线程中）
-     * 
-     * @param snapshot 上下文快照
-     * @return 恢复的上下文
+     * 从快照破坏式恢复 Context。
+     *
+     * <p>该兼容入口与 {@link ContextSnapshot#restore()} 共用 manager 路径，确保 replacement 和传播计数
+     * 只有一个实现；临时 wrapper 传播不得调用本方法。</p>
+     *
+     * @param snapshot 非 null 的不可变快照
+     * @return 新建并绑定的 linked-child Context
      */
     public static ManagedThreadContext restoreFromSnapshot(ContextSnapshot snapshot) {
         if (snapshot == null) {
             throw new IllegalArgumentException("Snapshot cannot be null");
         }
-        
+        return SafeContextManager.getInstance().restoreDestructively(snapshot);
+    }
+
+    /**
+     * 仅重建快照携带的 linked-child 状态，不发布线程绑定。
+     *
+     * <p>发布必须由 manager 完成；拆开构造和 bind 后，构造失败不会破坏 scope 已暂停的 prior。</p>
+     */
+    static ManagedThreadContext restoreUnboundFromSnapshot(ContextSnapshot snapshot) {
+        if (snapshot == null) {
+            throw new IllegalArgumentException("Snapshot cannot be null");
+        }
+
         // 创建新的上下文实例（不同线程）
         ManagedThreadContext context = new ManagedThreadContext();
         
@@ -285,9 +310,6 @@ public class ManagedThreadContext implements AutoCloseable {
             String rootTaskName = extractRootTaskName(snapshot.getTaskPath());
             context.startSession(rootTaskName);
         }
-        
-        // 注册到管理器
-        SafeContextManager.getInstance().registerContext(context);
         
         return context;
     }
@@ -309,7 +331,7 @@ public class ManagedThreadContext implements AutoCloseable {
      * 
      * @return 任务栈深度
      */
-    public int getTaskDepth() {
+    public synchronized int getTaskDepth() {
         return taskStack.size();
     }
     
@@ -318,7 +340,7 @@ public class ManagedThreadContext implements AutoCloseable {
      * 
      * @return 当前任务节点，如果栈为空返回null
      */
-    public TaskNode getCurrentTask() {
+    public synchronized TaskNode getCurrentTask() {
         return taskStack.peek();
     }
 
@@ -345,6 +367,7 @@ public class ManagedThreadContext implements AutoCloseable {
     /**
      * 获取上下文属性
      * 
+     * @param <T> 调用方期望的属性类型；类型正确性由写入方与读取方共同保证
      * @param key 属性键
      * @return 属性值
      */
@@ -363,45 +386,177 @@ public class ManagedThreadContext implements AutoCloseable {
     }
     
     /**
-     * 关闭上下文并清理资源
-     * 在try-with-resources块结束时自动调用
+     * 按明确结果终止 Context。
+     *
+     * <p>任务和 Session 状态转换在 Context 锁内完成；引用清理放在同一临界区的 finally，
+     * 保证转换异常也不会遗留任务树。注销必须在释放 Context 锁后执行，避免 manager 与
+     * lifecycle 之间形成反向重入。
+     */
+    void finish(ContextOutcome outcome, Throwable cause, String reason) {
+        if (outcome == null) {
+            throw new IllegalArgumentException("Context outcome cannot be null");
+        }
+
+        Throwable terminalFailure = null;
+        boolean unregister = false;
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+
+            try {
+                if (ownsSessionTermination) {
+                    sessionTerminalInProgress = currentSession != null && currentSession.isActive();
+                    if (outcome == ContextOutcome.SUCCESS) {
+                        completeActiveTasksAndSession();
+                    } else {
+                        failActiveTasksAndSession(terminalMessage(outcome, cause, reason));
+                    }
+                }
+            } catch (RuntimeException | Error thrown) {
+                terminalFailure = thrown;
+            } finally {
+                sessionTerminalInProgress = false;
+                taskStack.clear();
+                currentSession = null;
+                attributes.clear();
+                closed = true;
+                unregister = true;
+            }
+        }
+
+        if (unregister) {
+            try {
+                SafeContextManager.getInstance().terminalUnbind(this);
+            } catch (RuntimeException | Error unregisterFailure) {
+                if (terminalFailure == null) {
+                    terminalFailure = unregisterFailure;
+                } else {
+                    terminalFailure.addSuppressed(unregisterFailure);
+                }
+            }
+        }
+
+        rethrowTerminalFailure(terminalFailure);
+    }
+
+    /**
+     * 以原业务异常终止 Context，供 wrapper 在重新抛出同一异常前记录失败语义。
+     */
+    void fail(Throwable failure) {
+        finish(ContextOutcome.FAILURE, failure, null);
+    }
+
+    /**
+     * 以基础设施原因强制回收 Context；reason 用于区分 clear、替换、泄漏和 shutdown。
+     */
+    void forceCleanup(String reason) {
+        finish(ContextOutcome.FORCED_CLEANUP, null, reason);
+    }
+
+    /**
+     * 无锁判断当前 Session 回调是否由本 Context 发起。
+     *
+     * <p>Session bridge 可能在本 Context monitor 已被持有时回调，因此这里只读取 final/volatile 身份，
+     * 不能同步获取 Context monitor；命中后由外层 {@link #finish(ContextOutcome, Throwable, String)} 清理。
+     */
+    boolean isContextOwnedTerminalTransition(Session session) {
+        return ownsSessionTermination && sessionTerminalInProgress && currentSession == session;
+    }
+
+    /**
+     * 以 identity 而非 Session ID 判断绑定，避免迟到终止误清同线程的后继 Context。
+     */
+    boolean isBoundToSession(Session session) {
+        return currentSession == session;
+    }
+
+    /**
+     * 响应 Session 已发布的外部终态；该入口只释放 Context，不得反向终止 Session。
+     */
+    void releaseAfterExternalSessionTerminal(Session session) {
+        releaseWithoutSessionTermination(session);
+    }
+
+    /**
+     * 只断开 wrapper/Context 引用，不调用 Session 终态方法。
+     *
+     * <p>该原语同时服务 legacy deactivate 与 direct Session terminal；两者都已经由外部决定
+     * Session 状态，再次回调 Session 会造成重复终止或锁反转。
+     */
+    synchronized void releaseWithoutSessionTermination(Session session) {
+        if (currentSession != session) {
+            return;
+        }
+        taskStack.clear();
+        currentSession = null;
+        attributes.clear();
+        closed = true;
+    }
+
+    /**
+     * 正常结束 AutoCloseable 作用域。
      */
     @Override
     public void close() {
-        if (closed) {
-            return;
+        finish(ContextOutcome.SUCCESS, null, null);
+    }
+
+    private void completeActiveTasksAndSession() {
+        Session session = currentSession;
+        TaskNode rootTask = session != null ? session.getRootTask() : null;
+        while (!taskStack.isEmpty()) {
+            TaskNode task = taskStack.pop();
+            if (task != rootTask && task.getStatus().isActive()) {
+                task.tryComplete();
+            }
         }
-        
-        try {
-            // 清理未完成的任务
-            while (!taskStack.isEmpty()) {
-                TaskNode task = taskStack.pop();
-                if (task.getStatus().isActive()) {
-                    logger.debug("Closing context with active task: {}", task.getTaskName());
-                    task.fail("Context closed with active task");
-                }
-            }
-
-            // 结束会话
-            if (currentSession != null && currentSession.isActive()) {
-                logger.debug("Closing context with active session: {}", currentSession.getSessionId());
-                currentSession.error("Context closed abnormally");
-            }
-
-            // 清理属性
-            attributes.clear();
-
-        } finally {
-            closed = true;
-            
-            // 注意：变更追踪清理（如已启用）由 tfi-compare 模块通过会话生命周期钩子处理，
-            // 而非直接在 flow-core 中执行。
-            
-            // 从管理器注销
-            SafeContextManager.getInstance().unregisterContext(this);
+        if (session != null && session.isActive()) {
+            terminalProbe.beforeSessionTerminal(this, session);
+            session.tryComplete();
         }
     }
 
+    private void failActiveTasksAndSession(String message) {
+        Session session = currentSession;
+        TaskNode rootTask = session != null ? session.getRootTask() : null;
+        while (!taskStack.isEmpty()) {
+            TaskNode task = taskStack.pop();
+            if (task != rootTask && task.getStatus().isActive()) {
+                task.tryFail(message);
+            }
+        }
+        if (session != null && session.isActive()) {
+            terminalProbe.beforeSessionTerminal(this, session);
+            session.tryError(message);
+        }
+    }
+
+    private static String terminalMessage(ContextOutcome outcome, Throwable cause, String reason) {
+        if (outcome == ContextOutcome.FAILURE) {
+            if (cause == null) {
+                return "Context failed";
+            }
+            String message = cause.getMessage();
+            return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+        }
+        return reason == null || reason.isBlank() ? "Context force-cleaned" : reason;
+    }
+
+    private static void rethrowTerminalFailure(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    /**
+     * 返回从构造到当前读取时点的单调耗时；关闭后仍继续增长，不代表 Session 最终耗时。
+     *
+     * @return 基于 {@link System#nanoTime()} 的纳秒差值
+     */
     public long getElapsedNanos() {
         return System.nanoTime() - createdNanos;
     }
@@ -411,4 +566,17 @@ public class ManagedThreadContext implements AutoCloseable {
         return String.format("ManagedThreadContext{id='%s', thread='%s', taskDepth=%d, closed=%s}",
                 contextId, threadName, taskStack.size(), closed);
     }
+}
+
+/**
+ * 在 Context 确实准备调用 Session 终态 helper 时触发的确定性测试接缝。
+ *
+ * <p>生产路径固定使用 {@link #NO_OP}。probe 位于 volatile marker 发布之后，使并发测试可以冻结精确
+ * 锁序时点，而不在 manager 中增加第二份运行时状态。
+ */
+@FunctionalInterface
+interface ContextTerminalProbe {
+    ContextTerminalProbe NO_OP = (context, session) -> { };
+
+    void beforeSessionTerminal(ManagedThreadContext context, Session session);
 }

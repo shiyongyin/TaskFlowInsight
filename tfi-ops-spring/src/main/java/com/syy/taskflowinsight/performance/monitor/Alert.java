@@ -19,6 +19,12 @@ import lombok.Data;
 @Builder
 public class Alert {
 
+    /**
+     * 为发布文档显式声明 builder 类型；Lombok 继续注入既有告警构建 API。
+     */
+    public static class AlertBuilder {
+    }
+
     /** 告警唯一键，用于去重和清除。格式：{@code <operation>.<dimension>} */
     private String key;
 

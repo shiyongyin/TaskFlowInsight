@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  *
  * <p>实现多层安全防御机制，防止 SpEL 注入攻击，同时提供高性能的表达式求值能力。
  *
- * <h3>安全防御层次</h3>
+ * <h2>安全防御层次</h2>
  * <ul>
  *   <li><b>L1 — 长度限制</b>：表达式不超过 {@code tfi.security.spel-max-length}（默认 1000）字符</li>
  *   <li><b>L2 — 黑名单关键词</b>：拒绝包含 {@code class}, {@code runtime}, {@code exec} 等危险模式的表达式</li>
@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
      *       {@code T(ClassName)} 及 {@code new ClassName()} 攻击向量）</li>
  * </ul>
  *
- * <h3>缓存策略</h3>
+ * <h2>缓存策略</h2>
  * <p>使用 LRU 缓存（容量上限由 {@code tfi.security.spel-cache-max-size} 控制），
  * 避免无限增长导致 OOM。
  *
@@ -324,10 +324,18 @@ public class SafeSpELEvaluator {
             this.blockedPatterns = blockedPatterns;
         }
 
-        /** @return 当前缓存表达式数量 */
+        /**
+         * 获取当前已编译并缓存的表达式数量。
+         *
+         * @return 当前缓存表达式数量
+         */
         public int getCachedExpressions() { return cachedExpressions; }
 
-        /** @return 黑名单模式数量 */
+        /**
+         * 获取当前生效的表达式黑名单模式数量。
+         *
+         * @return 黑名单模式数量
+         */
         public int getBlockedPatterns() { return blockedPatterns; }
     }
 

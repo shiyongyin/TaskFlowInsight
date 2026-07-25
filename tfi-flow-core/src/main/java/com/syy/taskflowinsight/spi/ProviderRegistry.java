@@ -1,395 +1,145 @@
 package com.syy.taskflowinsight.spi;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.lang.reflect.Method;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.ServiceLoader;
 
 /**
- * Provider注册与查找中心（Flow Core 版本）
+ * Provider 注册、发现与选择的唯一公共入口。
  *
- * <p>负责管理所有SPI Provider的注册、查找和优先级仲裁。
- * 支持三种Provider来源：
- * <ol>
- *   <li>Spring Bean (优先级最高，通常200+)</li>
- *   <li>手动注册 (TFI.registerXxxProvider，优先级1-199)</li>
- *   <li>ServiceLoader自动发现 (优先级0)</li>
- * </ol>
+ * <p>公共类型只保留稳定 API，全部可变状态由唯一的 package-private {@link ProviderRegistryEngine}
+ * 持有。候选严格分为注册与 {@link ServiceLoader} 两个来源：注册来源存在有效候选时直接返回，每个来源
+ * 内部按 {@link PrioritizedProvider#priority()} 降序选择，同优先级保持 FIFO。
  *
- * <p>注意：此版本为 tfi-flow-core 模块专用，不包含对 compare/tracking/render provider 的硬引用。
- * compare 模块的 provider 类型通过 ServiceLoader 或调用方传入类型列表来发现。
+ * <p>首次非 null lookup 标志运行期开始；此后注册、注销、白名单和显式 ClassLoader 加载都会被拒绝。
+ * 该冻结边界让一次运行期只观察一个 Provider 配置世代，避免 facade cache 与 Registry mutation 交叉。
  *
- * <p>线程安全：所有public方法都是线程安全的。
+ * <p>线程安全：所有 public 方法均可并发调用；{@link #clearAll()} 只允许在外部 Session/Task scope
+ * 已静默时执行，因为 freeze 分支没有跨 epoch 的 Provider lease。
  *
  * @author TaskFlow Insight Team
  * @since 4.0.0
  */
 public class ProviderRegistry {
 
-    private static final Logger logger = LoggerFactory.getLogger(ProviderRegistry.class);
+    private static final ProviderRegistryEngine engine = new ProviderRegistryEngine();
 
     /**
-     * 注册表：providerType → List<Provider实例>
-     * List按priority降序排序 (数值越大越靠前)
-     */
-    private static final Map<Class<?>, List<Object>> registeredProviders = new ConcurrentHashMap<>();
-
-    /**
-     * ServiceLoader缓存：避免重复扫描META-INF/services
-     */
-    private static final Map<Class<?>, List<Object>> serviceLoaderCache = new ConcurrentHashMap<>();
-
-    /**
-     * 允许的Provider白名单（可选）。
+     * 创建无状态 Registry 门面实例。
      *
-     * <p>匹配规则：
-     * <ul>
-     *   <li>精确类名匹配（例如：com.example.FooProvider）</li>
-     *   <li>包前缀匹配（以<code>.*</code>结尾，例如：com.example.providers.*）</li>
-     * </ul>
-     * 未配置或集合为空时表示不启用白名单。
+     * <p>实例不持有任何 Registry 状态；保留该构造器仅用于维持既有公共表面。</p>
      */
-    private static volatile Set<String> allowedProviders;
+    public ProviderRegistry() {
+    }
 
     /**
-     * Registry mutation generation. Facades can cache providers against this value and refresh
-     * whenever registration, whitelist, or custom ClassLoader state changes.
-     */
-    private static final AtomicLong generation = new AtomicLong();
-
-    /**
-     * 手动注册Provider
+     * 在运行期开始前注册 Provider。
      *
-     * @param providerType Provider接口类型
-     * @param provider Provider实例
-     * @param <T> Provider类型
+     * @param providerType Provider 接口类型；null 时保持历史静默语义
+     * @param provider Provider 实例；null 时保持历史静默语义
+     * @param <T> Provider 类型
+     * @throws IllegalStateException Registry 已进入运行期，或类型/实例容量达到上限
      */
     public static <T> void register(Class<T> providerType, T provider) {
-        if (providerType == null || provider == null) {
-            logger.warn("Attempted to register null provider, ignoring");
-            return;
-        }
-
-        if (!isAllowed(provider)) {
-            logger.warn("Provider {} is not in allowed list, skip registration", provider.getClass().getName());
-            return;
-        }
-
-        registeredProviders.compute(providerType, (key, existingList) -> {
-            List<Object> newList = new ArrayList<>(existingList != null ? existingList : Collections.emptyList());
-            newList.add(provider);
-
-            // 按priority降序排序 (高优先级在前)
-            newList.sort((a, b) -> {
-                int priorityA = getPriority(a);
-                int priorityB = getPriority(b);
-                return Integer.compare(priorityB, priorityA); // 降序
-            });
-
-            logger.info("Registered {} provider: {} (priority={})",
-                providerType.getSimpleName(),
-                provider.getClass().getSimpleName(),
-                getPriority(provider));
-
-            return Collections.unmodifiableList(newList);
-        });
-        generation.incrementAndGet();
+        engine.register(providerType, provider);
     }
 
     /**
-     * 取消注册指定Provider实例。
+     * 在运行期开始前注销指定 Provider 实例。
      *
-     * @param providerType Provider接口类型
-     * @param provider Provider实例
-     * @param <T> Provider类型
-     * @return 是否移除成功
+     * @param providerType Provider 接口类型；null 时返回 false
+     * @param provider Provider 实例；null 时返回 false
+     * @param <T> Provider 类型
+     * @return 找到并移除实例时返回 true，否则返回 false
+     * @throws IllegalStateException Registry 已进入运行期
      */
     public static <T> boolean unregister(Class<T> providerType, T provider) {
-        if (providerType == null || provider == null) {
-            return false;
-        }
-
-        final boolean[] removed = {false};
-        registeredProviders.compute(providerType, (key, existingList) -> {
-            if (existingList == null || existingList.isEmpty()) {
-                return existingList;
-            }
-
-            List<Object> newList = new ArrayList<>(existingList);
-            removed[0] = newList.remove(provider);
-            if (newList.isEmpty()) {
-                return null; // 从Map中移除该key
-            }
-            return Collections.unmodifiableList(newList);
-        });
-
-        if (removed[0]) {
-            logger.info("Unregistered {} provider: {}",
-                providerType.getSimpleName(), provider.getClass().getSimpleName());
-            generation.incrementAndGet();
-        }
-        return removed[0];
+        return engine.unregister(providerType, provider);
     }
 
     /**
-     * 查找Provider (按优先级顺序)
+     * 按来源优先、来源内 priority/FIFO 规则解析类型化 Provider。
      *
-     * @param providerType Provider接口类型
-     * @param <T> Provider类型
-     * @return Provider实例，如果找不到返回null
+     * <p>首个非 null 调用会冻结本 epoch 的配置；Provider 或空结果都由 Registry 缓存为本 epoch 的唯一选择。</p>
+     *
+     * @param providerType 实现类型化优先级契约的 Provider 接口；null 时返回 null 且不启动运行期
+     * @param <T> Provider 类型
+     * @return 本 epoch 选中的唯一 Provider；没有有效候选时返回 null
+     * @throws IllegalStateException 类型、ClassLoader 或声明容量达到上限，或三次并发发布均冲突
+     * @since 4.0.0
      */
+    public static <T extends PrioritizedProvider> T resolve(Class<T> providerType) {
+        return engine.resolve(providerType);
+    }
+
+    /**
+     * 按来源优先、来源内 priority/FIFO 规则解析任意兼容 Provider 类型。
+     *
+     * @param providerType Provider 接口类型；null 时返回 null 且不启动运行期
+     * @param <T> Provider 类型
+     * @return 本 epoch 选中的唯一 Provider；没有有效候选时返回 null
+     * @throws IllegalStateException 类型、ClassLoader 或声明容量达到上限，或三次并发发布均冲突
+     * @deprecated 从 4.0.0 起，类型化 SPI 请使用 {@link #resolve(Class)}；泛型兼容调用仍共享同一选择缓存
+     */
+    @Deprecated(since = "4.0.0")
     public static <T> T lookup(Class<T> providerType) {
-        if (providerType == null) {
-            return null;
-        }
-
-        // 1. 先查手动注册的Provider (包括Spring Bean)
-        List<Object> registered = registeredProviders.get(providerType);
-        if (registered != null && !registered.isEmpty()) {
-            @SuppressWarnings("unchecked")
-            T provider = (T) registered.get(0); // 已按priority排序，取第一个
-            return provider;
-        }
-
-        // 2. 再查ServiceLoader自动发现的Provider
-        List<Object> fromServiceLoader = loadFromServiceLoader(providerType);
-        if (!fromServiceLoader.isEmpty()) {
-            @SuppressWarnings("unchecked")
-            T provider = (T) fromServiceLoader.get(0);
-            return provider;
-        }
-
-        // 3. 返回null，由调用方决定兜底策略
-        return null;
+        return engine.resolve(providerType);
     }
 
     /**
-     * 从ServiceLoader加载Provider (带缓存)
-     */
-    private static <T> List<Object> loadFromServiceLoader(Class<T> providerType) {
-        return serviceLoaderCache.computeIfAbsent(providerType, key -> {
-            List<Object> providers = new ArrayList<>();
-            try {
-                ServiceLoader<T> loader = ServiceLoader.load(providerType);
-                loader.forEach(provider -> {
-                    if (!isAllowed(provider)) {
-                        logger.warn("Filtered out disallowed provider from ServiceLoader: {}",
-                            provider.getClass().getName());
-                        return;
-                    }
-                    providers.add(provider);
-                    logger.debug("Discovered {} provider from ServiceLoader: {} (priority={})",
-                        providerType.getSimpleName(),
-                        provider.getClass().getSimpleName(),
-                        getPriority(provider));
-                });
-
-                // 按priority排序
-                providers.sort((a, b) -> Integer.compare(getPriority(b), getPriority(a)));
-
-            } catch (ServiceConfigurationError e) {
-                logger.error("ServiceLoader failed to load {}: {}",
-                    providerType.getSimpleName(), e.getMessage());
-            }
-
-            return Collections.unmodifiableList(providers);
-        });
-    }
-
-    /**
-     * 使用自定义ClassLoader加载指定的Provider类型列表
+     * 在运行期开始前使用指定 ClassLoader 预加载 Provider。
      *
-     * <p>调用方需要传入要加载的 provider 类型列表，避免硬编码对特定模块的依赖。
+     * <p>扫描和 Provider 构造在生命周期锁外完成，只有完整成功的非空批次才会原子发布。每个类型最后一次
+     * 成功的非空加载会成为其 effective ClassLoader；空扫描不会替换已有 loader。</p>
      *
-     * @param cl 自定义ClassLoader
-     * @param providerTypes 要加载的Provider类型列表
+     * @param classLoader 自定义 ClassLoader；null 时保持历史静默语义
+     * @param providerTypes 要加载的类型；null/空数组默认加载 Flow 与 Export
+     * @throws IllegalStateException Registry 已进入运行期，类型/ClassLoader/声明容量达到上限，或三次并发发布均冲突
      */
     @SafeVarargs
-    public static void loadProviders(ClassLoader cl, Class<?>... providerTypes) {
-        if (cl == null) {
-            logger.warn("Cannot load providers with null ClassLoader");
-            return;
-        }
-
-        if (providerTypes == null || providerTypes.length == 0) {
-            // 默认只加载 Flow 核心的 provider 类型
-            providerTypes = new Class<?>[] { FlowProvider.class, ExportProvider.class };
-        }
-
-        try {
-            for (Class<?> type : providerTypes) {
-                loadProvidersForType(type, cl);
-            }
-            logger.info("Loaded {} provider types from custom ClassLoader: {}", 
-                providerTypes.length, cl.getClass().getName());
-        } catch (Throwable t) {
-            logger.warn("Failed to load providers from ClassLoader {}: {}",
-                cl.getClass().getName(), t.getMessage());
-        }
+    public static void loadProviders(ClassLoader classLoader, Class<?>... providerTypes) {
+        engine.loadProviders(classLoader, providerTypes);
     }
 
     /**
-     * 为指定类型加载Provider（使用自定义ClassLoader）
-     */
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private static void loadProvidersForType(Class type, ClassLoader cl) {
-        try {
-            ServiceLoader loader = ServiceLoader.load(type, cl);
-            List<Object> providers = new ArrayList<>();
-
-            for (Object provider : loader) {
-                if (!isAllowed(provider)) {
-                    logger.warn("Filtered out disallowed provider from custom ClassLoader: {}",
-                        provider.getClass().getName());
-                    continue;
-                }
-                providers.add(provider);
-                logger.debug("Discovered {} provider from ClassLoader: {} (priority={})",
-                    type.getSimpleName(),
-                    provider.getClass().getSimpleName(),
-                    getPriority(provider));
-            }
-
-            if (!providers.isEmpty()) {
-                // 按priority排序并缓存
-                providers.sort((a, b) -> Integer.compare(getPriority(b), getPriority(a)));
-                serviceLoaderCache.put(type, Collections.unmodifiableList(providers));
-                generation.incrementAndGet();
-            }
-        } catch (Throwable t) {
-            logger.warn("Failed to load {} from ClassLoader: {}",
-                type.getSimpleName(), t.getMessage());
-        }
-    }
-
-    /**
-     * 获取Provider的priority值（通过反射调用 priority() 方法）
+     * 在外部静默条件下开启新的 Registry epoch。
      *
-     * <p>不再硬编码 instanceof 检查，而是通过反射调用 priority() 方法，
-     * 使得此类不依赖于特定的 Provider 接口类型。
-     *
-     * @param provider Provider实例
-     * @return priority值，如果无法获取则返回0
-     */
-    private static int getPriority(Object provider) {
-        if (provider == null) {
-            return 0;
-        }
-
-        try {
-            // 尝试反射调用 priority() 方法
-            Method priorityMethod = provider.getClass().getMethod("priority");
-            priorityMethod.setAccessible(true);
-            Object result = priorityMethod.invoke(provider);
-            if (result instanceof Integer) {
-                return (Integer) result;
-            }
-        } catch (NoSuchMethodException e) {
-            // provider 没有 priority() 方法，返回默认值
-            logger.trace("Provider {} does not have priority() method, using default 0",
-                provider.getClass().getSimpleName());
-        } catch (Throwable t) {
-            logger.warn("Failed to get priority from {}: {}",
-                provider.getClass().getName(), t.getMessage());
-        }
-        return 0;
-    }
-
-    /**
-     * 清空所有注册 (测试用)
+     * <p>该操作原子清除注册、发现和类型预算，重开启动期并各推进一次 epoch/generation；已配置白名单
+     * 会保留。调用方必须先关闭所有 Session/Task scope，本 API 不提供 active-scope live reset。</p>
      */
     public static void clearAll() {
-        registeredProviders.clear();
-        serviceLoaderCache.clear();
-        generation.incrementAndGet();
-        logger.info("Cleared all registered providers");
+        engine.clearAll();
     }
 
     /**
-     * Current registry mutation generation.
+     * 返回 Registry 配置世代。
      *
-     * @return monotonically increasing generation value
+     * @return 单调递增的 generation
      */
     public static long getGeneration() {
-        return generation.get();
+        return engine.generation();
     }
 
     /**
-     * 获取所有已注册的Provider (调试用)
+     * 返回当前注册实例的只读快照。
+     *
+     * @return key 与每个实例列表均不可修改的快照
      */
     public static Map<Class<?>, List<Object>> getAllRegistered() {
-        return Collections.unmodifiableMap(registeredProviders);
+        return engine.registeredProviders();
     }
 
     /**
-     * 配置允许的Provider白名单（测试或非Spring环境使用）。
+     * 在运行期开始前配置 Provider 白名单。
      *
-     * <p>支持精确类名和包前缀（以.*结尾）。传入null或空集合表示禁用白名单。</p>
+     * <p>精确类名和以 {@code .*} 结尾的包前缀受支持；null/空集合显式禁用白名单并覆盖同名系统属性。
+     * 变更会清除发现缓存并剔除不再允许的已注册实例，确保 trust 配置与后续首次 resolution 属于同一世代。</p>
+     *
+     * @param allowed 允许的实现类全名或包前缀；null/空集合表示禁用
+     * @throws IllegalStateException Registry 已进入运行期
      */
     public static void setAllowedProviders(Collection<String> allowed) {
-        if (allowed == null || allowed.isEmpty()) {
-            allowedProviders = null;
-        } else {
-            allowedProviders = Collections.unmodifiableSet(new HashSet<>(allowed));
-        }
-        // 清空缓存，确保下次加载生效
-        serviceLoaderCache.clear();
-        generation.incrementAndGet();
-    }
-
-    /**
-     * 从系统属性读取白名单配置（key: tfi.spi.allowedProviders，逗号分隔）。
-     * 若已通过 setAllowedProviders 设置，则以显式设置优先。
-     */
-    private static Set<String> loadAllowedFromSystemPropertyIfAbsent() {
-        if (allowedProviders != null) {
-            return allowedProviders;
-        }
-        String prop = System.getProperty("tfi.spi.allowedProviders");
-        if (prop == null || prop.trim().isEmpty()) {
-            return null;
-        }
-        String[] parts = prop.split(",");
-        Set<String> set = new HashSet<>();
-        for (String p : parts) {
-            if (p != null) {
-                String v = p.trim();
-                if (!v.isEmpty()) {
-                    set.add(v);
-                }
-            }
-        }
-        if (set.isEmpty()) {
-            return null;
-        }
-        allowedProviders = Collections.unmodifiableSet(set);
-        return allowedProviders;
-    }
-
-    /**
-     * 判断provider是否在白名单中（未配置白名单则始终允许）。
-     */
-    private static boolean isAllowed(Object provider) {
-        Set<String> allowed = allowedProviders != null ? allowedProviders : loadAllowedFromSystemPropertyIfAbsent();
-        if (allowed == null || allowed.isEmpty()) {
-            return true;
-        }
-        String name = provider.getClass().getName();
-        if (allowed.contains(name)) {
-            return true;
-        }
-        // 包前缀匹配：前缀以".*"结尾
-        for (String rule : allowed) {
-            if (rule.endsWith(".*")) {
-                String prefix = rule.substring(0, rule.length() - 2);
-                if (name.startsWith(prefix)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        engine.setAllowedProviders(allowed);
     }
 }

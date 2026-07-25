@@ -16,17 +16,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 每个诊断码在同一线程/请求上下文中最多输出一次。
  * </p>
  *
- * <h3>使用示例</h3>
+ * <h2>使用示例</h2>
  * <pre>{@code
  * DiagnosticLogger.once(
  *     "TFI-DIAG-005",
  *     "RenderFallback",
  *     "Unknown render style alias '" + alias + "'",
- *     "Use simple/standard/detailed or provide RenderStyle object"
+ *     "Use a supported typed layout option"
  * );
  * }</pre>
  *
- * <h3>设计特性</h3>
+ * <h2>设计特性</h2>
  * <ul>
  *   <li>线程隔离：每个线程维护独立的已输出集合</li>
  *   <li>全局去重：跨线程使用轻量 LRU 限制总条目数</li>

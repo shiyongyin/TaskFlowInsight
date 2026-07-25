@@ -58,18 +58,18 @@ public class TieredCaffeineStore<K, V> implements Store<K, V> {
         // 先从L1查找
         Optional<V> value = l1Cache.get(key);
         if (value.isPresent()) {
-            log.trace("L1 cache hit for key: {}", key);
+            log.trace("L1 cache hit");
             return value;
         }
         
         // L1未命中，从L2查找
         value = l2Cache.get(key);
         if (value.isPresent()) {
-            log.trace("L2 cache hit for key: {}", key);
+            log.trace("L2 cache hit");
             // 提升到L1
             l1Cache.put(key, value.get());
         } else {
-            log.trace("Cache miss for key: {}", key);
+            log.trace("Cache miss");
         }
         
         return value;

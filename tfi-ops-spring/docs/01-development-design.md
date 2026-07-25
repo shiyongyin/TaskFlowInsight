@@ -427,7 +427,7 @@ tfi-ops-spring
 ├── tfi-flow-core (必须)
 │   ├── TfiConfig, TfiFlow, ThreadContext
 │   ├── ChangeTracker, SessionAwareChangeTracker
-│   ├── SafeContextManager, ZeroLeakThreadLocalManager
+│   ├── SafeContextManager, ManagedThreadContext
 │   ├── TfiMetrics, MetricsLogger
 │   ├── PathMatcherCacheInterface, ObjectSnapshot
 │   └── CollectionSummary, ChangeRecord

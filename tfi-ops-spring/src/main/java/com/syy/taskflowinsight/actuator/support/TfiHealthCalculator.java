@@ -1,133 +1,120 @@
 package com.syy.taskflowinsight.actuator.support;
 
-import com.syy.taskflowinsight.context.ThreadContext;
-import com.syy.taskflowinsight.tracking.SessionAwareChangeTracker;
+import com.syy.taskflowinsight.context.ContextMetrics;
+import com.syy.taskflowinsight.context.SafeContextManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * TFI 健康评分计算器。
+ * 基于JVM内存与Core Context事实计算健康状态。
  *
- * <p>集中管理所有端点共用的健康评估逻辑，包括：</p>
- * <ul>
- *   <li>JVM 内存使用评分</li>
- *   <li>活跃上下文数量评分</li>
- *   <li>会话数量评分</li>
- *   <li>内存泄漏检测</li>
- * </ul>
+ * <p>Compare没有session history owner，继续把“session数为0”纳入评分会把未知伪装成健康；
+ * 因此评分只消费当前进程能够真实观测的内存、Context和泄漏计数。</p>
  *
- * <p>所有阈值均可通过 {@code tfi.health.*} 配置属性进行外部化调整。</p>
- *
- * @author TaskFlow Insight Team
  * @since 3.0.0
+ * @see SafeContextManager#metrics()
  */
 @Component
 public class TfiHealthCalculator {
 
-    /** 内存使用率阈值，超过此值扣分 */
+    /** 内存使用率阈值，超过后扣分。 */
     @Value("${tfi.health.memory-threshold:0.8}")
     private double memoryThreshold;
 
-    /** 活跃上下文数量阈值，超过此值扣分 */
+    /** 活跃Context数量阈值，超过后扣分。 */
     @Value("${tfi.health.max-active-contexts:100}")
     private int maxActiveContexts;
 
-    /** 会话数量警告阈值 */
-    @Value("${tfi.health.max-sessions-warning:500}")
-    private int maxSessionsWarning;
-
-    /** 内存超限扣分 */
+    /** 内存超限扣分。 */
     private static final int MEMORY_PENALTY = 20;
 
-    /** 上下文超限扣分 */
+    /** Context超限扣分。 */
     private static final int CONTEXT_PENALTY = 15;
 
-    /** 会话超限扣分 */
-    private static final int SESSION_PENALTY = 10;
-
     /**
-     * 计算综合健康评分（0-100）。
+     * 捕获一次Context指标并计算综合健康评分。
      *
-     * @return 健康评分，100 为最佳
+     * @return 0到100之间的健康评分
      */
     public int calculateScore() {
-        int score = 100;
+        return calculateScore(SafeContextManager.getInstance().metrics());
+    }
 
-        // JVM 内存使用评分
+    /**
+     * 基于调用方共享的Context快照计算健康评分。
+     *
+     * @param contextMetrics 本次响应唯一的Context观测
+     * @return 0到100之间的健康评分
+     */
+    public int calculateScore(ContextMetrics contextMetrics) {
+        int score = 100;
         Runtime runtime = Runtime.getRuntime();
-        double memoryUsage = (double) (runtime.totalMemory() - runtime.freeMemory()) / runtime.maxMemory();
+        double memoryUsage = (double) (runtime.totalMemory() - runtime.freeMemory())
+                / runtime.maxMemory();
         if (memoryUsage > memoryThreshold) {
             score -= MEMORY_PENALTY;
         }
-
-        // 活跃上下文评分
-        int activeContexts = ThreadContext.getActiveContextCount();
-        if (activeContexts > maxActiveContexts) {
+        if (contextMetrics.activeContexts() > maxActiveContexts) {
             score -= CONTEXT_PENALTY;
         }
-
-        // 会话数量评分
-        int sessionCount = getActiveSessionCount();
-        if (sessionCount > maxSessionsWarning) {
-            score -= SESSION_PENALTY;
-        }
-
         return Math.max(0, score);
     }
 
     /**
-     * 将数值评分转换为健康等级描述。
-     *
-     * @param score 健康评分
-     * @return 等级文本：EXCELLENT / GOOD / FAIR / POOR / CRITICAL
+     * @param score 0到100之间的健康评分
+     * @return 稳定的健康等级文本
      */
     public String getHealthLevel(int score) {
-        if (score >= 90) return "EXCELLENT";
-        if (score >= 80) return "GOOD";
-        if (score >= 70) return "FAIR";
-        if (score >= 60) return "POOR";
+        if (score >= 90) {
+            return "EXCELLENT";
+        }
+        if (score >= 80) {
+            return "GOOD";
+        }
+        if (score >= 70) {
+            return "FAIR";
+        }
+        if (score >= 60) {
+            return "POOR";
+        }
         return "CRITICAL";
     }
 
     /**
-     * 执行全面健康检查，返回结构化结果。
+     * 捕获一次Context指标并执行健康检查。
      *
-     * <p>检查维度包括内存泄漏、上下文数量、会话数量。</p>
-     *
-     * @return 包含 {@code status}（UP/DOWN）和 {@code issues} 列表的 Map
+     * @return 包含status及可选issues的不可变结果
      */
     public Map<String, Object> performHealthCheck() {
-        Map<String, Object> health = new HashMap<>();
-
-        ThreadContext.ContextStatistics stats = ThreadContext.getStatistics();
-        boolean hasLeak = stats.potentialLeak;
-        boolean tooManyContexts = stats.activeContexts > maxActiveContexts;
-        boolean tooManySessions = getActiveSessionCount() > maxSessionsWarning;
-
-        String status = (!hasLeak && !tooManyContexts && !tooManySessions) ? "UP" : "DOWN";
-        health.put("status", status);
-
-        if ("DOWN".equals(status)) {
-            List<String> issues = new ArrayList<>();
-            if (hasLeak) issues.add("Potential memory leak detected");
-            if (tooManyContexts) issues.add("Too many active contexts: " + stats.activeContexts);
-            if (tooManySessions) issues.add("Too many active sessions: " + getActiveSessionCount());
-            health.put("issues", issues);
-        }
-
-        return health;
+        return performHealthCheck(SafeContextManager.getInstance().metrics());
     }
 
-    private int getActiveSessionCount() {
-        try {
-            return SessionAwareChangeTracker.getAllSessionMetadata().size();
-        } catch (Exception e) {
-            return 0;
+    /**
+     * 基于真实Context事实执行健康检查，不推断不存在的session状态。
+     *
+     * @param contextMetrics 本次响应唯一的Context观测
+     * @return 包含status及可选issues的不可变结果
+     */
+    public Map<String, Object> performHealthCheck(ContextMetrics contextMetrics) {
+        boolean hasLeak = contextMetrics.detectedLeaks() > 0;
+        boolean tooManyContexts = contextMetrics.activeContexts() > maxActiveContexts;
+        Map<String, Object> health = new LinkedHashMap<>();
+        health.put("status", !hasLeak && !tooManyContexts ? "UP" : "DOWN");
+        if (hasLeak || tooManyContexts) {
+            List<String> issues = new ArrayList<>();
+            if (hasLeak) {
+                issues.add("Potential memory leak detected");
+            }
+            if (tooManyContexts) {
+                issues.add("Too many active contexts: " + contextMetrics.activeContexts());
+            }
+            health.put("issues", List.copyOf(issues));
         }
+        return Map.copyOf(health);
     }
 }

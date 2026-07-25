@@ -18,7 +18,7 @@ import java.time.Instant;
  *
  * @param code      错误码，如 {@code "TFI-404"}
  * @param message   面向用户的错误描述
- * @param hint      修复提示，如 {@code "check /sessions"}
+ * @param hint      修复提示，如 {@code "check context diagnostics"}
  * @param timestamp 错误发生时间
  * @author TaskFlow Insight Team
  * @since 3.0.0

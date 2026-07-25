@@ -1,0 +1,22 @@
+{
+  "groups": [
+    {
+      "name": "tfi.kernel",
+      "type": "com.syy.tfi.kernel.compare.spring.TfiKernelProperties",
+      "sourceType": "com.syy.tfi.kernel.compare.spring.TfiKernelProperties",
+      "description": "Kernel Runtime 的 context-local 启动配置；默认值由 KernelConfig 拥有。"
+    },
+    {
+      "name": "tfi.compare",
+      "type": "com.syy.tfi.kernel.compare.spring.TfiCompareCoreProperties",
+      "sourceType": "com.syy.tfi.kernel.compare.spring.TfiCompareCoreProperties",
+      "description": "Compare Runtime 的完整冻结配置；默认值和 hard ceiling 由 ComparePolicy 拥有。"
+    },
+    {
+      "name": "tfi.kernel-compare",
+      "type": "com.syy.tfi.kernel.compare.spring.TfiKernelCompareProperties",
+      "sourceType": "com.syy.tfi.kernel.compare.spring.TfiKernelCompareProperties",
+      "description": "Compare 事实写入 Kernel 的程序化组合配置。"
+    }
+  ]
+}

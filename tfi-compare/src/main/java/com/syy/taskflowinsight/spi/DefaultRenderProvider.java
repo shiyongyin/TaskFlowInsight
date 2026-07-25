@@ -1,101 +1,69 @@
 package com.syy.taskflowinsight.spi;
 
+import com.syy.taskflowinsight.exporter.change.ChangeConsoleExporter;
+import com.syy.taskflowinsight.tracking.projection.CompareProjection;
 import com.syy.taskflowinsight.tracking.render.MarkdownRenderer;
-import com.syy.taskflowinsight.tracking.render.RenderStyle;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
+import java.util.Objects;
 
 /**
- * 默认渲染Provider实现（兜底）
+ * 复用目标Markdown/Console formatter的默认typed渲染Provider。
  *
- * <p>使用{@link MarkdownRenderer}进行结果渲染，priority=0（最低优先级）。
- * <p>支持style参数为String类型（"simple"/"standard"/"detailed"）或RenderStyle对象。
- * <p>异常安全：渲染失败时返回降级文本。
+ * <p>实现不捕获异常或返回伪成功降级文本；输入错误和formatter失败保持原语义交给调用边界处理。</p>
  *
- * @author TaskFlow Insight Team
  * @since 4.0.0
  */
 public class DefaultRenderProvider implements RenderProvider {
 
-    private static final Logger logger = LoggerFactory.getLogger(DefaultRenderProvider.class);
+    /** Markdown布局的唯一目标formatter。 */
+    private final MarkdownRenderer markdownRenderer;
 
-    private final MarkdownRenderer renderer;
+    /** Console布局的唯一目标formatter。 */
+    private final ChangeConsoleExporter consoleExporter;
 
+    /**
+     * 使用无状态目标formatter创建默认provider。
+     */
     public DefaultRenderProvider() {
-        this.renderer = new MarkdownRenderer();
-    }
-
-    @Override
-    public String render(Object result, Object style) {
-        try {
-            if (result == null) {
-                return "[null]";
-            }
-
-            // 解析style参数
-            RenderStyle renderStyle = parseStyle(style);
-
-            // 检查result类型（MarkdownRenderer只支持EntityListDiffResult）
-            if (result instanceof com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult) {
-                return renderer.render(
-                    (com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult) result,
-                    renderStyle);
-            } else {
-                // 其他类型降级处理
-                return String.format("Result type %s (rendering not supported for this type)",
-                    result.getClass().getSimpleName());
-            }
-
-        } catch (Exception e) {
-            // 此处 result 必定非 null（null 已在方法开头 return）
-            logger.warn("DefaultRenderProvider.render failed for result type={}: {}",
-                result.getClass().getName(), e.getMessage());
-            if (logger.isDebugEnabled()) {
-                logger.debug("Render error details", e);
-            }
-
-            // 降级：返回简要文本
-            return String.format("[Render failed: %s]", result.getClass().getSimpleName());
-        }
+        this.markdownRenderer = new MarkdownRenderer();
+        this.consoleExporter = new ChangeConsoleExporter();
     }
 
     /**
-     * 解析style参数为RenderStyle对象
+     * 按闭集布局渲染同一prebuilt projection。
+     *
+     * @param projection schema v1字段树，不允许为null
+     * @param options 只选择诊断外壳的不可变选项
+     * @return Markdown或Console文本
      */
-    private RenderStyle parseStyle(Object style) {
-        if (style == null) {
-            return RenderStyle.standard(); // 默认标准风格
-        }
-
-        if (style instanceof RenderStyle) {
-            return (RenderStyle) style;
-        }
-
-        if (style instanceof String) {
-            String styleStr = (String) style;
-            switch (styleStr.toLowerCase()) {
-                case "simple":
-                    return RenderStyle.simple();
-                case "detailed":
-                    return RenderStyle.detailed();
-                case "standard":
-                default:
-                    return RenderStyle.standard();
-            }
-        }
-
-        // 无法识别的类型，使用默认
-        logger.debug("Unknown style type: {}, using standard", style.getClass().getName());
-        return RenderStyle.standard();
+    @Override
+    public String render(CompareProjection projection, RenderOptions options) {
+        Objects.requireNonNull(projection, "projection");
+        Objects.requireNonNull(options, "options");
+        return switch (options.layout()) {
+            case MARKDOWN -> markdownRenderer.render(projection);
+            case CONSOLE -> consoleExporter.format(projection);
+        };
     }
 
+    /**
+     * 返回默认provider优先级，不覆盖显式注册实现。
+     *
+     * @return 固定0
+     */
     @Override
     public int priority() {
-        return 0; // 最低优先级（兜底实现）
+        return 0;
     }
 
+    /**
+     * 只输出结构身份，不展开projection内容。
+     *
+     * @return 安全摘要
+     */
     @Override
     public String toString() {
-        return "DefaultRenderProvider{priority=0, type=fallback}";
+        return "DefaultRenderProvider{priority=0, layouts=MARKDOWN|CONSOLE}";
     }
 }

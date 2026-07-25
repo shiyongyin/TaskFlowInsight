@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.demo;
 
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 
@@ -11,24 +13,22 @@ import java.util.*;
  * <p><b>一行式最小示例：</b>
  * <pre>{@code
  * CompareResult r = TFI.compare(list1, list2);
- * System.out.println(TFI.render(r, "standard"));
+ * System.out.println(TFI.render(r, RenderOptions.markdown()));
  * }</pre>
  *
  * <p><b>进阶链式用法：</b>
  * <pre>{@code
  * CompareResult r = TFI.comparator()
- *     .withStrategyName("AS_SET")    // 指定比较策略
- *     .detectMoves()                  // 检测元素移动
+ *     .withMaxDepth(10)
  *     .compare(list1, list2);
- * System.out.println(TFI.render(r, "standard"));
+ * System.out.println(TFI.render(r, RenderOptions.markdown()));
  * }</pre>
  *
- * <p><b>集合比较策略：</b>
+ * <p><b>集合语义：</b>
  * <ul>
- *   <li>SIMPLE：按顺序逐元素比较（默认）</li>
- *   <li>AS_SET：忽略顺序，仅比较内容</li>
- *   <li>ENTITY：基于@Key匹配实体（见Demo05）</li>
- *   <li>LEVENSHTEIN：最小编辑距离算法</li>
+ *   <li>List：顺序属于业务值，按索引逐元素比较</li>
+ *   <li>Set：顺序不属于业务值</li>
+ *   <li>Map：按精确 key 配对并比较 value</li>
  * </ul>
  *
  * <p><b>适用场景：</b>
@@ -54,7 +54,7 @@ public class Demo04_Collections {
         List<String> list2 = Arrays.asList("apple", "blueberry", "cherry", "date");
 
         CompareResult result1 = TFI.compare(list1, list2);
-        System.out.println(TFI.render(result1, "standard"));
+        System.out.println(TFI.render(result1, RenderOptions.markdown()));
 
         // 场景2：Set比较
         System.out.println("\n▶ 场景2：Set<Integer> 比较");
@@ -62,7 +62,7 @@ public class Demo04_Collections {
         Set<Integer> set2 = new HashSet<>(Arrays.asList(3, 4, 5, 6, 7));
 
         CompareResult result2 = TFI.compare(set1, set2);
-        System.out.println(TFI.render(result2, "standard"));
+        System.out.println(TFI.render(result2, RenderOptions.markdown()));
 
         // 场景3：Map比较
         System.out.println("\n▶ 场景3：Map<String, Object> 比较");
@@ -77,7 +77,7 @@ public class Demo04_Collections {
         map2.put("country", "China");
 
         CompareResult result3 = TFI.compare(map1, map2);
-        System.out.println(TFI.render(result3, "standard"));
+        System.out.println(TFI.render(result3, RenderOptions.markdown()));
 
         System.out.println("\n💡 使用说明：");
         System.out.println("  • List/Set/Map 都支持一行式比较");
@@ -93,26 +93,22 @@ public class Demo04_Collections {
         System.out.println("🔧 进阶链式用法");
         System.out.println("=".repeat(80));
 
-        // 场景1：AS_SET策略（忽略顺序）
-        System.out.println("\n▶ 场景1：AS_SET 策略（忽略顺序）");
+        // 场景1：List重排仍按索引比较
+        System.out.println("\n▶ 场景1：List 按索引比较");
         List<String> list1 = Arrays.asList("apple", "banana", "cherry");
-        List<String> list2 = Arrays.asList("cherry", "apple", "banana"); // 顺序不同但内容相同
+        List<String> list2 = Arrays.asList("cherry", "apple", "banana");
 
-        CompareResult result1 = TFI.comparator()
-            .withStrategyName("AS_SET")
-            .compare(list1, list2);
-        System.out.println(TFI.render(result1, "standard"));
-        System.out.println("  说明：元素相同但顺序不同，AS_SET策略判定为相同");
+        CompareResult result1 = TFI.compare(list1, list2);
+        System.out.println(TFI.render(result1, RenderOptions.markdown()));
+        System.out.println("  说明：List 顺序属于业务值，重排会产生索引位置上的修改");
 
-        // 场景2：移动检测
-        System.out.println("\n▶ 场景2：检测元素移动");
-        List<String> list3 = Arrays.asList("A", "B", "C", "D");
-        List<String> list4 = Arrays.asList("A", "D", "B", "C"); // D移动了
+        // 场景2：顺序无业务含义时由调用方使用Set表达
+        System.out.println("\n▶ 场景2：Set 无序集合比较");
+        Set<String> set1 = new LinkedHashSet<>(list1);
+        Set<String> set2 = new LinkedHashSet<>(list2);
 
-        CompareResult result2 = TFI.comparator()
-            .detectMoves()
-            .compare(list3, list4);
-        System.out.println(TFI.render(result2, "standard"));
+        CompareResult result2 = TFI.compare(set1, set2);
+        System.out.println(TFI.render(result2, RenderOptions.markdown()));
 
         // 场景3：嵌套集合比较
         System.out.println("\n▶ 场景3：嵌套集合深度比较");
@@ -132,13 +128,12 @@ public class Demo04_Collections {
             .withMaxDepth(10)
             .withSimilarity()
             .compare(nestedList1, nestedList2);
-        System.out.println(TFI.render(result3, "detailed"));
+        System.out.println(TFI.render(result3, RenderOptions.markdown()));
 
         System.out.println("\n💡 链式 API 说明：");
-        System.out.println("  • withStrategyName(\"AS_SET\") - 忽略顺序比较");
-        System.out.println("  • detectMoves() - 检测元素移动");
+        System.out.println("  • List 始终按索引比较，不根据规模或开关切换语义");
+        System.out.println("  • 顺序无业务含义时，使用 Set 作为输入类型");
         System.out.println("  • withMaxDepth(n) - 支持嵌套集合深度比较");
-        System.out.println("  • 策略选择：SIMPLE/AS_SET/LEVENSHTEIN");
     }
 
     /**
@@ -157,7 +152,7 @@ public class Demo04_Collections {
 
         System.out.println("\n" + "=".repeat(80));
         System.out.println("✅ 集合类型演示完成");
-        System.out.println("效果：支持 List/Set/Map、自动策略选择、移动检测、深度嵌套比较");
+        System.out.println("效果：支持 List/Set/Map 的类型语义与深度嵌套比较");
         System.out.println("=".repeat(80));
     }
 }

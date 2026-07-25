@@ -92,31 +92,26 @@ TaskFlowInsight (TFI) 是一个嵌入到 Java 应用中的库组件（非独立�
 <dependency>
     <groupId>com.syy</groupId>
     <artifactId>TaskFlowInsight</artifactId>
-    <version>3.0.0</version>
+    <version>4.0.0</version>
 </dependency>
 
 <!-- 或按需引入子模块 -->
 <dependency>
     <groupId>com.syy</groupId>
     <artifactId>tfi-flow-spring-starter</artifactId>
-    <version>3.0.0</version>
+    <version>4.0.0</version>
 </dependency>
 <dependency>
     <groupId>com.syy</groupId>
-    <artifactId>tfi-compare</artifactId>
-    <version>3.0.0</version>
+    <artifactId>tfi-compare-spring-starter</artifactId>
+    <version>4.0.0</version>
 </dependency>
 ```
 
-#### 2.2.2 Spring Boot 启用
+#### 2.2.2 Spring Boot 自动配置
 
 ```java
 @SpringBootApplication
-@EnableTfi(
-    enableChangeTracking = true,  // 变更追踪
-    enableActuator = true,        // Actuator 端点
-    enableAsync = true            // 异步支持
-)
 public class MyApplication {
     public static void main(String[] args) {
         SpringApplication.run(MyApplication.class, args);
@@ -131,7 +126,7 @@ public class MyApplication {
 ./mvnw clean package -DskipTests
 
 # 运行 (示例应用)
-java -jar tfi-examples/target/tfi-examples-3.0.0.jar \
+java -jar tfi-examples/target/tfi-examples-4.0.0.jar \
   --spring.profiles.active=prod \
   --server.port=19090
 
@@ -142,13 +137,13 @@ java -jar tfi-examples/target/tfi-examples-3.0.0.jar \
 
 ### 2.4 环境 Profile 配置
 
-| Profile | TFI 状态 | 变更追踪 | Actuator | 日志级别 | 用途 |
+| Profile | Annotation | Compare | Tracking | 日志级别 | 用途 |
 |---------|----------|----------|----------|----------|------|
-| `dev` | 启用 | 启用 | 完整 | DEBUG | 开发调试 |
-| `prod` | **禁用** | 禁用 | 最小 | WARN | 生产环境 |
+| `dev` | 启用 | 启用 | 启用 | DEBUG | 开发调试 |
+| `prod` | 禁用 | 禁用 | 禁用 | INFO | 生产环境 |
 | 自定义 | 按需 | 按需 | 按需 | 按需 | 灵活配置 |
 
-> **生产环境建议**: 默认禁用 TFI，仅在需要时通过运行时 API 或 Actuator 端点临时启用。
+> **生产环境建议**: 分别控制 Spring annotation、Compare 与 tracking；纯 Java Flow 静态开关只由程序化 API 拥有。
 
 ---
 
@@ -158,49 +153,23 @@ java -jar tfi-examples/target/tfi-examples-3.0.0.jar \
 
 ```yaml
 tfi:
-  # === 全局开关 ===
-  enabled: true                               # 主开关 (生产建议: false)
-  
   # === 注解支持 ===
   annotation:
     enabled: true                             # @TfiTask/@TfiTrack
-  
-  # === API 路由 (v4.0.0) ===
-  api:
-    routing:
-      enabled: false                          # Provider 路由主开关
-      provider-mode: auto                     # auto/spring-only/service-loader-only
-    facade:
-      enabled: true                           # Facade API 开关
-  
-  # === 变更追踪 ===
-  change-tracking:
-    max-tracked-objects: 1000                 # 最大追踪对象数
-    snapshot:
-      max-depth: 10                           # 最大对象图深度
-      provider: direct                        # direct/facade
-    diff:
-      heavy:
-        field-threshold: 50                   # 重型字段阈值
-  
+
   # === 对象比较 ===
   compare:
-    auto-route:
-      lcs:
-        enabled: true                         # LCS 移动检测
-  
+    enabled: true                             # 当前上下文比较入口
+    max-depth: 10                             # 最大逻辑深度
+    max-compared-nodes: 10000                 # 单次请求节点预算
+    max-elements: 1000                        # 两侧容器元素预算
+    tracking:
+      enabled: true                           # 接入当前 Flow advice
+
   # === 上下文管理 ===
   context:
-    leak-detection:
-      enabled: true                           # 泄漏检测
-      timeout-seconds: 300                    # 超时秒数
-  
-  # === Actuator ===
-  actuator:
-    enabled: true                             # Actuator 端点
-  endpoint:
-    basic:
-      enabled: false                          # 基础端点 (默认关闭)
+    max-age-millis: 3600000                   # 上下文最大存活时间
+    leak-detection-enabled: true              # 泄漏检测
 ```
 
 ### 3.2 系统属性覆盖
@@ -209,11 +178,11 @@ tfi:
 
 ```bash
 java -jar app.jar \
-  -Dtfi.enabled=true \
-  -Dtfi.change-tracking.snapshot.provider=facade \
-  -Dtfi.change-tracking.max-tracked-objects=500 \
-  -Dtfi.change-tracking.snapshot.max-depth=5 \
-  -Dtfi.diff.heavy.field-threshold=30
+  -Dtfi.annotation.enabled=true \
+  -Dtfi.compare.enabled=true \
+  -Dtfi.compare.tracking.enabled=true \
+  -Dtfi.compare.max-compared-nodes=5000 \
+  -Dtfi.compare.max-depth=5
 ```
 
 ### 3.3 运行时动态配置
@@ -232,17 +201,17 @@ TFI.disable();  // 运行时禁用
 ```yaml
 # application-prod.yml
 tfi:
-  enabled: false                    # 默认关闭，按需开启
-  change-tracking:
-    max-tracked-objects: 500        # 限制追踪数量
-    snapshot:
-      max-depth: 5                  # 限制深度
+  annotation:
+    enabled: false                  # 关闭 Spring advice
+  compare:
+    enabled: false                  # 关闭当前上下文比较入口
+    max-compared-nodes: 5000        # 限制单次节点预算
+    max-depth: 5                    # 限制深度
+    tracking:
+      enabled: false               # 不连接 TfiTask deep tracking
   context:
-    leak-detection:
-      enabled: true                 # 保持泄漏检测
-      timeout-seconds: 120          # 缩短超时
-  actuator:
-    enabled: true                   # 保留运维端点
+    max-age-millis: 120000          # 缩短上下文最大存活时间
+    leak-detection-enabled: true    # 保持泄漏检测
 
 # Actuator 暴露
 management:
@@ -524,10 +493,9 @@ echo "TFI Status: $TFI_STATUS, Score: $TFI_SCORE"
 
 ```yaml
 tfi:
-  change-tracking:
-    max-tracked-objects: 500          # 降低 (默认 1000)
-    snapshot:
-      max-depth: 5                    # 降低 (默认 10)
+  compare:
+    max-compared-nodes: 5000          # 降低单次节点预算
+    max-depth: 5                      # 降低逻辑深度
 ```
 
 #### 8.2.2 性能优化
@@ -561,11 +529,15 @@ tfi:
   -Dexec.mainClass=com.syy.taskflowinsight.benchmark.BenchmarkRunner
 
 # 路由性能基准
-./mvnw -q -P bench -DskipTests exec:java \
-  -Dexec.mainClass=com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner
+./mvnw -q -pl tfi-examples -Pbench -DskipTests compile \
+  org.codehaus.mojo:exec-maven-plugin:3.5.0:exec \
+  -Dexec.executable=java -Dexec.classpathScope=runtime \
+  '-Dexec.args=-cp %classpath com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner'
 
 # 性能门禁测试
-./mvnw verify -Pperf -Dtfi.perf.strict=true
+./mvnw -pl tfi-all -Dtest=TfiRoutingPerfGateTests \
+  -Dit.test=TfiRoutingPerfGateIT verify \
+  -Dtfi.perf.enabled=true -Dtfi.perf.strict=true
 ```
 
 ### 8.4 JVM 调优建议
@@ -688,9 +660,8 @@ java -jar app.jar \
    ```yaml
    # 降低快照深度
    tfi:
-     change-tracking:
-       snapshot:
-         max-depth: 3
+     compare:
+       max-depth: 3
    ```
 
 4. **紧急处理**
@@ -721,12 +692,8 @@ java -jar app.jar \
    ```yaml
    tfi:
      compare:
-       auto-route:
-         lcs:
-           enabled: false     # 关闭 LCS
-     change-tracking:
-       snapshot:
-         max-depth: 3         # 降低深度
+       max-depth: 3           # 降低逻辑深度
+       max-elements: 1000     # 限制两侧容器元素预算
    ```
 
 ---
@@ -787,17 +754,15 @@ java -jar app.jar \
 
 2. **紧急处理**
    ```java
-   TFI.clearAllTracking();   // 释放所有快照
-   PathBuilder.clearCache(); // 清理路径缓存
+   TFI.clearAllTracking(); // 释放仍由追踪入口持有的状态；路径状态为请求局部，无全局缓存需要清理
    ```
 
 3. **长期优化**
    ```yaml
    tfi:
-     change-tracking:
-       max-tracked-objects: 200    # 大幅降低
-       snapshot:
-         max-depth: 3              # 限制深度
+     compare:
+       max-compared-nodes: 2000    # 大幅降低节点预算
+       max-depth: 3                # 限制深度
    ```
 
 ---
@@ -924,8 +889,8 @@ management:
    System.gc() // 建议，非强制
 
 4. 调整配置重启 (如需)
-   -Dtfi.change-tracking.max-tracked-objects=100
-   -Dtfi.change-tracking.snapshot.max-depth=3
+   -Dtfi.compare.max-compared-nodes=1000
+   -Dtfi.compare.max-depth=3
 
 5. 验证恢复
    curl /actuator/health

@@ -1,9 +1,6 @@
 package com.syy.taskflowinsight.concurrent;
 
 import com.syy.taskflowinsight.config.resolver.ConfigDefaults;
-import com.syy.taskflowinsight.metrics.TfiMetrics;
-import com.syy.taskflowinsight.tracking.monitoring.DegradationContext;
-import com.syy.taskflowinsight.tracking.monitoring.DegradationLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,9 +28,6 @@ public final class ConcurrentRetryUtil {
     // 全局重试统计
     private static final RetryStats globalStats = new RetryStats();
     
-    // 可选的TfiMetrics集成
-    private static volatile com.syy.taskflowinsight.metrics.TfiMetrics tfiMetrics;
-    
     private ConcurrentRetryUtil() {
         // 工具类不允许实例化
     }
@@ -53,65 +47,6 @@ public final class ConcurrentRetryUtil {
         }
         logger.info("CME retry params updated: maxAttempts={}, baseDelayMs={}", 
             defaultMaxAttempts, defaultBaseDelayMs);
-    }
-    
-    /**
-     * 设置TfiMetrics实例（用于指标上报）
-     * 
-     * @param metrics TfiMetrics实例
-     */
-    public static void setTfiMetrics(com.syy.taskflowinsight.metrics.TfiMetrics metrics) {
-        tfiMetrics = metrics;
-    }
-
-    /**
-     * 执行操作：先进行CME重试；若重试耗尽则降级到SUMMARY并执行回退操作。
-     * 注意：降级作用域仅限本次调用（使用ThreadLocal，执行完毕后恢复原级别）。
-     *
-     * @param operation 主操作
-     * @param summaryFallback 当CME重试耗尽时的SUMMARY回退操作
-     * @param <T> 返回类型
-     * @return 主操作或回退操作的结果
-     */
-    public static <T> T executeWithRetryOrSummary(Supplier<T> operation, Supplier<T> summaryFallback) {
-        if (operation == null || summaryFallback == null) {
-            throw new IllegalArgumentException("operation and summaryFallback cannot be null");
-        }
-        try {
-            return executeWithRetry(operation);
-        } catch (ConcurrentModificationException exhausted) {
-            // CME重试耗尽，降级到SUMMARY并执行回退
-            DegradationLevel previous = DegradationContext.getCurrentLevel();
-            try {
-                if (previous != DegradationLevel.SUMMARY_ONLY) {
-                    DegradationContext.setCurrentLevel(DegradationLevel.SUMMARY_ONLY);
-                    if (tfiMetrics != null) {
-                        tfiMetrics.recordDegradationEvent(previous.name(), DegradationLevel.SUMMARY_ONLY.name(), "cme_exhausted");
-                    }
-                    logger.warn("CME exhausted -> degrade to SUMMARY_ONLY for fallback (prev={})", previous);
-                }
-                return summaryFallback.get();
-            } finally {
-                // 恢复到原先级别，避免影响后续无关操作
-                DegradationContext.setCurrentLevel(previous);
-            }
-        }
-    }
-
-    /**
-     * Runnable版本：先重试，重试耗尽后在SUMMARY降级下执行回退Runnable。
-     */
-    public static void executeWithRetryOrSummary(Runnable operation, Runnable summaryFallback) {
-        if (operation == null || summaryFallback == null) {
-            throw new IllegalArgumentException("operation and summaryFallback cannot be null");
-        }
-        executeWithRetryOrSummary(() -> {
-            operation.run();
-            return Boolean.TRUE;
-        }, () -> {
-            summaryFallback.run();
-            return Boolean.TRUE;
-        });
     }
     
     /**
@@ -151,7 +86,6 @@ public final class ConcurrentRetryUtil {
             try {
                 // 成功执行，记录统计
                 globalStats.recordRetry(attempt, true);
-                recordTfiMetrics();
                 return operation.get();
                 
             } catch (ConcurrentModificationException e) {
@@ -160,7 +94,6 @@ public final class ConcurrentRetryUtil {
                 if (attempt == maxAttempts) {
                     logger.warn("CME retry exhausted after {} attempts", maxAttempts);
                     globalStats.recordRetry(attempt, false);
-                    recordTfiMetrics();
                     break;
                 }
                 
@@ -247,20 +180,6 @@ public final class ConcurrentRetryUtil {
     }
     
     /**
-     * 记录TFI指标（如果可用）
-     */
-    private static void recordTfiMetrics() {
-        if (tfiMetrics != null) {
-            RetryStats stats = globalStats;
-            tfiMetrics.recordCmeRetryStats(
-                stats.totalRetries,
-                stats.totalRetries - stats.maxAttemptsExhausted,  // 成功次数
-                stats.maxAttemptsExhausted
-            );
-        }
-    }
-    
-    /**
      * 获取全局重试统计
      */
     public static RetryStats getGlobalStats() {
@@ -271,8 +190,11 @@ public final class ConcurrentRetryUtil {
      * 重试统计信息
      */
     public static class RetryStats {
+        /** 已记录的调用总数。 */
         private volatile int totalRetries = 0;
+        /** 首次失败后重试成功的调用数。 */
         private volatile int successAfterRetry = 0;
+        /** 用尽显式重试次数仍失败的调用数。 */
         private volatile int maxAttemptsExhausted = 0;
         
         public synchronized void recordRetry(int attemptCount, boolean success) {
@@ -281,15 +203,6 @@ public final class ConcurrentRetryUtil {
                 successAfterRetry++;
             } else if (!success) {
                 maxAttemptsExhausted++;
-            }
-            
-            // 上报到TfiMetrics（如果配置了）
-            if (tfiMetrics != null && totalRetries % 10 == 0) { // 每10次上报一次，避免频繁调用
-                tfiMetrics.recordCmeRetryStats(
-                    totalRetries, 
-                    totalRetries - maxAttemptsExhausted,  // 成功次数
-                    maxAttemptsExhausted
-                );
             }
         }
         

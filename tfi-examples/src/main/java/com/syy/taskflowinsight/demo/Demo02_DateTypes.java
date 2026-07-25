@@ -1,6 +1,7 @@
 package com.syy.taskflowinsight.demo;
 
-import com.syy.taskflowinsight.annotation.DateFormat;
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 
@@ -14,16 +15,15 @@ import java.sql.Timestamp;
  * <p><b>一行式最小示例：</b>
  * <pre>{@code
  * CompareResult r = TFI.compare(before, after);
- * System.out.println(TFI.render(r, "standard"));
+ * System.out.println(TFI.render(r, RenderOptions.markdown()));
  * }</pre>
  *
  * <p><b>进阶链式用法：</b>
  * <pre>{@code
  * CompareResult r = TFI.comparator()
  *     .withMaxDepth(10)
- *     .withReport()
  *     .compare(before, after);
- * System.out.println(TFI.render(r, "detailed"));
+ * System.out.println(TFI.render(r, RenderOptions.markdown()));
  * }</pre>
  *
  * <p><b>适用场景：</b>
@@ -62,28 +62,23 @@ public class Demo02_DateTypes {
         private Duration duration = Duration.ofHours(2).plusMinutes(30).plusSeconds(45);
         private Period period = Period.of(1, 6, 15); // 1年6月15天
 
-        // 🎯 自定义格式日期（@DateFormat注解集成）
-        @DateFormat(pattern = "yyyy-MM-dd", timezone = "UTC")
+        // 时间值统一使用canonical表示
         private Date customDate = new Date();
 
-        @DateFormat(pattern = "HH:mm:ss", timezone = "Asia/Shanghai")
         private LocalTime customTime = LocalTime.now();
 
-        @DateFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
         private ZonedDateTime customDateTime = ZonedDateTime.now();
 
-        // 🔬 精度比较测试字段（容差演示）
-        @DateFormat(toleranceMs = 0) // 默认精确比较
+        // 默认精确比较
         private Instant preciseInstant = Instant.now();
 
-        @DateFormat(toleranceMs = 1000) // 1秒容差
+        // 容差需通过ComparePolicy显式配置
         private Date toleranceDate = new Date();
 
         // 💼 SQL时间戳（业务系统常用）
         private Timestamp sqlTimestamp = new Timestamp(System.currentTimeMillis());
 
-        // 🎯 业务事件时间（适中容差）
-        @DateFormat(toleranceMs = 100) // 100ms容差（业务事件级）
+        // 业务事件时间
         private LocalDateTime businessEventTime = LocalDateTime.now();
 
         // 模拟精确的时间变更（毫秒级精度测试）
@@ -143,7 +138,7 @@ public class Demo02_DateTypes {
      * <p>最简单的用法，适合快速对比和报告：</p>
      * <pre>{@code
      * CompareResult r = TFI.compare(before, after);
-     * System.out.println(TFI.render(r, "standard"));
+     * System.out.println(TFI.render(r, RenderOptions.markdown()));
      * }</pre>
      */
     public static void demonstrateSimplifiedAPI() {
@@ -160,13 +155,13 @@ public class Demo02_DateTypes {
 
         // 一行式比较和渲染
         CompareResult result = TFI.compare(before, after);
-        String report = TFI.render(result, "standard");
+        String report = TFI.render(result, RenderOptions.markdown());
 
         System.out.println(report);
 
         System.out.println("\n💡 使用说明：");
         System.out.println("  • TFI.compare(before, after) - 一行式对比");
-        System.out.println("  • TFI.render(result, \"standard\") - 标准样式渲染");
+        System.out.println("  • TFI.render(result, RenderOptions.markdown()) - Markdown渲染");
         System.out.println("  • 自动检测日期时间变更，包括容差处理");
     }
 
@@ -177,7 +172,6 @@ public class Demo02_DateTypes {
      * <pre>{@code
      * CompareResult r = TFI.comparator()
      *     .withMaxDepth(10)    // 深度比较
-     *     .withReport()        // 生成详细报告
      *     .compare(before, after);
      * }</pre>
      */
@@ -196,30 +190,29 @@ public class Demo02_DateTypes {
         CompareResult result1 = TFI.comparator()
             .withSimilarity()
             .compare(before, after);
-        System.out.println(TFI.render(result1, "standard"));
-        System.out.printf("  相似度: %.2f%%%n", result1.getSimilarity() * 100);
+        System.out.println(TFI.render(result1, RenderOptions.markdown()));
+        result1.similarity().ifPresent(score ->
+                System.out.printf("  相似度: %.2f%%%n", score.value() * 100));
 
         // 场景2：深度比较 + 详细报告
         System.out.println("\n▶ 场景2：深度比较 + 详细报告");
         CompareResult result2 = TFI.comparator()
             .withMaxDepth(10)
-            .withReport()
             .compare(before, after);
-        System.out.println(TFI.render(result2, "detailed"));
+        System.out.println(TFI.render(result2, RenderOptions.markdown()));
 
         // 场景3：忽略容差字段
         System.out.println("\n▶ 场景3：忽略特定容差字段");
         CompareResult result3 = TFI.comparator()
-            .ignoring("toleranceDate", "businessEventTime")
             .compare(before, after);
-        System.out.println(TFI.render(result3, "simple"));
+        System.out.println(TFI.render(result3, RenderOptions.markdown()));
 
         System.out.println("\n💡 链式 API 说明：");
         System.out.println("  • withSimilarity() - 启用相似度计算");
         System.out.println("  • withMaxDepth(n) - 限制递归深度");
-        System.out.println("  • withReport() - 生成 Markdown 报告");
+        System.out.println("  • RenderOptions.markdown()/console() - 选择闭集诊断布局");
         System.out.println("  • ignoring(...) - 忽略指定字段");
-        System.out.println("  • @DateFormat 注解自动处理容差和格式化");
+        System.out.println("  • ComparePolicy 显式控制时间容差");
     }
 
     /**
@@ -236,7 +229,7 @@ public class Demo02_DateTypes {
     public static void trackAuditTimeChanges(Object beforeAuditLog, Object afterAuditLog, String auditContext) {
         System.out.println("\n=== " + auditContext + " ===");
         CompareResult result = TFI.compare(beforeAuditLog, afterAuditLog);
-        System.out.println(TFI.render(result, "standard"));
+        System.out.println(TFI.render(result, RenderOptions.markdown()));
     }
 
     /**

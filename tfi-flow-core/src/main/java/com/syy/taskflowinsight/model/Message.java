@@ -1,5 +1,6 @@
 package com.syy.taskflowinsight.model;
 
+import com.syy.taskflowinsight.enums.MessageSeverity;
 import com.syy.taskflowinsight.enums.MessageType;
 import java.util.Objects;
 import java.util.UUID;
@@ -26,6 +27,7 @@ public final class Message {
     // 推迟到首次访问再生成可避免每条消息都调用 SecureRandom（UUID.randomUUID）
     private volatile String messageId;
     private final MessageType type;          // 可能为null（使用自定义标签时）
+    private final MessageSeverity severity;
     private final String content;
     private final long timestampMillis;
     private final long timestampNanos;
@@ -37,9 +39,11 @@ public final class Message {
      * 
      * @param type 消息类型
      * @param content 消息内容
+     * @param severity 消息严重程度；与业务类型正交，不用于改变 V1 导出结构
      */
-    private Message(MessageType type, String content) {
+    private Message(MessageType type, String content, MessageSeverity severity) {
         this.type = Objects.requireNonNull(type, "Message type cannot be null");
+        this.severity = Objects.requireNonNull(severity, "Message severity cannot be null");
         this.content = Objects.requireNonNull(content, "Message content cannot be null");
         this.customLabel = null;
         
@@ -53,9 +57,11 @@ public final class Message {
      * 
      * @param customLabel 自定义标签
      * @param content 消息内容
+     * @param severity 消息严重程度；自定义标签入口固定为 INFO
      */
-    private Message(String customLabel, String content) {
+    private Message(String customLabel, String content, MessageSeverity severity) {
         this.type = null;
+        this.severity = Objects.requireNonNull(severity, "Message severity cannot be null");
         this.content = Objects.requireNonNull(content, "Message content cannot be null");
         this.customLabel = Objects.requireNonNull(customLabel, "Custom label cannot be null");
         
@@ -79,7 +85,7 @@ public final class Message {
         if (type == null) {
             throw new IllegalArgumentException("Message type cannot be null");
         }
-        return new Message(type, content.trim());
+        return new Message(type, content.trim(), MessageSeverity.INFO);
     }
     
     /**
@@ -97,7 +103,7 @@ public final class Message {
         if (customLabel == null || customLabel.trim().isEmpty()) {
             throw new IllegalArgumentException("Custom label cannot be null or empty");
         }
-        return new Message(customLabel.trim(), content.trim());
+        return new Message(customLabel.trim(), content.trim(), MessageSeverity.INFO);
     }
     
     /**
@@ -111,7 +117,7 @@ public final class Message {
         if (content == null || content.trim().isEmpty()) {
             throw new IllegalArgumentException("Message content cannot be null or empty");
         }
-        return new Message(MessageType.PROCESS, content.trim());
+        return new Message(MessageType.PROCESS, content.trim(), MessageSeverity.INFO);
     }
     
     /**
@@ -123,7 +129,7 @@ public final class Message {
         if (content == null || content.trim().isEmpty()) {
             throw new IllegalArgumentException("Message content cannot be null or empty");
         }
-        return new Message(MessageType.METRIC, content.trim());
+        return new Message(MessageType.METRIC, content.trim(), MessageSeverity.DEBUG);
     }
     
     /**
@@ -137,7 +143,7 @@ public final class Message {
         if (content == null || content.trim().isEmpty()) {
             throw new IllegalArgumentException("Message content cannot be null or empty");
         }
-        return new Message(MessageType.ALERT, content.trim());
+        return new Message(MessageType.ALERT, content.trim(), MessageSeverity.ERROR);
     }
     
     /**
@@ -150,7 +156,7 @@ public final class Message {
             throw new IllegalArgumentException("Message content cannot be null or empty");
         }
         // 警告语义应归为 ALERT 级别
-        return new Message(MessageType.ALERT, content.trim());
+        return new Message(MessageType.ALERT, content.trim(), MessageSeverity.WARN);
     }
     
     /**
@@ -170,7 +176,7 @@ public final class Message {
             content = throwable.getClass().getSimpleName();
         }
         
-        return new Message(MessageType.ALERT, content.trim());
+        return new Message(MessageType.ALERT, content.trim(), MessageSeverity.ERROR);
     }
     
     /**
@@ -202,6 +208,18 @@ public final class Message {
      */
     public MessageType getType() {
         return type;
+    }
+
+    /**
+     * 获取消息严重程度。
+     *
+     * <p>该值用于 Java model 内的语义判断；V1 JSON/Map exporter 刻意不输出此字段，
+     * 以保持既有 wire shape。
+     *
+     * @return 消息严重程度，始终非 null
+     */
+    public MessageSeverity getSeverity() {
+        return severity;
     }
     
     /**

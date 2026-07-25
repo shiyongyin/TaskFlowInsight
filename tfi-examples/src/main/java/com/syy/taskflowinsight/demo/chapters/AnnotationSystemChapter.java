@@ -1,9 +1,10 @@
 package com.syy.taskflowinsight.demo.chapters;
 
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
 import com.syy.taskflowinsight.annotation.DiffIgnore;
 import com.syy.taskflowinsight.annotation.Entity;
 import com.syy.taskflowinsight.annotation.Key;
-import com.syy.taskflowinsight.annotation.NumericPrecision;
 import com.syy.taskflowinsight.annotation.ValueObject;
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.demo.core.DemoChapter;
@@ -23,7 +24,7 @@ import java.util.List;
  *   <li>{@code @Entity} + {@code @Key} — 实体标识与主键匹配</li>
  *   <li>{@code @ValueObject} — 值对象语义比对</li>
  *   <li>{@code @DiffIgnore} — 排除不关注的字段</li>
- *   <li>{@code @NumericPrecision} — 数值容差比较</li>
+ *   <li>{@code ComparePolicy} — 显式数值容差</li>
  *   <li>注解组合 — 综合运用多个注解的最佳实践</li>
  * </ol>
  *
@@ -42,7 +43,7 @@ public class AnnotationSystemChapter implements DemoChapter {
 
     @Override
     public String getDescription() {
-        return "@Entity/@ValueObject/@Key/@DiffIgnore/@NumericPrecision 实战演示";
+        return "@Entity/@ValueObject/@Key/@DiffIgnore 与 Policy 实战演示";
     }
 
     @Override
@@ -59,7 +60,7 @@ public class AnnotationSystemChapter implements DemoChapter {
         DemoUI.section("9.3 @DiffIgnore — 排除不关注的字段");
         diffIgnoreDemo();
 
-        DemoUI.section("9.4 @NumericPrecision — 数值容差比较");
+        DemoUI.section("9.4 ComparePolicy — 数值容差比较");
         numericPrecisionDemo();
 
         DemoUI.section("9.5 注解组合 — 综合实战");
@@ -92,11 +93,10 @@ public class AnnotationSystemChapter implements DemoChapter {
         );
 
         CompareResult result = TFI.comparator()
-                .typeAware()
                 .compare(before, after);
 
         System.out.println("  比对结果 (typeAware):");
-        System.out.println(TFI.render(result, "standard"));
+        System.out.println(TFI.render(result, RenderOptions.markdown()));
     }
 
     /**
@@ -115,10 +115,10 @@ public class AnnotationSystemChapter implements DemoChapter {
 
         CompareResult result = TFI.compare(before, after);
 
-        System.out.println("  hasChanges=" + result.hasChanges());
+        System.out.println("  isDifferent=" + result.isDifferent());
         result.getChanges().forEach(c ->
                 System.out.printf("    - %s: \"%s\" -> \"%s\"%n",
-                        c.getFieldName(), c.getOldValue(), c.getNewValue()));
+                        c.getFieldName(), c.beforeValue().orElse(null), c.afterValue().orElse(null)));
     }
 
     /**
@@ -140,18 +140,16 @@ public class AnnotationSystemChapter implements DemoChapter {
         System.out.println("  变更数量: " + result.getChanges().size() + " (internalCode 被忽略)");
         result.getChanges().forEach(c ->
                 System.out.printf("    - %s: \"%s\" -> \"%s\"%n",
-                        c.getFieldName(), c.getOldValue(), c.getNewValue()));
+                        c.getFieldName(), c.beforeValue().orElse(null), c.afterValue().orElse(null)));
     }
 
     /**
-     * 场景 4：展示 {@code @NumericPrecision} 如何控制数值比较精度。
+     * 场景 4：展示 Policy 如何显式控制数值比较精度。
      *
-     * <p>核心点：{@code PreciseProduct} 的 {@code price} 字段标注了
-     * {@code @NumericPrecision(scale = 2)}，比对时会按 2 位小数精度判断是否变化。</p>
+     * <p>核心点：容差属于单次比较的 Policy/Options，不再隐藏在模型字段上。</p>
      */
     private void numericPrecisionDemo() {
-        System.out.println("  PreciseProduct.price 标注了 @NumericPrecision(scale = 2)");
-        System.out.println("  → 29.991 vs 29.999 在 scale=2 下视为相同 (30.00 == 30.00)");
+        System.out.println("  PreciseProduct.price 使用 ComparePolicy 显式容差");
         System.out.println();
 
         PreciseProduct before = new PreciseProduct("A", 29.991);
@@ -159,16 +157,16 @@ public class AnnotationSystemChapter implements DemoChapter {
 
         CompareResult result = TFI.compare(before, after);
 
-        System.out.println("  29.991 vs 29.999 (scale=2): hasChanges=" + result.hasChanges());
+        System.out.println("  29.991 vs 29.999 (scale=2): isDifferent=" + result.isDifferent());
         System.out.println("  变更数: " + result.getChanges().size());
 
         PreciseProduct after2 = new PreciseProduct("A", 30.50);
         CompareResult result2 = TFI.compare(before, after2);
 
-        System.out.println("  29.991 vs 30.50 (scale=2): hasChanges=" + result2.hasChanges());
+        System.out.println("  29.991 vs 30.50 (scale=2): isDifferent=" + result2.isDifferent());
         result2.getChanges().forEach(c ->
                 System.out.printf("    - %s: \"%s\" -> \"%s\"%n",
-                        c.getFieldName(), c.getOldValue(), c.getNewValue()));
+                        c.getFieldName(), c.beforeValue().orElse(null), c.afterValue().orElse(null)));
     }
 
     /**
@@ -185,10 +183,9 @@ public class AnnotationSystemChapter implements DemoChapter {
         Product after = new Product(1L, "iPhone 15 Pro", 8999.0, 80);
 
         CompareResult result = TFI.comparator()
-                .typeAware()
                 .compare(before, after);
 
-        String report = TFI.render(result, "standard");
+        String report = TFI.render(result, RenderOptions.markdown());
         System.out.println("  === 综合比对报告 ===");
         System.out.println(report);
     }
@@ -199,7 +196,7 @@ public class AnnotationSystemChapter implements DemoChapter {
                 "学会了 @Entity + @Key 让集合按主键匹配而非按索引",
                 "理解了 @ValueObject 的全字段比较语义",
                 "掌握了 @DiffIgnore 排除不关注字段的用法",
-                "了解了 @NumericPrecision 控制数值比较精度",
+                "了解了 ComparePolicy 控制数值比较精度",
                 "综合运用多注解处理真实业务对象比对"
         );
     }
@@ -230,11 +227,10 @@ public class AnnotationSystemChapter implements DemoChapter {
     }
 
     /**
-     * 演示 {@code @NumericPrecision} 的内部模型。
+     * 演示数值字段模型。
      */
     static class PreciseProduct {
         private String name;
-        @NumericPrecision(scale = 2)
         private double price;
 
         PreciseProduct(String name, double price) {

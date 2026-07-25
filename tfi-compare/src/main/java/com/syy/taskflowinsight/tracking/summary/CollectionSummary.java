@@ -2,20 +2,29 @@ package com.syy.taskflowinsight.tracking.summary;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Array;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.DoubleSummaryStatistics;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 集合摘要生成器
- * 对大集合进行智能降级处理，生成统计摘要信息
+ * 集合诊断摘要生成器。
+ *
+ * <p>该类型只生成面向展示和指标的有界诊断信息，不参与快照、Diff或相等性判断。
+ * 摘要会抽样且可能截断，因此不能作为集合内容相同的证据。</p>
  * 
  * 核心功能：
- * - 大集合阈值检测与降级
+ * - 大集合阈值检测
  * - 类型分布统计
  * - 示例数据收集
  * - 敏感信息过滤
@@ -25,31 +34,30 @@ import java.util.stream.Collectors;
  * @version 2.1.0
  * @since 2025-01-13
  */
-@Component
 public class CollectionSummary {
-    
+
+    /** 摘要失败只进入诊断日志，不能改变比较结果。 */
     private static final Logger logger = LoggerFactory.getLogger(CollectionSummary.class);
-    
-    // ========== 配置属性 ==========
-    
-    @Value("${tfi.change-tracking.summary.enabled:true}")
+
+    /** 总开关仅控制诊断摘要生成，不控制集合比较。 */
     private boolean enabled = true;
-    
-    @Value("${tfi.change-tracking.summary.max-size:100}")
+
+    /** 完整统计前允许读取的诊断样本上限。 */
     private int maxSize = 100;
-    
-    @Value("${tfi.change-tracking.summary.max-examples:10}")
+
+    /** 对外诊断中最多保留的示例数量。 */
     private int maxExamples = 10;
-    
-    @Value("${tfi.change-tracking.summary.sensitive-words:password,secret,token,key,credential}")
+
+    /** 展示前用于保守脱敏的关键词，不进入相等域。 */
     private List<String> sensitiveWords = Arrays.asList("password", "secret", "token", "key", "credential");
-    
-    // 静态配置（用于非Spring环境）
+
+    /** 非Spring兼容入口共享的无状态默认生成器。 */
     private static volatile CollectionSummary instance;
-    private static final Map<String, CollectionSummary> CONFIG_CACHE = new ConcurrentHashMap<>();
-    
+
     /**
-     * 获取默认实例（非Spring环境使用）
+     * 获取非Spring环境的兼容实例；实例只保存诊断配置，不能被Compare内核读取。
+     *
+     * @return 进程内延迟初始化的摘要生成器
      */
     public static CollectionSummary getInstance() {
         if (instance == null) {
@@ -451,19 +459,38 @@ public class CollectionSummary {
         return str;
     }
     
-    // Setter方法（用于测试和配置）
+    /**
+     * 非Spring测试可显式关闭诊断生成，不能借此关闭集合比较。
+     *
+     * @param enabled 是否生成诊断摘要
+     */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
-    
+
+    /**
+     * 设置诊断统计允许处理的样本规模。
+     *
+     * @param maxSize 正向样本数量上限
+     */
     public void setMaxSize(int maxSize) {
         this.maxSize = maxSize;
     }
-    
+
+    /**
+     * 设置诊断结果允许保留的示例数量。
+     *
+     * @param maxExamples 非负示例数量上限
+     */
     public void setMaxExamples(int maxExamples) {
         this.maxExamples = maxExamples;
     }
-    
+
+    /**
+     * 设置展示前用于保守脱敏匹配的关键词。
+     *
+     * @param sensitiveWords 诊断专用关键词列表，不参与比较相等性
+     */
     public void setSensitiveWords(List<String> sensitiveWords) {
         this.sensitiveWords = sensitiveWords;
     }

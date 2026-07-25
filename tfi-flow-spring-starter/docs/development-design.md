@@ -72,8 +72,8 @@ com.syy.taskflowinsight/
 │  @EnableConfigurationProperties(TfiContextProperties)  │
 │                                                        │
 │  ┌─ @PostConstruct ──────────────────────┐            │
-│  │  SafeContextManager.configure(...)     │            │
-│  │  ZeroLeakThreadLocalManager.set*(...)  │            │
+│  │  new ContextManagerConfig(...)          │            │
+│  │  SafeContextManager.apply(config)       │            │
 │  └────────────────────────────────────────┘            │
 └──────────────────────────────────────────────────────┘
 
@@ -212,14 +212,14 @@ com.syy.taskflowinsight/
 
 | 配置项 | 目标组件 | 目标方法 |
 |--------|---------|---------|
-| `tfi.context.max-age-millis` | `SafeContextManager` | `configure(maxAge, ...)` |
-| `tfi.context.leak-detection-enabled` | `SafeContextManager` | `configure(..., leakDetect, ...)` |
-| `tfi.context.leak-detection-interval-millis` | `SafeContextManager` | `configure(..., ..., interval)` |
-| `tfi.context.max-age-millis` | `ZeroLeakThreadLocalManager` | `setContextTimeoutMillis()` |
-| `tfi.context.cleanup-enabled` | `ZeroLeakThreadLocalManager` | `setCleanupEnabled()` |
-| `tfi.context.cleanup-interval-millis` | `ZeroLeakThreadLocalManager` | `setCleanupIntervalMillis()` |
+| `tfi.context.max-age-millis` | `ContextManagerConfig` | `timeoutMillis` |
+| `tfi.context.leak-detection-enabled` | `ContextManagerConfig` | `leakDetectionEnabled` |
+| `tfi.context.leak-detection-interval-millis` | `ContextManagerConfig` | `leakDetectionIntervalMillis` |
 
-**安全校验**：`sanitizeMillis()` 防止非法配置值（≤0 回退默认值）。
+自动配置只构造一次完整 record，并调用一次 `SafeContextManager.apply(config)`。这样 Core 可以先准备
+新的 detector generation、成功后再原子发布；若准备失败则保留上一次成功状态。
+
+**安全校验**：`sanitizeMillis()` 防止非法配置值（≤0 回退 Core 默认值）。
 
 ### 3.5 TfiContextProperties
 
@@ -230,8 +230,6 @@ com.syy.taskflowinsight/
 | `maxAgeMillis` | long | 3600000 (1h) | 上下文最大存活时间 |
 | `leakDetectionEnabled` | boolean | false | 是否启用泄漏检测 |
 | `leakDetectionIntervalMillis` | long | 60000 (1min) | 泄漏检测间隔 |
-| `cleanupEnabled` | boolean | false | 是否启用自动清理 |
-| `cleanupIntervalMillis` | long | 60000 (1min) | 清理间隔 |
 
 ---
 
@@ -379,8 +377,6 @@ com.syy.taskflowinsight/
 | `tfi.context.` | `max-age-millis` | Long | `3600000` |
 | `tfi.context.` | `leak-detection-enabled` | Boolean | `false` |
 | `tfi.context.` | `leak-detection-interval-millis` | Long | `60000` |
-| `tfi.context.` | `cleanup-enabled` | Boolean | `false` |
-| `tfi.context.` | `cleanup-interval-millis` | Long | `60000` |
 
 ---
 

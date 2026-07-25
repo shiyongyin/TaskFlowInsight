@@ -1,9 +1,10 @@
 package com.syy.taskflowinsight.demo;
 
 import com.syy.taskflowinsight.api.TFI;
+import com.syy.taskflowinsight.context.ContextPropagatingExecutor;
 import com.syy.taskflowinsight.context.SafeContextManager;
-import com.syy.taskflowinsight.context.TFIAwareExecutor;
 import com.syy.taskflowinsight.context.ManagedThreadContext;
+import com.syy.taskflowinsight.model.TaskNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -18,7 +19,7 @@ import java.util.concurrent.TimeUnit;
  * 
  * 演示三种异步上下文传播模式：
  * 1. SafeContextManager.executeAsync() - 推荐方式
- * 2. TFIAwareExecutor包装 - 装饰器模式
+ * 2. ContextPropagatingExecutor.wrap() - 装饰器模式
  * 3. 手动wrapRunnable/wrapCallable - 灵活控制
  */
 @Component
@@ -44,24 +45,25 @@ public class AsyncPropagationDemo {
                 
                 // 使用executeAsync执行异步任务
                 CompletableFuture<String> future = contextManager.executeAsync("async-computation", () -> {
-                    // 异步线程中验证上下文传播
                     ManagedThreadContext asyncContext = ManagedThreadContext.current();
                     String contextId = asyncContext != null ? asyncContext.getContextId() : "none";
-                    logger.info("异步线程上下文ID: {}", contextId);
-                    
-                    // 在异步任务中继续创建任务
-                    TFI.run("async-computation", () -> {
-                        TFI.message("开始异步计算", "PROCESS");
-                        
-                        // 模拟计算工作
-                        try {
-                            Thread.sleep(100);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                        
-                        TFI.message("异步计算完成", "PROCESS");
-                    });
+                    TaskNode asyncTask = asyncContext != null ? asyncContext.getCurrentTask() : null;
+                    logger.info("异步线程上下文ID: {}, 当前任务: {}, 路径: {}",
+                            contextId,
+                            asyncTask != null ? asyncTask.getTaskName() : "none",
+                            asyncTask != null ? asyncTask.getTaskPath() : "none");
+
+                    /*
+                     * executeAsync 已拥有同名真实任务；直接记录消息可避免示例误导使用者再创建
+                     * 一层重复节点，使展示出的路径与 API 参数保持一一对应。
+                     */
+                    TFI.message("开始异步计算", "PROCESS");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    TFI.message("异步计算完成", "PROCESS");
                     
                     return "计算结果：42";
                 });
@@ -84,13 +86,14 @@ public class AsyncPropagationDemo {
     }
     
     /**
-     * 演示TFIAwareExecutor的使用
+     * 演示 canonical Executor 装饰器的使用。
+     *
+     * <p>线程池策略由业务侧选择，TFI 只包装传播职责，避免框架隐式决定队列与拒绝策略。
      */
-    public void demonstrateTFIAwareExecutor() {
-        logger.info("========== TFIAwareExecutor 演示 ==========");
+    public void demonstrateContextPropagatingExecutor() {
+        logger.info("========== ContextPropagatingExecutor 演示 ==========");
         
-        // 创建TFI感知的线程池
-        TFIAwareExecutor executor = TFIAwareExecutor.newFixedThreadPool(2);
+        ExecutorService executor = ContextPropagatingExecutor.wrap(Executors.newFixedThreadPool(2));
         
         TFI.startSession("executor-demo");
         try {
@@ -99,7 +102,7 @@ public class AsyncPropagationDemo {
                 ManagedThreadContext mainContext = ManagedThreadContext.current();
                 logger.info("主线程上下文ID: {}", mainContext != null ? mainContext.getContextId() : "none");
                 
-                // 提交多个任务到TFI感知的线程池
+                // 提交多个任务到 Context 传播执行器
                 CompletableFuture<Void> task1 = CompletableFuture.runAsync(() -> {
                     ManagedThreadContext context = ManagedThreadContext.current();
                     logger.info("Task1线程上下文ID: {}", context != null ? context.getContextId() : "none");
@@ -141,10 +144,10 @@ public class AsyncPropagationDemo {
                     logger.error("并行任务执行失败", e);
                 }
                 
-                logger.info("TFIAwareExecutor演示完成");
+                logger.info("ContextPropagatingExecutor演示完成");
             });
         } catch (Exception e) {
-            logger.error("TFIAwareExecutor演示失败", e);
+            logger.error("ContextPropagatingExecutor演示失败", e);
         } finally {
             executor.shutdown();
             TFI.endSession();
@@ -236,7 +239,7 @@ public class AsyncPropagationDemo {
         logger.info("开始异步上下文传播演示...");
         
         demonstrateExecuteAsync();
-        demonstrateTFIAwareExecutor();
+        demonstrateContextPropagatingExecutor();
         demonstrateManualWrapping();
         
         logger.info("所有异步上下文传播演示完成！");

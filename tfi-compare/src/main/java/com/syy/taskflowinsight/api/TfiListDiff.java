@@ -1,185 +1,139 @@
 package com.syy.taskflowinsight.api;
 
+import com.syy.taskflowinsight.spi.ComparisonProvider;
+import com.syy.taskflowinsight.spi.ProviderRegistry;
+import com.syy.taskflowinsight.spi.RenderProvider;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult;
-import org.springframework.beans.BeansException;
-import org.springframework.beans.factory.NoSuchBeanDefinitionException;
-import org.springframework.context.ApplicationContext;
-import org.springframework.context.ApplicationContextAware;
-import org.springframework.stereotype.Component;
+import com.syy.taskflowinsight.tracking.projection.CompareProjection;
+import com.syy.taskflowinsight.tracking.projection.CompareProjectionFactory;
+import com.syy.taskflowinsight.tracking.projection.MaskingPolicy;
+import com.syy.taskflowinsight.tracking.projection.ProjectionMetadata;
+import com.syy.taskflowinsight.tracking.projection.ProjectionOptions;
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
- * 静态便捷入口：内部委托给 TfiListDiffFacade
- * <p>
- * 这是一个可选的静态代理类，提供静态方法访问方式，内部委托给 TfiListDiffFacade Bean。
- * <strong>注意</strong>：推荐优先使用 {@link TfiListDiffFacade} 注入方式，以获得更好的可测试性。
- * 此静态代理适用于无法使用依赖注入的特殊场景（如静态工具类、回调函数等）。
- * </p>
+ * 通过Core Registry执行列表比较的无状态静态入口。
  *
- * <h3>使用示例</h3>
- * <pre>{@code
- * // 静态方法调用
- * List<User> oldList = ...;
- * List<User> newList = ...;
- * CompareResult result = TfiListDiff.diff(oldList, newList);
- *
- * // 指定策略
- * CompareResult result2 = TfiListDiff.diff(oldList, newList, "ENTITY");
- * }</pre>
- *
- * <h3>初始化要求</h3>
- * <p>
- * 此类必须在 Spring 容器启动后才能使用，否则会抛出 IllegalStateException。
- * 确保在 Spring Boot 应用完全启动后调用静态方法。
- * </p>
+ * <p>该兼容门面不保存Provider、Spring上下文或fallback runtime。每次调用都把选择权交给
+ * {@link ProviderRegistry}，从而与Registry的冻结世代保持一致，并避免一个应用上下文影响另一个上下文。</p>
  *
  * @author TaskFlow Insight Team
- * @version 2.1.0
- * @since v3.0.0
+ * @version 4.0.0
+ * @since 3.0.0
  */
-@Component
-public class TfiListDiff implements ApplicationContextAware {
+public class TfiListDiff {
 
-    private static ApplicationContext ctx;
-
-    /**
-     * Spring 容器启动时自动注入 ApplicationContext。
-     * <p>使用同步的静态 setter 避免 SpotBugs ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD 警告。
-     */
-    @Override
-    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
-        setContext(applicationContext);
-    }
+    /** 静态渲染边界只构造一次无状态projection工厂。 */
+    private static final CompareProjectionFactory PROJECTION_FACTORY = new CompareProjectionFactory();
 
     /**
-     * 将 ApplicationContext 赋值给静态字段（同步方法防止并发问题）
-     */
-    private static synchronized void setContext(ApplicationContext applicationContext) {
-        ctx = applicationContext;
-    }
-
-    /**
-     * 获取 TfiListDiffFacade Bean
-     * @throws IllegalStateException 如果 Spring 容器未初始化
-     */
-    private static TfiListDiffFacade facade() {
-        if (ctx == null) {
-            throw new IllegalStateException("TfiListDiff not initialized: Spring ApplicationContext is null. " +
-                    "Make sure Spring Boot application has started before using static methods.");
-        }
-        try {
-            return ctx.getBean(TfiListDiffFacade.class);
-        } catch (NoSuchBeanDefinitionException e) {
-            throw new IllegalStateException("TfiListDiffFacade bean not found in ApplicationContext. " +
-                    "Ensure component scanning is configured and the application has started.", e);
-        }
-    }
-
-    /**
-     * 比较两个列表（自动策略选择）
+     * 保留3.x可实例化形状，但实例不持有Provider或Spring上下文。
      *
-     * @param oldList 旧列表（null 视为空列表）
-     * @param newList 新列表（null 视为空列表）
-     * @return 比较结果，包含所有检测到的变更
-     * @throws IllegalStateException 如果 Spring 容器未初始化
-     * @see TfiListDiffFacade#diff(List, List)
+     * <p>全部能力仍由静态方法在调用时解析Core Registry；构造对象不会建立另一条执行路径。</p>
+     */
+    public TfiListDiff() {
+    }
+
+    /**
+     * 使用Registry选中的Provider比较两个列表。
+     *
+     * @param oldList 旧列表，{@code null}按空列表处理
+     * @param newList 新列表，{@code null}按空列表处理
+     * @return canonical比较结果
+     * @throws IllegalStateException Registry没有可用ComparisonProvider时抛出
      */
     public static CompareResult diff(List<?> oldList, List<?> newList) {
-        return facade().diff(oldList, newList);
+        return comparisonProvider().compare(safeList(oldList), safeList(newList));
     }
 
     /**
-     * 比较两个列表（指定策略）
+     * 使用显式不可变选项比较两个列表。
      *
-     * @param oldList 旧列表（null 视为空列表）
-     * @param newList 新列表（null 视为空列表）
-     * @param strategy 策略名称（null 则自动选择）
-     * @return 比较结果，包含所有检测到的变更
-     * @throws IllegalStateException 如果 Spring 容器未初始化
-     * @see TfiListDiffFacade#diff(List, List, String)
-     */
-    public static CompareResult diff(List<?> oldList, List<?> newList, String strategy) {
-        return facade().diff(oldList, newList, strategy);
-    }
-
-    /**
-     * 比较两个列表（完整配置）
-     *
-     * @param oldList 旧列表（null 视为空列表）
-     * @param newList 新列表（null 视为空列表）
-     * @param options 比较选项（null 则使用默认选项）
-     * @return 比较结果，包含所有检测到的变更
-     * @throws IllegalStateException 如果 Spring 容器未初始化
-     * @see TfiListDiffFacade#diff(List, List, CompareOptions)
+     * @param oldList 旧列表，{@code null}按空列表处理
+     * @param newList 新列表，{@code null}按空列表处理
+     * @param options 当前调用选项；{@code null}时使用Provider所属runtime的默认值
+     * @return canonical比较结果
+     * @throws IllegalStateException Registry没有可用ComparisonProvider时抛出
      */
     public static CompareResult diff(List<?> oldList, List<?> newList, CompareOptions options) {
-        return facade().diff(oldList, newList, options);
+        List<?> safeOld = safeList(oldList);
+        List<?> safeNew = safeList(newList);
+        return options == null
+                ? comparisonProvider().compare(safeOld, safeNew)
+                : comparisonProvider().compare(safeOld, safeNew, options);
     }
 
     /**
-     * 使用默认样式渲染比较结果为 Markdown 报告
+     * 将比较结果投影为安全的Markdown诊断文本。
      *
-     * @param result 比较结果（CompareResult）
-     * @return Markdown 字符串
-     * @throws IllegalStateException 如果 Spring 容器未初始化
+     * @param result canonical比较结果；{@code null}返回空文本
+     * @return Markdown诊断文本，不返回{@code null}
+     * @throws IllegalStateException Registry没有可用RenderProvider时抛出
      */
     public static String render(CompareResult result) {
-        return facade().render(result);
+        if (result == null) {
+            return "";
+        }
+        CompareProjection projection = PROJECTION_FACTORY.create(
+                result,
+                ProjectionMetadata.empty(),
+                MaskingPolicy.safeDefaults(),
+                ProjectionOptions.defaults());
+        return renderProvider().render(projection, RenderOptions.markdown());
     }
 
     /**
-     * 使用指定样式渲染比较结果为 Markdown 报告
-     * <p>
-     * 样式参数支持：RenderStyle 或字符串（"simple"/"standard"/"detailed"）。
-     * </p>
+     * 使用runtime默认值比较并生成实体分组结果。
      *
-     * @param result 比较结果（CompareResult）
-     * @param style  RenderStyle 或样式字符串
-     * @return Markdown 字符串
-     * @throws IllegalStateException 如果 Spring 容器未初始化
+     * @param oldList 旧列表，{@code null}按空列表处理
+     * @param newList 新列表，{@code null}按空列表处理
+     * @return 基于同一次canonical比较结果的实体分组
      */
-    public static String render(CompareResult result, Object style) {
-        return facade().render(result, style);
+    public static EntityListDiffResult diffEntities(List<?> oldList, List<?> newList) {
+        List<?> safeOld = safeList(oldList);
+        List<?> safeNew = safeList(newList);
+        return EntityListDiffResult.from(diff(safeOld, safeNew), safeOld, safeNew);
     }
 
     /**
-     * 便捷方法：比较并返回实体级分组结果
+     * 使用显式选项比较并生成实体分组结果。
      *
-     * @param oldList 旧列表
-     * @param newList 新列表
-     * @return 实体级差异结果
-     */
-    public static EntityListDiffResult diffEntities(
-            List<?> oldList, List<?> newList) {
-        return facade().diffEntities(oldList, newList);
-    }
-
-    /**
-     * 便捷方法：比较并返回实体级分组结果（指定策略）
-     *
-     * @param oldList 旧列表
-     * @param newList 新列表
-     * @param strategy 策略名称
-     * @return 实体级差异结果
+     * @param oldList 旧列表，{@code null}按空列表处理
+     * @param newList 新列表，{@code null}按空列表处理
+     * @param options 当前调用选项；{@code null}时继承runtime默认值
+     * @return 基于同一次canonical比较结果的实体分组
      */
     public static EntityListDiffResult diffEntities(
-            List<?> oldList, List<?> newList, String strategy) {
-        return facade().diffEntities(oldList, newList, strategy);
+            List<?> oldList,
+            List<?> newList,
+            CompareOptions options) {
+        List<?> safeOld = safeList(oldList);
+        List<?> safeNew = safeList(newList);
+        return EntityListDiffResult.from(diff(safeOld, safeNew, options), safeOld, safeNew);
     }
 
-    /**
-     * 便捷方法：比较并返回实体级分组结果（完整选项）
-     *
-     * @param oldList 旧列表
-     * @param newList 新列表
-     * @param options 比较选项
-     * @return 实体级差异结果
-     */
-    public static EntityListDiffResult diffEntities(
-            List<?> oldList, List<?> newList, CompareOptions options) {
-        return facade().diffEntities(oldList, newList, options);
+    private static ComparisonProvider comparisonProvider() {
+        ComparisonProvider provider = ProviderRegistry.resolve(ComparisonProvider.class);
+        if (provider == null) {
+            throw new IllegalStateException("No ComparisonProvider is available from the Core Registry");
+        }
+        return provider;
+    }
+
+    private static RenderProvider renderProvider() {
+        RenderProvider provider = ProviderRegistry.resolve(RenderProvider.class);
+        if (provider == null) {
+            throw new IllegalStateException("No RenderProvider is available from the Core Registry");
+        }
+        return provider;
+    }
+
+    private static List<?> safeList(List<?> value) {
+        return value != null ? value : Collections.emptyList();
     }
 }

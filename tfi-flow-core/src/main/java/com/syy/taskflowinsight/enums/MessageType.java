@@ -87,7 +87,11 @@ public enum MessageType {
      */
     public boolean isChange() { return this == CHANGE; }
 
-    /** 是否为重要级别（变更记录及以上） */
+    /**
+     * 判断消息是否达到变更记录及以上级别。
+     *
+     * @return {@code true} 表示应按重要消息处理
+     */
     public boolean isImportant() { return this.level >= 3; }
     
     /**

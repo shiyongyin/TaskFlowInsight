@@ -3,14 +3,16 @@ package com.syy.taskflowinsight.context;
 import java.util.Objects;
 
 /**
- * 上下文快照
- * 用于跨线程传递上下文信息的不可变快照
- * 
- * 设计原则：
- * - 不可变性：所有字段都是final
- * - 轻量级：仅包含ID和元数据，不包含对象引用
- * - 线程安全：可以安全地在多线程间传递
- * - 避免泄漏：不持有ThreadLocal或可变对象引用
+ * 跨线程传递 Context 链接信息的不可变快照。
+ *
+ * <p>快照只携带捕获源 identity 与父链元数据，不持有 Session、TaskNode 或 ThreadLocal 引用，
+ * 因此 consumer 只能创建独立 linked child，不能跨线程共享可变任务树。</p>
+ *
+ * <p>public restore 保留破坏式兼容语义；框架内部临时传播由
+ * {@link ContextScope} 恢复 worker prior。</p>
+ *
+ * @since 3.0.0
+ * @see ManagedThreadContext#createSnapshot()
  */
 public final class ContextSnapshot {
     
@@ -25,7 +27,7 @@ public final class ContextSnapshot {
      * @param contextId 上下文ID
      * @param sessionId 会话ID（可为null）
      * @param taskPath 任务路径（可为null）
-     * @param timestamp 快照时间戳（纳秒）
+     * @param timestamp {@link System#nanoTime()} 时间戳，只用于同一 JVM 内计算年龄
      */
     public ContextSnapshot(String contextId, String sessionId, String taskPath, long timestamp) {
         this.contextId = Objects.requireNonNull(contextId, "contextId cannot be null");
@@ -35,13 +37,26 @@ public final class ContextSnapshot {
     }
     
     /**
-     * 恢复上下文（在目标线程中调用）
-     * 创建一个新的上下文实例，关联到快照信息
-     * 
-     * @return 新的上下文实例
+     * 在目标线程破坏式恢复快照。
+     *
+     * <p>该 public API 保留“替换当前 Context”的既有语义；需要临时传播并恢复 worker
+     * 原绑定的框架代码必须使用 package-private {@link ContextScope}，
+     * 避免把调用者 Session 当作 replacement 关闭。</p>
+     *
+     * @return 新建并绑定的 linked-child Context
      */
     public ManagedThreadContext restore() {
-        return ManagedThreadContext.restoreFromSnapshot(this);
+        return SafeContextManager.getInstance().restoreDestructively(this);
+    }
+
+    /**
+     * 判断当前 Context 是否就是本快照的捕获源。
+     *
+     * <p>只比较全局唯一 context identity；Session/task 元数据可能在捕获后继续变化，
+     * 不能用来决定 CallerRuns 是否可安全复用当前可变 Context。</p>
+     */
+    boolean matches(ManagedThreadContext context) {
+        return context != null && !context.isClosed() && contextId.equals(context.getContextId());
     }
     
     /**
@@ -80,20 +95,38 @@ public final class ContextSnapshot {
         return getAgeNanos() / 1_000_000;
     }
     
-    // 属性访问方法
-    
+    /**
+     * 返回捕获源 Context identity；linked child 将其记录为 parent.contextId。
+     *
+     * @return 非 null 的捕获源 Context ID
+     */
     public String getContextId() {
         return contextId;
     }
-    
+
+    /**
+     * 返回捕获时的 Session identity，不携带 Session 对象所有权。
+     *
+     * @return 父 Session ID；捕获源没有 Session 时为 null
+     */
     public String getSessionId() {
         return sessionId;
     }
-    
+
+    /**
+     * 返回捕获时的任务路径，仅作为 child 可观测父链。
+     *
+     * @return 父任务路径；捕获时没有任务时为 null
+     */
     public String getTaskPath() {
         return taskPath;
     }
-    
+
+    /**
+     * 返回单调时钟采样值；该值不是 epoch 时间，不得序列化为业务时间。
+     *
+     * @return 创建快照时的 {@link System#nanoTime()} 值
+     */
     public long getTimestamp() {
         return timestamp;
     }

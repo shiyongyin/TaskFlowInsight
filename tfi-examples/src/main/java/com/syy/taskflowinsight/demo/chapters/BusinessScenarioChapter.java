@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.demo.chapters;
 
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
 import com.syy.taskflowinsight.annotation.Entity;
 import com.syy.taskflowinsight.annotation.Key;
 import com.syy.taskflowinsight.api.TFI;
@@ -10,8 +12,10 @@ import com.syy.taskflowinsight.demo.model.Order;
 import com.syy.taskflowinsight.demo.service.EcommerceDemoService;
 import com.syy.taskflowinsight.demo.util.DemoUI;
 import com.syy.taskflowinsight.demo.util.DemoUtils;
+import com.syy.taskflowinsight.spi.DefaultTrackingProvider;
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
+import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -24,6 +28,12 @@ import java.util.*;
  * @since 2.0.0
  */
 public class BusinessScenarioChapter implements DemoChapter {
+
+    /** 显式executor让baseline、业务action与结果处于同一词法作用域。 */
+    private static final TrackingExecutor TRACKING_EXECUTOR =
+            new TrackingExecutor(new DefaultTrackingProvider());
+
+    /** 业务服务不持有tracking状态。 */
     private final EcommerceDemoService service = new EcommerceDemoService();
 
     @Override
@@ -129,10 +139,10 @@ public class BusinessScenarioChapter implements DemoChapter {
             OrderAudit audit = OrderAudit.from(baseOrder);
             OrderAudit before = audit.copy();
 
-            // 跟踪：捕获初始快照，后续所有 mutate 都会形成 ChangeRecord
-            TFI.trackDeep("orderAudit", audit);
-
-            TFI.run("下单流程(综合)", () -> {
+            CompareResult tracked = TRACKING_EXECUTOR.withTracked(
+                    "orderAudit",
+                    audit,
+                    () -> TFI.run("下单流程(综合)", () -> {
                 try (var validation = TFI.stage("validation")) {
                     TFI.message("校验订单字段与商品行", MessageType.PROCESS);
                     DemoUtils.sleep(20);
@@ -168,7 +178,7 @@ public class BusinessScenarioChapter implements DemoChapter {
                 }
 
                 try (var finalizeStage = TFI.stage("finalize")) {
-                    // 演示 List 重排（配合 compare 的 detectMoves）
+                    // 演示 List 重排；顺序属于 List 的业务值。
                     List<String> tags = audit.getTags();
                     if (tags.size() >= 2) {
                         String first = tags.remove(0);
@@ -176,21 +186,22 @@ public class BusinessScenarioChapter implements DemoChapter {
                     }
                     tags.add("shipped");
                 }
-            });
+                    }),
+                    CompareOptions.builder().build());
 
-            List<ChangeRecord> tracked = TFI.getChanges();
-            System.out.println("  变更追踪捕获数量: " + tracked.size());
-            tracked.stream().limit(12).forEach(c ->
-                    System.out.printf("    - %s.%s: \"%s\" -> \"%s\" (%s)%n",
-                            c.getObjectName(), c.getFieldName(), c.getOldValue(), c.getNewValue(), c.getChangeType()));
+            System.out.println("  变更追踪捕获数量: " + tracked.getChanges().size());
+            tracked.getChanges().stream().limit(12).forEach(change ->
+                    System.out.printf("    - %s: \"%s\" -> \"%s\" (%s)%n",
+                            change.getFieldName(),
+                            change.beforeValue().orElse(null),
+                            change.afterValue().orElse(null),
+                            change.getChangeType()));
 
             CompareResult compare = TFI.comparator()
-                    .typeAware()
-                    .detectMoves()
                     .compare(before, audit);
 
             System.out.println("\n  === Compare 报告（before vs after） ===");
-            System.out.println(TFI.render(compare, "standard"));
+            System.out.println(TFI.render(compare, RenderOptions.markdown()));
 
             System.out.println("\n  === Flow 导出（Console） ===");
             TFI.exportToConsole();
@@ -201,7 +212,6 @@ public class BusinessScenarioChapter implements DemoChapter {
             System.out.println(json.substring(0, max) + (json.length() > max ? "\n...(truncated)" : ""));
 
         } finally {
-            TFI.clearAllTracking();
             TFI.endSession();
         }
     }
@@ -222,7 +232,7 @@ public class BusinessScenarioChapter implements DemoChapter {
      *
      * <p>该对象用于同时展示：</p>
      * <ul>
-     *   <li>深度追踪：{@code TFI.trackDeep()}</li>
+     *   <li>深度追踪：显式{@link TrackingExecutor}词法作用域</li>
      *   <li>对象比对：{@code TFI.compare()/TFI.comparator()}</li>
      * </ul>
      *

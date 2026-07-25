@@ -2,7 +2,6 @@ package com.syy.taskflowinsight.demo;
 
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.core.TfiCore;
-import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.demo.chapters.AdvancedApiChapter;
 import com.syy.taskflowinsight.demo.chapters.AdvancedFeaturesChapter;
 import com.syy.taskflowinsight.demo.chapters.AnnotationSystemChapter;
@@ -161,17 +160,7 @@ TaskFlowInsightDemo {
      */
     private static void initializeTfiCore() {
         try {
-            // 创建默认配置
-            TfiConfig config = new TfiConfig(
-                true, // 启用TFI
-                new TfiConfig.ChangeTracking(true, null, null, null, null, null, null, null), // 启用变更追踪
-                new TfiConfig.Context(null, null, null, null, null),
-                new TfiConfig.Metrics(null, null, null),
-                new TfiConfig.Security(null, null)
-            );
-            
-            // 创建TfiCore实例
-            TfiCore tfiCore = new TfiCore(config);
+            TfiCore tfiCore = new TfiCore();
             
             // 使用反射注入到TFI的core字段
             Field coreField = TFI.class.getDeclaredField("core");

@@ -3,15 +3,17 @@ package com.syy.taskflowinsight.store;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
-import com.syy.taskflowinsight.metrics.TfiMetrics;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -32,14 +34,17 @@ public class FifoCaffeineStore<K, V> implements Store<K, V> {
     private final StoreConfig config;
     
     // FIFO特有字段
-    private final ConcurrentLinkedQueue<K> insertionOrder = new ConcurrentLinkedQueue<>();
-    private final ConcurrentHashMap<K, Long> insertionTimes = new ConcurrentHashMap<>();
+    private final Queue<K> insertionOrder = new ConcurrentLinkedQueue<>();
+    private final Map<K, Long> insertionTimes = new ConcurrentHashMap<>();
+    /** 缓存与两份 FIFO 元数据的复合变更必须在同一实例内线性化。 */
+    private final Object fifoLock = new Object();
+    /** listener 只置脏；多次移除合并为调用线程上的一次有界校准。 */
+    private final AtomicBoolean metadataDirty = new AtomicBoolean();
     private final AtomicLong insertionCounter = new AtomicLong(0);
+    /** 当前实例已执行的 FIFO 驱逐总数。 */
     private final AtomicLong totalEvictions = new AtomicLong(0);
+    /** 手动 FIFO 队列允许保留的最大键数量。 */
     private final int maxSize;
-    
-    @Autowired(required = false)
-    private TfiMetrics tfiMetrics;
     
     /**
      * 默认构造函数
@@ -66,6 +71,8 @@ public class FifoCaffeineStore<K, V> implements Store<K, V> {
      */
     private Cache<K, V> buildCaffeineCache(StoreConfig config) {
         Caffeine<Object, Object> builder = Caffeine.newBuilder();
+        // direct executor 保证移除返回前已置脏，listener 自身不触碰业务 key。
+        builder.executor(Runnable::run);
         
         // FIFO模式下不使用LRU的maximumSize，而是手动控制
         // 设置一个较大的值防止Caffeine内部驱逐
@@ -83,10 +90,11 @@ public class FifoCaffeineStore<K, V> implements Store<K, V> {
         
         // 配置驱逐监听（记录被Caffeine驱逐的条目）
         builder.removalListener((key, value, cause) -> {
+            if (cause.wasEvicted()) {
+                metadataDirty.set(true);
+            }
             if (key != null) {
-                insertionOrder.remove(key);
-                insertionTimes.remove(key);
-                log.debug("Cache entry removed: key={}, cause={}", key, cause);
+                log.debug("Cache entry removed: cause={}", cause);
             }
         });
         
@@ -101,24 +109,25 @@ public class FifoCaffeineStore<K, V> implements Store<K, V> {
         if (value == null) {
             throw new IllegalArgumentException("Value cannot be null");
         }
-        
-        // 检查是否为新键
-        boolean isNewKey = !insertionTimes.containsKey(key);
-        
-        if (isNewKey) {
-            // FIFO驱逐检查
-            enforceFifoEviction();
-            
-            // 记录插入顺序
-            insertionOrder.offer(key);
-            insertionTimes.put(key, insertionCounter.incrementAndGet());
-        }
-        
-        // 放入底层缓存
-        underlyingCache.put(key, value);
-        
-        if (log.isDebugEnabled()) {
-            log.debug("Put key={}, isNew={}, queueSize={}", key, isNewKey, insertionOrder.size());
+        synchronized (fifoLock) {
+            underlyingCache.cleanUp();
+            drainRemovalMetadata();
+            final V currentValue = underlyingCache.policy().getIfPresentQuietly(key);
+            final boolean isNewKey = currentValue == null || !insertionTimes.containsKey(key);
+
+            if (isNewKey) {
+                // 清掉过期残留后再按当前容量登记，重插入必须获得新的 FIFO 位置。
+                insertionOrder.remove(key);
+                insertionTimes.remove(key);
+                enforceFifoEviction();
+                insertionOrder.offer(key);
+                insertionTimes.put(key, insertionCounter.incrementAndGet());
+            }
+
+            underlyingCache.put(key, value);
+            if (log.isDebugEnabled()) {
+                log.debug("Cache put: isNew={}, queueSize={}", isNewKey, insertionOrder.size());
+            }
         }
     }
     
@@ -127,89 +136,118 @@ public class FifoCaffeineStore<K, V> implements Store<K, V> {
         if (key == null) {
             return Optional.empty();
         }
-        
-        V value = underlyingCache.getIfPresent(key);
+        drainRemovalMetadataIfNeeded();
+        final V value = underlyingCache.getIfPresent(key);
+        if (value == null) {
+            synchronized (fifoLock) {
+                drainRemovalMetadata();
+                if (underlyingCache.policy().getIfPresentQuietly(key) == null) {
+                    insertionOrder.remove(key);
+                    insertionTimes.remove(key);
+                }
+            }
+        }
         return Optional.ofNullable(value);
     }
     
     @Override
     public void remove(K key) {
         if (key != null) {
-            underlyingCache.invalidate(key);
-            insertionOrder.remove(key);
-            insertionTimes.remove(key);
+            synchronized (fifoLock) {
+                drainRemovalMetadata();
+                underlyingCache.invalidate(key);
+                insertionOrder.remove(key);
+                insertionTimes.remove(key);
+            }
         }
     }
     
     @Override
     public void clear() {
-        underlyingCache.invalidateAll();
-        insertionOrder.clear();
-        insertionTimes.clear();
-        insertionCounter.set(0);
-        log.info("FIFO cache cleared");
+        synchronized (fifoLock) {
+            underlyingCache.invalidateAll();
+            insertionOrder.clear();
+            insertionTimes.clear();
+            insertionCounter.set(0);
+            log.info("FIFO cache cleared");
+        }
     }
     
     @Override
     public long size() {
-        underlyingCache.cleanUp();
-        return underlyingCache.estimatedSize();
+        synchronized (fifoLock) {
+            drainRemovalMetadata();
+            underlyingCache.cleanUp();
+            drainRemovalMetadata();
+            return underlyingCache.estimatedSize();
+        }
     }
     
     @Override
     public StoreStats getStats() {
-        if (!config.isRecordStats()) {
+        synchronized (fifoLock) {
+            drainRemovalMetadata();
+            if (!config.isRecordStats()) {
+                return StoreStats.builder()
+                    .estimatedSize(size())
+                    .build();
+            }
+
+            CacheStats stats = underlyingCache.stats();
             return StoreStats.builder()
-                .estimatedSize(size())
+                .hitCount(stats.hitCount())
+                .missCount(stats.missCount())
+                .loadSuccessCount(stats.loadSuccessCount())
+                .loadFailureCount(stats.loadFailureCount())
+                .evictionCount(stats.evictionCount())
+                .totalLoadTime(stats.totalLoadTime())
+                .estimatedSize(underlyingCache.estimatedSize())
+                .hitRate(stats.hitRate())
                 .build();
         }
-        
-        CacheStats stats = underlyingCache.stats();
-        return StoreStats.builder()
-            .hitCount(stats.hitCount())
-            .missCount(stats.missCount())
-            .loadSuccessCount(stats.loadSuccessCount())
-            .loadFailureCount(stats.loadFailureCount())
-            .evictionCount(stats.evictionCount())
-            .totalLoadTime(stats.totalLoadTime())
-            .estimatedSize(underlyingCache.estimatedSize())
-            .hitRate(stats.hitRate())
-            .build();
     }
     
     /**
      * 执行FIFO驱逐策略
      */
     private void enforceFifoEviction() {
-        long evicted = 0;
         while (insertionOrder.size() >= maxSize) {
             K oldestKey = insertionOrder.poll();
             if (oldestKey != null) {
                 insertionTimes.remove(oldestKey);
                 underlyingCache.invalidate(oldestKey);
-                evicted++;
                 totalEvictions.incrementAndGet();
                 
                 if (log.isDebugEnabled()) {
-                    log.debug("FIFO evicted oldest key: {}", oldestKey);
+                    log.debug("FIFO evicted oldest entry");
                 }
             } else {
                 break; // 队列为空
             }
         }
         
-        // 上报FIFO驱逐指标
-        if (evicted > 0 && tfiMetrics != null) {
-            tfiMetrics.recordFifoEviction("fifo-store", evicted);
-            
-            // 同时调用标准缓存指标接口
-            CacheStats stats = underlyingCache.stats();
-            tfiMetrics.recordCacheMetrics("fifo-store",
-                stats.hitRate(),
-                totalEvictions.get(),  // 总驱逐数
-                underlyingCache.estimatedSize(),
-                null  // 无加载时间
-            );
+    }
+
+    private void drainRemovalMetadata() {
+        if (!metadataDirty.getAndSet(false)) {
+            return;
+        }
+        // insertionOrder 受 maxSize 约束；在调用线程校准可避免 listener 触碰业务 equality。
+        final Iterator<K> trackedKeys = insertionOrder.iterator();
+        while (trackedKeys.hasNext()) {
+            final K trackedKey = trackedKeys.next();
+            if (underlyingCache.policy().getIfPresentQuietly(trackedKey) == null) {
+                trackedKeys.remove();
+                insertionTimes.remove(trackedKey);
+            }
+        }
+    }
+
+    private void drainRemovalMetadataIfNeeded() {
+        if (metadataDirty.get()) {
+            synchronized (fifoLock) {
+                drainRemovalMetadata();
+            }
         }
     }
     
@@ -217,12 +255,15 @@ public class FifoCaffeineStore<K, V> implements Store<K, V> {
      * 获取FIFO特有统计信息
      */
     public FifoStats getFifoStats() {
-        return new FifoStats(
-            insertionOrder.size(),
-            maxSize,
-            insertionCounter.get(),
-            getInsertionOrderIntegrity()
-        );
+        synchronized (fifoLock) {
+            drainRemovalMetadata();
+            return new FifoStats(
+                insertionOrder.size(),
+                maxSize,
+                insertionCounter.get(),
+                getInsertionOrderIntegrity()
+            );
+        }
     }
     
     /**

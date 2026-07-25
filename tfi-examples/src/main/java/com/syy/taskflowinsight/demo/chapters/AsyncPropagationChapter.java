@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * 第7章：异步上下文传播演示章节。
  *
- * <p>演示 SafeContextManager.executeAsync()、TFIAwareExecutor 及手动 wrapRunnable/wrapCallable
+ * <p>演示 SafeContextManager.executeAsync()、ContextPropagatingExecutor 及手动 wrapRunnable/wrapCallable
  * 三种异步上下文传播方式，展示 TFI 上下文在异步场景下的连续性。
  *
  * @since 2.0.0
@@ -40,7 +40,7 @@ public class AsyncPropagationChapter implements DemoChapter {
         
         System.out.println("本演示将展示三种异步上下文传播模式：");
         System.out.println("1. SafeContextManager.executeAsync() - 推荐方式");
-        System.out.println("2. TFIAwareExecutor包装 - 装饰器模式");
+        System.out.println("2. ContextPropagatingExecutor.wrap() - 装饰器模式");
         System.out.println("3. 手动wrapRunnable/wrapCallable - 灵活控制");
         System.out.println();
         
@@ -61,7 +61,7 @@ public class AsyncPropagationChapter implements DemoChapter {
     public List<String> getSummaryPoints() {
         return Arrays.asList(
             "SafeContextManager.executeAsync() - 推荐的异步上下文传播方式",
-            "TFIAwareExecutor - 装饰器模式包装ExecutorService",
+            "ContextPropagatingExecutor - 包装调用方选择的ExecutorService",
             "手动包装 - 使用wrapRunnable/wrapCallable灵活控制",
             "上下文快照机制确保跨线程传播的安全性",
             "异步任务中可以继续创建子任务和记录消息"

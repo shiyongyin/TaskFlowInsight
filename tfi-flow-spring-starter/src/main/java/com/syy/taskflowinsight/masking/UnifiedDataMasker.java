@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  * <p>提供字段名敏感检测和值内容敏感检测的双重脱敏能力，确保 TFI 追踪日志中不会泄露
  * 密码、Token、邮箱、电话、信用卡等敏感信息。
  *
- * <h3>脱敏策略</h3>
+ * <h2>脱敏策略</h2>
  * <ol>
  *   <li><b>字段名检测</b> — 字段名包含 {@code password}, {@code token} 等关键词时，
  *       使用 STRONG 策略脱敏</li>
@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
  *   <li><b>透传</b> — 非敏感内容原值返回</li>
  * </ol>
  *
- * <h3>可配置性</h3>
+ * <h2>可配置性</h2>
  * <p>敏感关键词列表通过 {@code tfi.security.sensitive-keywords} 自定义，
  * 默认包含 19 个常见敏感字段关键词。
  *

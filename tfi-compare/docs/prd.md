@@ -1,502 +1,108 @@
-# TFI-Compare 产品需求文档 (PRD)
+# TFI-Compare 产品边界
 
-> **文档版本**: v5.0.0  
-> **模块版本**: 3.0.0  
-> **撰写角色**: 资深产品经理  
-> **审阅**: 项目经理协调  
-> **初版日期**: 2026-02-15  
-> **更新日期**: 2026-02-16 (v5 — 全面质量提升后更新 KPI 和版本状态)  
+**状态**：CURRENT  
+**职责**：产品范围与用户可观察合同
 
----
-
-## 目录
-
-1. [产品概述](#1-产品概述)
-2. [目标用户与场景](#2-目标用户与场景)
-3. [产品目标与成功指标](#3-产品目标与成功指标)
-4. [功能需求](#4-功能需求)
-5. [非功能需求](#5-非功能需求)
-6. [用户旅程](#6-用户旅程)
-7. [功能优先级矩阵](#7-功能优先级矩阵)
-8. [竞品分析](#8-竞品分析)
-9. [版本规划](#9-版本规划)
-10. [风险与依赖](#10-风险与依赖)
-11. [附录](#11-附录)
+技术实现以[当前架构 SSOT](design-doc.md)为准；本文件只回答“用户能依赖什么”，不复制内部设计。
 
----
-
-## 1. 产品概述
+## 1. 产品定位
 
-### 1.1 产品定位
+TFI-Compare 是面向 Java 业务系统的对象比较与变更追踪组件。它适用于审计变更、更新前后校验、批量处理结果核对、
+领域对象差异展示和业务 action 前后追踪。组件发布有界、可审计的 typed 结果，但不替业务系统决定哪些字段具有合规留存资格。
 
-**TFI-Compare** 是 TaskFlowInsight 生态的**核心比较与变更追踪引擎**，为 Java 应用提供「对象级 X 光」能力——自动检测任意 Java 对象在业务流程中的字段级变化，并以结构化格式输出差异报告。
+目标使用者包括：
 
-### 1.2 产品愿景
-
-> 让每一次数据变更都可追溯、可审计、可回放。
-
-### 1.3 一句话价值主张
-
-> 只需一行代码，即可对比任意 Java 对象的差异——支持深度嵌套、列表移动检测、精度控制、多格式导出。
-
-### 1.4 核心价值
-
-| 价值维度 | 描述 |
-|---------|------|
-| **审计合规** | 自动记录数据变更，满足金融/医疗等行业审计要求 |
-| **业务可观测** | 让隐性的数据变化变成显性的结构化记录 |
-| **开发效率** | 免去手写 diff 逻辑，注解驱动、零侵入 |
-| **运维友好** | Prometheus 指标、降级策略、性能预算 |
-
----
-
-## 2. 目标用户与场景
-
-### 2.1 用户画像
-
-| 角色 | 需求 | 使用场景 |
-|------|------|---------|
-| **Java 后端开发** | 快速对比对象差异，减少手写 diff 代码 | 业务开发、代码审查 |
-| **架构师** | 可扩展的比较框架，适配多种业务类型 | 框架选型、架构设计 |
-| **QA 工程师** | 验证数据变更的正确性 | 回归测试、数据校验 |
-| **审计/合规人员** | 追踪数据变更历史 | 审计报告、合规检查 |
-| **运维工程师** | 监控比较引擎性能 | 生产环境监控 |
-
-### 2.2 核心使用场景
-
-#### 场景 1: 订单变更追踪
-
-```
-用户操作: 客户修改订单的商品数量和配送地址
-系统行为: TFI 自动检测 Order 对象的变更字段
-输出结果: 
-  - quantity: 3 → 5 (UPDATE)
-  - address.city: "北京" → "上海" (UPDATE)
-  - items[2]: new (CREATE)
-价值: 运营可追溯每笔订单变更，客服可快速定位问题
-```
-
-#### 场景 2: 用户信息审计
-
-```
-用户操作: 管理员修改用户权限
-系统行为: TFI 深度追踪 User 对象变更
-输出结果:
-  - roles: [ADMIN] → [ADMIN, SUPER_ADMIN] (UPDATE)
-  - lastModifiedBy: null → "admin_001" (CREATE)
-价值: 满足 SOX 合规要求，审计有据可查
-```
-
-#### 场景 3: 批量数据迁移验证
-
-```
-用户操作: 系统从旧表迁移数据到新表
-系统行为: 使用批量比较验证迁移结果
-输出结果:
-  - 1000 条记录，998 条完全一致
-  - 2 条存在精度偏差（金额字段小数位差异）
-价值: 自动化迁移校验，替代人工抽检
-```
-
-#### 场景 4: 列表差异分析
-
-```
-用户操作: 对比两个版本的商品列表
-系统行为: Entity 策略匹配 @Key(sku)，检测新增/删除/修改/移动
-输出结果:
-  - SKU-001: price 99.9 → 89.9 (UPDATE)
-  - SKU-003: (DELETE)
-  - SKU-005: (CREATE)
-  - SKU-002: index 1 → 3 (MOVE)
-价值: 商品管理可追踪每次上架/调价/排序变更
-```
-
----
-
-## 3. 产品目标与成功指标
-
-### 3.1 产品目标
-
-| # | 目标 | 衡量标准 |
-|---|------|---------|
-| G1 | 覆盖 95% 的 Java 对象比较场景 | 支持基本类型、包装类、String、Date、BigDecimal、Collection、Map、Array、嵌套对象 |
-| G2 | 零代码侵入 | 仅需注解 + 配置，无需修改业务代码 |
-| G3 | 毫秒级响应 | 1000 字段对象对比 < 50ms |
-| G4 | 生产级可靠性 | 异常不影响业务流程（静默降级） |
-| G5 | 企业级可扩展 | SPI + 自定义策略 + 多格式导出 |
-
-### 3.2 关键成功指标 (KPI)
-
-| 指标 | 目标值 | v1 状态 | v2 状态 | v5 状态 |
-|------|-------|---------|---------|---------|
-| API 调用成功率 | ≥ 99.9% | 待测量 | 待测量 | ✅ 异常隔离机制已验证（SpotBugs 0 High） |
-| P99 响应时间（1000 字段） | < 100ms | 待 benchmark | 待 benchmark | ✅ **14 个性能测试**基线已建立 |
-| 功能覆盖率（Java 类型） | ≥ 95% | ~90% | ~92% | ~95%（全类型策略覆盖） |
-| 指令测试覆盖率 | ≥ 85% | ~60% | ~75% | ✅ **87.8%** (47,379/53,979) |
-| 分支测试覆盖率 | ≥ 75% | - | ~50% | ✅ **75.1%** (5,110/6,804) |
-| 测试用例总数 | - | - | 95+ | **3,591** (0 failures) |
-| API 兼容性守护 | - | - | - | ✅ **22 个 API surface tests** |
-| 用户 API 满意度 | ≥ 4.0/5.0 | 待调研 | 待调研 | 待调研 |
-
----
-
-## 4. 功能需求
-
-### 4.1 功能全景图
-
-```
-TFI-Compare 功能矩阵
-├── F1: 对象比较 (Core)
-│   ├── F1.1 单对象深度比较
-│   ├── F1.2 列表比较（5 种策略）
-│   ├── F1.3 批量比较
-│   ├── F1.4 三方合并比较
-│   └── F1.5 相似度计算
-├── F2: 变更追踪 (Tracking)
-│   ├── F2.1 浅层追踪 (track)
-│   ├── F2.2 深度追踪 (trackDeep)
-│   ├── F2.3 会话级追踪
-│   └── F2.4 变更查询
-├── F3: 类型系统 (Type System)
-│   ├── F3.1 @Entity + @Key
-│   ├── F3.2 @ValueObject
-│   ├── F3.3 @DiffIgnore / @DiffInclude
-│   ├── F3.4 @NumericPrecision
-│   ├── F3.5 @DateFormat
-│   ├── F3.6 @CustomComparator
-│   └── F3.7 @ShallowReference
-├── F4: 导出 (Export)
-│   ├── F4.1 Console 导出
-│   ├── F4.2 JSON 导出
-│   ├── F4.3 CSV 导出
-│   ├── F4.4 XML 导出
-│   ├── F4.5 Map 导出
-│   └── F4.6 流式导出
-├── F5: 渲染 (Render)
-│   ├── F5.1 Markdown 报告
-│   └── F5.2 自定义渲染样式
-├── F6: 性能 (Performance)
-│   ├── F6.1 PerfGuard 预算控制
-│   ├── F6.2 自适应降级
-│   ├── F6.3 缓存策略
-│   └── F6.4 大对象优化
-└── F7: 可观测 (Observability)
-    ├── F7.1 Micrometer 指标
-    ├── F7.2 降级事件通知
-    └── F7.3 诊断日志
-```
-
-### 4.2 详细功能描述
-
-#### F1: 对象比较
-
-##### F1.1 单对象深度比较
-
-| 属性 | 描述 |
-|------|------|
-| **入口** | `CompareService.compare(obj1, obj2)` |
-| **功能** | 递归比较两个对象的所有字段差异 |
-| **输入** | 任意两个 Java 对象（同类型或不同类型） |
-| **输出** | `CompareResult`（包含 FieldChange 列表、相似度、耗时） |
-| **配置** | `CompareOptions`（深度、null 处理、精度、超时） |
-| **边界** | 最大深度 10（可配置），循环引用自动检测 |
-
-##### F1.2 列表比较
-
-| 策略 | 适用场景 | 特性 |
-|------|---------|------|
-| **Simple** | 索引固定的列表 | 按索引逐一对比 |
-| **Entity** | 有唯一标识的实体列表 | 按 @Key 匹配，检测增删改 |
-| **LCS** | 需要移动检测的列表 | 最长公共子序列算法 |
-| **Levenshtein** | 编辑距离最小化 | 编辑距离算法 |
-| **AsSet** | 顺序无关的集合 | 集合语义对比 |
-
-##### F1.3 批量比较
-
-| 属性 | 描述 |
-|------|------|
-| **入口** | `CompareService.compareBatch(pairs, options)` |
-| **特性** | 自动并行处理，利用虚拟线程池（Java 21 Virtual Threads）— v2 改进 |
-| **限制** | 建议单批次 ≤ 100 对 |
-
-##### F1.4 三方合并比较
-
-| 属性 | 描述 |
-|------|------|
-| **入口** | `CompareService.compareThreeWay(base, left, right, options)` |
-| **输出** | `MergeResult`（合并结果 + 冲突列表） |
-| **冲突类型** | FIELD_CONFLICT、TYPE_CONFLICT、NULL_CONFLICT |
-| **解决策略** | LEFT_WINS、RIGHT_WINS、MANUAL |
-
-#### F2: 变更追踪
-
-##### F2.1 浅层追踪
-
-```java
-// API 示例
-TFI.track("order", orderObj, "status", "amount");  // 指定字段
-List<ChangeRecord> changes = TFI.getChanges();
-```
-
-##### F2.2 深度追踪
-
-```java
-// API 示例
-TFI.trackDeep("user", userObj);  // 全字段深度追踪
-List<ChangeRecord> changes = TFI.getChanges();
-```
-
-#### F3: 类型系统
-
-| 注解 | 场景 | 示例 |
-|------|------|------|
-| `@Entity` + `@Key` | 有身份标识的业务对象 | `@Entity class Order { @Key Long id; }` |
-| `@ValueObject` | 无身份的值对象 | `@ValueObject class Money { BigDecimal amount; }` |
-| `@NumericPrecision(scale=2)` | 金额等精度敏感字段 | `@NumericPrecision(scale=2) BigDecimal price;` |
-| `@DateFormat("yyyy-MM-dd")` | 日期只比较到天 | `@DateFormat("yyyy-MM-dd") Date createDate;` |
-| `@DiffIgnore` | 排除非业务字段 | `@DiffIgnore Date updateTime;` |
-| `@ShallowReference` | 大对象仅比引用 | `@ShallowReference Department dept;` |
-
-#### F4: 导出
-
-| 格式 | 用途 | 流式支持 |
-|------|------|---------|
-| Console | 开发调试 | 是 |
-| JSON | API 返回、存储 | 是 |
-| CSV | Excel 分析 | 是 |
-| XML | 系统集成 | 是 |
-| Map | 程序化处理 | 否 |
-
----
-
-## 5. 非功能需求
-
-### 5.1 性能需求
-
-| 指标 | 目标 | 优先级 |
-|------|------|-------|
-| 简单对象对比（10 字段） | < 1ms | P0 |
-| 中等对象对比（100 字段） | < 10ms | P0 |
-| 复杂对象对比（1000 字段） | < 100ms | P0 |
-| 列表对比（1000 元素，Entity 策略） | < 500ms | P1 |
-| 列表对比（1000 元素，LCS 策略） | < 2s | P1 |
-| 内存占用（单次比较） | < 10MB | P0 |
-
-### 5.2 可靠性需求
-
-| 需求 | 描述 |
-|------|------|
-| 异常隔离 | TFI 异常不得传播到业务代码 |
-| 静默降级 | 性能超限时自动降级，不阻塞业务 |
-| 内存安全 | 循环引用检测、深度限制、大集合摘要 |
-| 零泄露 | ThreadLocal 使用保证可清理 |
-
-### 5.3 兼容性需求
-
-| 需求 | 描述 |
-|------|------|
-| Java 版本 | Java 21+ |
-| Spring Boot | 3.x（可选，支持纯 Java） |
-| 序列化 | 无需实现 Serializable |
-| 代理兼容 | 支持 CGLIB/JDK 动态代理对象 |
-
-### 5.4 安全需求
-
-| 需求 | 描述 |
-|------|------|
-| 数据脱敏 | 导出时支持字段级脱敏（MaskRuleMatcher） |
-| 无副作用 | 比较过程不修改原始对象 |
-| 日志安全 | 敏感字段不出现在日志中 |
-
----
-
-## 6. 用户旅程
-
-### 6.1 开发者首次接入
-
-```
-Step 1: 添加 Maven 依赖
-         └── pom.xml: tfi-compare
-
-Step 2: 标注业务对象
-         └── @Entity + @Key / @ValueObject / @DiffIgnore
-
-Step 3: 调用 API
-         └── CompareResult result = TFI.compare(before, after);
-
-Step 4: 查看结果
-         └── result.getChanges().forEach(...)
-
-Step 5: 选择导出格式
-         └── ChangeJsonExporter.export(changes)
-
-Step 6: 配置优化（可选）
-         └── application.yml: tfi.compare.*
-```
-
-### 6.2 进阶用户定制
-
-```
-Step 1: 注册自定义策略
-         └── compareService.registerStrategy(Money.class, moneyStrategy)
-
-Step 2: 实现 SPI Provider
-         └── implements ComparisonProvider + META-INF/services
-
-Step 3: 配置性能预算
-         └── CompareOptions.builder().perfBudgetMs(1000).build()
-
-Step 4: 监控生产指标
-         └── /actuator/prometheus → tfi_compare_*
-```
-
----
-
-## 7. 功能优先级矩阵
-
-| 功能 | 优先级 | 状态 | 版本 |
-|------|-------|------|------|
-| 单对象深度比较 | P0 | ✅ 已完成 | v1.0 |
-| 列表比较（Simple/Entity） | P0 | ✅ 已完成 | v2.0 |
-| 变更追踪（浅/深） | P0 | ✅ 已完成 | v1.0 |
-| JSON/Console 导出 | P0 | ✅ 已完成 | v1.0 |
-| 注解类型系统 | P0 | ✅ 已完成 | v2.0 |
-| 列表比较（LCS/Levenshtein） | P1 | ✅ 已完成 | v3.0 |
-| 三方合并比较 | P1 | ✅ 已完成 | v3.0 |
-| 流式导出 | P1 | ✅ 已完成 | v3.0 |
-| PerfGuard 性能预算 | P1 | ✅ 已完成 | v3.0 |
-| 自适应降级 | P1 | ✅ 已完成 | v3.0 |
-| SPI Provider 机制 | P1 | ✅ 已完成 | v4.0 |
-| CSV/XML 导出 | P2 | ✅ 已完成 | v3.0 |
-| Markdown 渲染 | P2 | ✅ 已完成 | v3.0 |
-| 数据脱敏导出 | P2 | ✅ 已完成 | v3.0 |
-| GraalVM native 支持 | P3 | ❌ 未开始 | 未规划 |
-| Web UI 可视化 | P3 | ❌ 未开始 | 未规划 |
-
----
-
-## 8. 竞品分析
-
-### 8.1 竞品对比
-
-| 特性 | **TFI-Compare** | Javers | java-object-diff | Apache Commons |
-|------|-----------------|--------|-------------------|----------------|
-| 深度对象比较 | ✅ | ✅ | ✅ | ❌ (浅比较) |
-| 列表 Move 检测 | ✅ (LCS) | ✅ | ❌ | ❌ |
-| @Key 实体匹配 | ✅ | ✅ | ❌ | ❌ |
-| 精度控制 | ✅ (@NumericPrecision) | ❌ | ❌ | ❌ |
-| 日期格式化 | ✅ (@DateFormat) | ❌ | ❌ | ❌ |
-| 自定义比较器 | ✅ (SPI + 注解) | ✅ | ✅ | ❌ |
-| 变更追踪 | ✅ (Snapshot-based) | ✅ (Commit-based) | ❌ | ❌ |
-| 性能降级 | ✅ (PerfGuard) | ❌ | ❌ | ❌ |
-| 多格式导出 | ✅ (JSON/CSV/XML/Map) | ✅ (JSON) | ❌ | ❌ |
-| Spring Boot 自动配置 | ✅ | ✅ | ❌ | ❌ |
-| 纯 Java 支持 | ✅ | ✅ | ✅ | ✅ |
-| 三方合并 | ✅ | ❌ | ❌ | ❌ |
-| Prometheus 指标 | ✅ | ❌ | ❌ | ❌ |
-
-### 8.2 差异化优势
-
-1. **精度控制注解**: `@NumericPrecision` + `@DateFormat` 是独有特性
-2. **PerfGuard**: 性能预算 + 自适应降级是 TFI 独有
-3. **5 种列表策略**: 覆盖最广
-4. **三方合并**: 冲突检测 + 解决策略
-5. **流式导出**: 大数据量导出不 OOM
-
----
-
-## 9. 版本规划
-
-### 9.1 已发布版本
-
-| 版本 | 主要特性 | 发布时间 |
-|------|---------|---------|
-| v1.0 | 基础对象比较、变更追踪、Console/JSON 导出 | 2025-01 |
-| v2.0 | 注解类型系统、Entity/Simple 列表策略、深度追踪 | 2025-06 |
-| v3.0 | LCS/Levenshtein、PerfGuard、降级、流式导出、三方合并 | 2025-10 |
-
-### 9.2 v3.0.0 改进项（v5 全量更新）
-
-| 改进项 | 状态 | 描述 |
-|--------|------|------|
-| System.out 清除 | ✅ 已完成 | 全部替换为 SLF4J logger.debug() |
-| CompareService 职责拆分 | ✅ 已完成 | 新增 CompareReportGenerator + ThreeWayMergeService |
-| DiffDetector volatile 修复 | ✅ 已完成 | 6 个静态字段加 volatile |
-| compareBatch 虚拟线程池 | ✅ 已完成 | parallelStream → Virtual Thread Executor |
-| SpotBugs 10 个 High 修复 | ✅ 已完成 | 死代码/冗余 null/忽略异常/System.gc()/putIfAbsent/静态字段写入 |
-| API Bug 修复 | ✅ 已完成 | ObjectSnapshotDeep NPE + ConfigurationResolverImpl NPE |
-| 测试覆盖率 87.8%/75.1% | ✅ 已完成 | 79 个测试文件，3,591 个 test case |
-| ArchUnit 架构测试 | ✅ 已完成 | 6 条架构约束规则 |
-| 性能测试基线 | ✅ 已完成 | 14 个性能测试（CompareService/PathDedup/Snapshot/QueryAPI） |
-| API 兼容性守护 | ✅ 已完成 | 22 个 API surface tests + japicmp |
-| 测试文件命名规范化 | ✅ 已完成 | 17 个文件重命名，消除命名残留 |
-| TODO/FIXME 清理 | ✅ 已完成 | 3 个全部处理 |
-| 测试文件整合 | ✅ 已完成 | 79 → 73 文件（减 8 个冗余） |
-
-### 9.3 当前开发 (v4.0.0)
-
-| 特性 | 状态 | 描述 |
-|------|------|------|
-| SPI Provider 路由 | 开发中 | ComparisonProvider / TrackingProvider / RenderProvider |
-| Provider 发现机制 | 开发中 | Spring Bean → ServiceLoader → Default 优先级链 |
-| Provider 模式配置 | 开发中 | auto / spring-only / service-loader-only |
-
-### 9.4 未来规划
-
-| 版本 | 特性 | 优先级 |
-|------|------|-------|
-| v4.1 | 变更回放（Replay） | P2 |
-| v4.2 | Web UI 差异可视化 | P3 |
-| v5.0 | 增量比较（仅比较变化部分） | P2 |
-| v5.0 | GraalVM native-image 支持 | P3 |
-
----
-
-## 10. 风险与依赖
-
-### 10.1 技术风险
-
-| 风险 | 影响 | 概率 | 缓解措施 |
-|------|------|------|---------|
-| 大对象图 OOM | 高 | 中 | max-depth + 大集合摘要 + PerfGuard |
-| 循环引用死循环 | 高 | 低 | ObjectSnapshotDeep 内置循环检测 |
-| 反射性能瓶颈 | 中 | 中 | ReflectionMetaCache + Caffeine |
-| Spring 版本升级不兼容 | 中 | 低 | spring-boot-autoconfigure optional |
-| 并发安全问题 | 高 | 低 | ThreadLocal + ConcurrentHashMap + 代码审查 |
-
-### 10.2 外部依赖
-
-| 依赖 | 风险 | 缓解 |
-|------|------|------|
-| tfi-flow-core | 内部依赖，版本同步 | 同仓库管理 |
-| Caffeine | 社区活跃，低风险 | optional 依赖 |
-| Micrometer | Spring 生态标配 | optional 依赖 |
-| Jackson | 广泛使用 | optional 依赖 |
-
----
-
-## 11. 附录
-
-### 11.1 术语表
-
-| 术语 | 定义 |
-|------|------|
-| **Entity** | 有唯一标识的业务对象，列表中通过 @Key 匹配 |
-| **ValueObject** | 无身份标识的值对象，基于所有字段值比较 |
-| **FieldChange** | 字段级变更记录，包含路径、旧值、新值、变更类型 |
-| **CompareResult** | 比较结果集合，包含所有 FieldChange |
-| **PerfGuard** | 性能守卫，在预算内控制比较执行 |
-| **SSOT** | Single Source of Truth，唯一真相源 |
-| **SPI** | Service Provider Interface，服务提供者接口 |
-| **降级** | 性能超限时自动切换到更简单的策略 |
-
-### 11.2 参考文档
-
-- [TFI QuickStart](../src/main/java/com/syy/taskflowinsight/tracking/docs/QuickStart.md)
-- [Package Design](../src/main/java/com/syy/taskflowinsight/tracking/docs/PACKAGE_DESIGN.md)
-- [Configuration Guide](../src/main/java/com/syy/taskflowinsight/tracking/docs/Configuration.md)
-- [Performance Best Practices](../src/main/java/com/syy/taskflowinsight/tracking/docs/Performance-BestPractices.md)
-
----
-
-*文档由资深产品经理撰写，项目经理审阅。v5 更新于 2026-02-16。*
+- 需要判断两个业务对象是否相同、不同或无法确定的应用开发者。
+- 需要在一次业务 action 前后捕获对象变化的领域服务。
+- 需要将差异投影为机器格式或受控文本格式的审计与运维集成。
+- 需要在纯 Java、静态 TFI facade 或 Spring 上下文中复用同一比较语义的基础设施团队。
+
+## 2. 用户可观察结果合同
+
+一次比较返回 immutable `CompareResult`，用户必须同时读取：
+
+- `CompareOutcome`：`EQUAL`、`DIFFERENT` 或 `INDETERMINATE`。
+- `CompareCompletion`：`COMPLETE`、`PARTIAL`、`FAILED` 或 `DISABLED`。
+- `changes`：当前保留的 typed 差异明细，不是业务结论的唯一来源。
+- `problems`：非预期能力故障。
+- `limitations`：预算、deadline、key ambiguity 或 policy 边界。
+- `diagnostics`：算法身份、语义指纹、耗时、消费量和省略计数。
+
+只有 `EQUAL + COMPLETE` 可以解释为“已证明相等”。已确认差异不会因为后续分支触及限制而丢失；没有差异明细也不能在
+`PARTIAL`、`FAILED` 或 `DISABLED` 时解释为相等。
+
+## 3. 支持能力
+
+### 3.1 对象与标量
+
+- 同引用、单边 null、运行时类型不一致具有明确 typed 结果。
+- 普通对象按可观察字段深比较，支持 include/exclude typed path rule。
+- numeric 和 temporal 值使用冻结 Policy 中的容差语义。
+- 用户可在 `CompareRuntime.Builder` 中为 exact target class 注册 strategy，或为 exact declared field 注册 comparator。
+- 自定义扩展选中后失败会形成问题证据，不静默改用另一个算法。
+
+### 3.2 集合与 Entity
+
+- Map 区分 key 缺失与 present-null，不推断 key rename。
+- 普通 List 按有序索引比较；keyed List 可独立发布 identity、MOVE 与内容变化。
+- Set 的结果不依赖迭代顺序，混合 scalar、Entity 与复杂成员均逐项解释。
+- `@Entity`/`@Key` 定义配对 identity；配对后仍比较内容。
+- 重复、冲突或不可解析 key 产生 typed limitation，不覆盖成员，也不伪装成完整相等。
+
+### 3.3 变更追踪
+
+`TrackingExecutor` 支持在一次业务 action 前后追踪一个或多个目标。合法调用中 action 只有一个执行点；provider 只拥有
+baseline/capture scope，不能重试业务操作。输入非法时 action 不执行，业务异常原样传播。
+
+Spring 与 Flow 同时存在时，可显式开启 `tfi.compare.tracking.enabled`，将 `TfiTask` deep tracking hook 接到当前上下文的
+Compare Runtime。该集成默认不隐式启用。
+
+### 3.4 发布格式
+
+`CompareProjectionFactory` 先把结果变成已脱敏的 canonical projection，再由 JSON、Map、Markdown 或 Console formatter 消费。
+所有 formatter 共享同一字段树和 masking 结论。Spring 配置只能增加脱敏规则，不能关闭安全默认值；敏感值发布只允许代码级、
+逐次显式 opt-in。
+
+## 4. 集成模式
+
+| 模式 | 用户入口 | 作用域 |
+|---|---|---|
+| 纯 Java | `CompareRuntime.builder()` / `CompareRuntime.defaults()` | 调用方持有的 immutable Runtime 或 JVM 默认 Runtime |
+| Core SPI / 静态 facade | `ProviderRegistry` 选中的 typed provider | JVM provider epoch |
+| Spring | 注入 `CompareOperations`、`CompareRuntime` 或 facade | 当前 `ApplicationContext` |
+| Spring Ops | primary observed `CompareOperations` 与 health | 当前 `ApplicationContext` |
+
+Spring Runtime 不注册到 Core `ProviderRegistry`，因此多个上下文和静态入口可以使用不同的显式配置而互不修改。
+
+## 5. 有界性与可靠性承诺
+
+- 每次请求受节点、元素、深度、deadline、结果明细、issue、路径、字符、Entity key 和扩展边界约束。
+- 达到边界时先停止继续观察未读业务事实，再发布 typed limitation；不会靠截断文本、摘要、hash 或采样证明相等。
+- 请求状态不跨调用保留；同一个 immutable Runtime 可并发复用。
+- Compare 不创建后台比较线程，不持久化结果，也不保存 session history。
+- 业务 action 的耗时不计入 tracking 的比较 phase deadline。
+
+## 6. 安全合同
+
+- 默认 projection 对敏感路径和敏感内容执行安全脱敏。
+- 日志、异常与指标不得包含原始业务值、任意异常消息、业务路径或高基数业务 key。
+- Writer/OutputStream 生命周期由调用方拥有；formatter 不关闭调用方资源。
+- 业务系统负责 projection 之后的授权、传输、持久化、保留期和删除策略。
+
+## 7. 非目标
+
+- 不提供业务日志存储、查询、索引、传输、重试或审计留存系统；组件侧重试上限为 0。
+- 不从差异结果自动执行补偿、更新、合并或审批决策。
+- 不在请求执行期间热更新 Runtime、算法、provider 或语义配置。
+- 不以最近一次比较结果、错误率或 session 状态判断组件健康。
+- 不保证抢占一个不返回的用户 callback；扩展必须 nonblocking。
+- 不把性能门禁替代为正确性结论，也不因输入规模自动改变比较语义。
+
+## 8. 兼容与变更
+
+公开 API、资源、配置、schema 或行为的非兼容变化必须进入
+[`breaking-changes-v4.json`](../src/test/resources/compatibility/breaking-changes-v4.json)并同步直接消费者。算法语义、默认 masking、
+结果真值或 provider 选择规则发生变化时，需要新的显式决策与回归合同。
+
+产品验收与配置迁移使用[验证策略](test-plan.md)中的机器合同。组件不定义宿主 readiness/liveness；Runtime 不可用、生产应急和
+回滚处置见[运行手册](ops-doc.md)。

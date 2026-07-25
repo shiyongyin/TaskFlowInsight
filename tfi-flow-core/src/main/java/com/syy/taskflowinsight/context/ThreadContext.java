@@ -4,7 +4,6 @@ import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
 
 import java.time.Instant;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 线程上下文统一管理器
@@ -21,8 +20,14 @@ import java.util.concurrent.atomic.AtomicLong;
  * @since 2025-01-13
  */
 public class ThreadContext {
-    
-    private static final AtomicLong TOTAL_PROPAGATIONS = new AtomicLong(0);
+
+    /**
+     * 创建无状态的线程上下文门面。
+     *
+     * <p>保留公共构造器仅用于兼容既有调用；所有能力均由静态方法提供。</p>
+     */
+    public ThreadContext() {
+    }
     
     /**
      * 创建并激活新的线程上下文
@@ -44,13 +49,14 @@ public class ThreadContext {
     }
     
     /**
-     * 获取当前会话
+     * 获取当前活跃会话
      * 
-     * @return 当前会话，如果不存在返回null
+     * @return 当前活跃会话，如果不存在或已发布终态则返回null
      */
     public static Session currentSession() {
         ManagedThreadContext context = current();
-        return context != null ? context.getCurrentSession() : null;
+        Session session = context != null ? context.getCurrentSession() : null;
+        return session != null && session.isActive() ? session : null;
     }
     
     /**
@@ -69,33 +75,24 @@ public class ThreadContext {
     public static void clear() {
         ManagedThreadContext context = ManagedThreadContext.current();
         if (context != null && !context.isClosed()) {
-            context.close();
+            context.forceCleanup("explicit clear");
         }
 
         // 注意：变更追踪清理由 tfi-compare 模块负责（如存在）
     }
     
     /**
-     * 传播上下文到新线程
-     * 
-     * @param snapshot 上下文快照
-     * @return 恢复的上下文
+     * 以破坏式兼容语义传播快照。
+     *
+     * <p>null 保持“不改变当前绑定并返回 null”；non-null 与
+     * {@link ContextSnapshot#restore()} 共用唯一 manager 路径。线程池 wrapper 使用
+     * {@link ContextScope}，因此不会借此入口覆盖 worker prior。</p>
+     *
+     * @param snapshot 上下文快照；null 表示不传播
+     * @return 恢复的 linked-child Context；snapshot 为 null 时返回 null
      */
     public static ManagedThreadContext propagate(ContextSnapshot snapshot) {
-        if (snapshot == null) {
-            return null;
-        }
-        
-        // 清理现有上下文
-        clear();
-        
-        // 恢复上下文
-        ManagedThreadContext context = ManagedThreadContext.restoreFromSnapshot(snapshot);
-        
-        // 更新统计
-        TOTAL_PROPAGATIONS.incrementAndGet();
-        
-        return context;
+        return SafeContextManager.getInstance().restoreDestructively(snapshot);
     }
     
     /**
@@ -108,8 +105,14 @@ public class ThreadContext {
      * @throws Exception 任务执行异常
      */
     public static <T> T execute(String taskName, ContextTask<T> task) throws Exception {
-        try (ManagedThreadContext context = create(taskName)) {
+        ManagedThreadContext context = create(taskName);
+        try {
             return task.execute(context);
+        } catch (Exception | Error failure) {
+            failPreservingPrimary(context, failure);
+            throw failure;
+        } finally {
+            context.close();
         }
     }
     
@@ -121,8 +124,22 @@ public class ThreadContext {
      * @throws Exception 任务执行异常
      */
     public static void run(String taskName, ContextRunnable task) throws Exception {
-        try (ManagedThreadContext context = create(taskName)) {
+        ManagedThreadContext context = create(taskName);
+        try {
             task.run(context);
+        } catch (Exception | Error failure) {
+            failPreservingPrimary(context, failure);
+            throw failure;
+        } finally {
+            context.close();
+        }
+    }
+
+    private static void failPreservingPrimary(ManagedThreadContext context, Throwable primary) {
+        try {
+            context.fail(primary);
+        } catch (RuntimeException | Error cleanupFailure) {
+            primary.addSuppressed(cleanupFailure);
         }
     }
     
@@ -150,7 +167,7 @@ public class ThreadContext {
      * @return 总传播次数
      */
     public static long getTotalPropagations() {
-        return TOTAL_PROPAGATIONS.get();
+        return SafeContextManager.getInstance().metrics().propagations();
     }
     
     /**
@@ -171,19 +188,30 @@ public class ThreadContext {
      * @return 性能统计
      */
     public static ContextStatistics getStatistics() {
+        ContextMetrics metrics = SafeContextManager.getInstance().metrics();
         return new ContextStatistics(
-            getActiveContextCount(),
-            getTotalContextsCreated(),
-            TOTAL_PROPAGATIONS.get(),
-            detectPotentialLeaks()
+            metrics.activeContexts(),
+            metrics.createdContexts(),
+            metrics.propagations(),
+            metrics.detectedLeaks() > 0,
+            metrics.capturedAt()
         );
     }
     
     /**
-     * 上下文任务接口
+     * 在指定上下文内计算结果的任务。
+     *
+     * @param <T> 任务结果类型
      */
     @FunctionalInterface
     public interface ContextTask<T> {
+        /**
+         * 在已激活的上下文内执行业务逻辑。
+         *
+         * @param context 当前调用独占的上下文
+         * @return 业务计算结果，可由任务自行定义 null 语义
+         * @throws Exception 业务逻辑无法完成时抛出
+         */
         T execute(ManagedThreadContext context) throws Exception;
     }
     
@@ -192,6 +220,12 @@ public class ThreadContext {
      */
     @FunctionalInterface
     public interface ContextRunnable {
+        /**
+         * 在已激活的上下文内执行业务逻辑。
+         *
+         * @param context 当前调用独占的上下文
+         * @throws Exception 业务逻辑无法完成时抛出
+         */
         void run(ManagedThreadContext context) throws Exception;
     }
     
@@ -199,10 +233,15 @@ public class ThreadContext {
      * 上下文统计信息
      */
     public static class ContextStatistics {
+        /** 捕获时仍处于活动状态的上下文数量。 */
         public final int activeContexts;
+        /** 进程启动后累计创建的上下文数量。 */
         public final long totalCreated;
+        /** 进程启动后累计执行的上下文传播次数。 */
         public final long totalPropagations;
+        /** 捕获前是否至少观测到一次潜在上下文泄漏。 */
         public final boolean potentialLeak;
+        /** 统计快照的 wall-clock 捕获时刻。 */
         public final Instant timestamp;
 
         /**
@@ -215,11 +254,20 @@ public class ThreadContext {
          */
         public ContextStatistics(int activeContexts, long totalCreated, 
                                 long totalPropagations, boolean potentialLeak) {
+            this(activeContexts, totalCreated, totalPropagations, potentialLeak, Instant.now());
+        }
+
+        /*
+         * Adapter 传入原始观测边界，避免兼容统计对象给同一组数值重新标注时间。
+         * 保持 package-private 是为了不把内部快照桥扩张成新的公共构造契约。
+         */
+        ContextStatistics(int activeContexts, long totalCreated, long totalPropagations,
+                          boolean potentialLeak, Instant timestamp) {
             this.activeContexts = activeContexts;
             this.totalCreated = totalCreated;
             this.totalPropagations = totalPropagations;
             this.potentialLeak = potentialLeak;
-            this.timestamp = Instant.now();
+            this.timestamp = timestamp;
         }
         
         @Override

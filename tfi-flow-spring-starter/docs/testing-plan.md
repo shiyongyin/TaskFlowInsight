@@ -216,7 +216,8 @@
 | WB-CFG-003 | maxAgeMillis=0（非法） | 回退默认值 3600000 |
 | WB-CFG-004 | maxAgeMillis=-1（非法） | 回退默认值 3600000 |
 | WB-CFG-005 | leakDetectionEnabled=true | SafeContextManager 开启泄漏检测 |
-| WB-CFG-006 | cleanupEnabled=true | ZeroLeakThreadLocalManager 开启清理 |
+| WB-CFG-006 | 三项属性同时配置 | 只构造一个 `ContextManagerConfig` 并调用一次 manager `apply` |
+| WB-CFG-007 | 绑定旧 cleaner 配置键 | Java properties 与 metadata 均不再暴露该契约 |
 
 ---
 
@@ -380,7 +381,7 @@ public class UnifiedDataMaskerBenchmark {
 | 指标 | 验证点 |
 |------|--------|
 | 内存 | SpEL 缓存不无限增长 |
-| ThreadLocal | 无泄漏（ZeroLeakManager 工作正常） |
+| ThreadLocal | workload 结束后 `ContextMetrics.activeContexts` 回到基线，registry 无残留 |
 | CPU | 无异常 CPU spike |
 | 日志 | 无频繁 WARN/ERROR |
 

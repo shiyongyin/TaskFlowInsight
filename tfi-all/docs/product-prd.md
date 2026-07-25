@@ -221,9 +221,11 @@ TaskFlowInsight (TFI) 是一款面向 Java 开发者的**业务流程可视化�
 
 ```java
 @SpringBootApplication
-@EnableTfi(enableChangeTracking = true)
 public class MyApplication { }
 ```
+
+引入 `tfi-flow-spring-starter` 和 `tfi-compare-spring-starter` 后由 Boot 自动配置发现能力；
+Compare 使用 `tfi.compare.*`，注解 advice 使用 `tfi.annotation.enabled` 显式启用。
 
 #### 5.5.2 注解驱动 (F6)
 

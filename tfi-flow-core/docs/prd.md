@@ -1,6 +1,7 @@
 # tfi-flow-core 产品需求文档（PRD）
 
-> **负责人**: 张琳（资深产品经理）| **版本**: v4.0 | **评审日期**: 2026-02-15
+> **定位**：tfi-flow-core 当前产品合同 | **版本轴**：`4.0.0-SNAPSHOT`
+> **Export 决策**：[ADR-008](../../docs/adr/ADR-008-TFI-Export-Snapshot-And-Schema.md)
 
 ---
 
@@ -8,16 +9,16 @@
 
 ### 1.1 一句话定位
 
-> **让业务流程"自己说话"**——零侵入、零依赖、零泄漏的 Java 执行流可视化内核。
+> **让业务流程"自己说话"**：以纯 Java scope、结构化执行树和明确的资源所有权提供执行流诊断。
 
 ### 1.2 核心价值主张
 
 | 价值 | 说明 |
 |------|------|
-| **零侵入** | 5 行代码接入，不改变原有业务逻辑 |
-| **零依赖** | 运行时仅依赖 slf4j-api，无框架锁定 |
-| **零泄漏** | 四道防线保证 ThreadLocal 不泄漏 |
-| **零异常** | 门面层永不向业务代码抛出异常 |
+| **低侵入** | 通过显式 Session/Stage scope 接入，不要求业务框架或字节码代理 |
+| **轻依赖** | Core 运行时仅依赖 slf4j-api，无 Spring/Micrometer/Caffeine 依赖 |
+| **资源边界明确** | 唯一 Context owner、AutoCloseable、可配置 leak detector 与 shutdown 回收协同 |
+| **失败可预测** | 非 JVM-fatal 的框架/Provider 路由失败按入口降级；业务异常与 `VirtualMachineError` 保持可见 |
 | **可扩展** | SPI 机制支持自定义 Provider |
 
 ### 1.3 解决的核心问题
@@ -66,11 +67,10 @@
 | 自动会话 | 调用 `stage()` 时自动创建会话 | 内部逻辑 |
 | 状态机 | RUNNING → COMPLETED / ERROR | `Session.complete()` / `error()` |
 
-**验收标准**：
-- [ ] 会话 ID 全局唯一（UUID）
-- [ ] 同一线程同时只有一个活跃会话
-- [ ] 禁用状态下 `startSession()` 返回 null
-- [ ] 状态转换满足 FSM 约束
+**当前合同**：
+- 会话 ID 使用 UUID；一个 owner Context 同时只持有一个活跃 Session。
+- 禁用状态下 `startSession()` 返回 null，不创建业务 scope。
+- Session 只能从 RUNNING 发布一次 COMPLETED 或 ERROR 终态；终态后 owner Context 精确注销一次。
 
 ### F2：任务 / 阶段管理
 
@@ -84,11 +84,10 @@
 | 子任务 | 创建嵌套子任务 | `TaskContext.subtask(name)` |
 | 自动耗时 | 纳秒级自动计时 | `TaskNode.getSelfDurationNanos()` |
 
-**验收标准**：
-- [ ] try-with-resources 自动关闭
-- [ ] 嵌套 stage 形成正确的父子关系
-- [ ] 异常时 stage 自动标记 FAILED
-- [ ] 禁用时返回 NullTaskContext（no-op）
+**当前合同**：
+- try-with-resources 自动关闭；嵌套 Stage 按真实 task stack 形成父子关系和 LIFO 终态。
+- `run`、`call` 和函数式 Stage 的业务异常会标记当前任务失败并继续传播给调用方。
+- 禁用或路由失败时返回 `NullTaskContext`；不会恢复已删除的 nested-depth facade。
 
 ### F3：消息记录
 
@@ -110,13 +109,18 @@
 
 ### F4：导出功能
 
-| 格式 | API | 输出样例 |
-|------|-----|----------|
-| Console 树 | `exportToConsole()` | emoji 树状文本（📋/🔧/💬 + ├──/└──） |
-| JSON | `exportToJson()` | 结构化 JSON 字符串 |
-| Map | `exportToMap()` | `Map<String, Object>` 嵌套结构 |
+| 输出 | Public contract | 用途 |
+|------|-----------------|------|
+| Console | snapshot-only TREE/SIMPLE 诊断文本；不定义 schema | 人工诊断与日志 |
+| JSON | `schemaVersion=2` canonical V2 | 机器交换与持久化 |
+| Map | 与 JSON 同一 canonical V2 tree | 程序化处理与测试 |
+
+一次 direct export 对非空 Session 只捕获一份深度不可变快照。Console style 只由
+`ConsoleExportOptions.ConsoleStyle` 决定，`showTimestamp` 只控制消息时间戳。Map 与 JSON 均不提供 runtime V1
+route 或第二字段树；JSON 也不提供 mode constructor。
 
 **Console 输出样例**：
+
 ```
 📋 订单处理 [COMPLETED] (150ms)
 ├── 🔧 参数验证 [COMPLETED] (2ms)
@@ -129,15 +133,48 @@
     └── 💬 [🔄变更记录] 余额扣减: ¥299
 ```
 
+该样例只说明 TREE 诊断文本的人类可读形态；标点、空格、图标和行布局不是机器 schema 或字节兼容合同。
+
+**默认捕获边界**：
+
+| 维度 | 上限 | 超限语义 |
+|------|-----:|----------|
+| 可见深度 | 1000 | 截断更深 children 并发布 truncation evidence |
+| 可见任务节点 | 100000 | 截断尚未捕获的 children |
+| payload entries | 1000000 | projection/output 前原子失败 |
+| callback-free text | 10000000 UTF-16 code units | limit 成功，limit + 1 原子失败 |
+
+attribute 的 String、Boolean、Character、标准整数/有限浮点、BigInteger、BigDecimal 与 null 按精确类冻结；
+container、array、enum、任意对象和其他 `Number` 子类不迭代、不调用用户回调，只保留 class-name metadata。
+非有限 Float/Double 在 canonical V2 中使用可逆 tagged value。
+
+**失败结果**：
+
+| 边界 | null Session | capture/预算/锁/projection failure | render/write failure |
+|------|--------------|------------------------------------|----------------------|
+| `SessionExportSnapshot.capture` | 拒绝 null | 原样传播 | 不适用 |
+| Console direct | empty String/no write | 原样传播，sink 保持 0 bytes | 完整文本形成后才写 sink |
+| Map direct | empty Map | 原样传播，不返回 partial Map | 不适用 |
+| JSON String direct | 固定 null-session error JSON | capture/projection 原样传播 | post-projection encoding failure 返回 error JSON |
+| JSON Writer direct | 固定 null-session error JSON | 首次写入前原样传播，不产生输出 | Writer I/O 原样传播；直接流式写 caller Writer，失败时可能已经留下部分输出 |
+| `TfiFlow` facade | false/`{}`/empty Map | 非 `VirtualMachineError` 的 failure 返回同一组安全默认值；`VirtualMachineError` 原样传播 | 同一规则 |
+
 ### F5：异步上下文传播
 
 | 功能项 | 说明 | API |
 |--------|------|-----|
 | 快照创建 | 捕获当前线程上下文 | `context.createSnapshot()` |
-| 快照恢复 | 在目标线程恢复上下文 | `snapshot.restore()` |
-| 装饰执行器 | 自动传播上下文的线程池 | `ContextPropagatingExecutor.wrap()` |
-| TFI 感知执行器 | 内置上下文传播线程池 | `TFIAwareExecutor.newFixedThreadPool()` |
+| public 快照恢复 | 破坏式 force-clean 目标线程 current Context，再绑定 linked child；不恢复 prior binding | `snapshot.restore()` |
+| 内部作用域传播 | 暂停 worker prior binding；owned child 关闭后才恢复 prior | `SafeContextManager.wrapRunnable()/wrapCallable()`（package-private `ContextScope`） |
+| 装饰执行器 | 为调用方选择的线程池增加上下文传播 | `ContextPropagatingExecutor.wrap(ExecutorService)` |
 | 异步执行 | 管理器内置异步 | `SafeContextManager.executeAsync()` |
+
+两类恢复不可混同。public `ContextSnapshot.restore()` 会先 force-clean 当前 worker Context，再绑定带 parent
+link 的 child；它不保存 suspension token，关闭 child 不会恢复被替换的 prior binding，prior 生命周期已终止。
+manager wrapper 才使用内部 `ContextScope`：不同源 snapshot 暂停 prior binding 而不结束其生命周期，
+`ContextScope.close()` 先关闭 owned child，随后才恢复 suspended prior binding；same-source 分支只借用当前
+Context。新建 child 拥有独立 Session/task tree，child close 不得终止 snapshot 捕获源的父 Session。direct
+Session 终态在释放 Session monitor 后通知唯一 manager owner 完成注销，不建立第二生命周期状态源。
 
 ### F6：SPI 扩展
 
@@ -147,19 +184,26 @@
 | 导出提供者 | `ExportProvider` | `DefaultExportProvider`（priority=-1000） |
 
 **发现机制**：
-1. 手动注册：`ProviderRegistry.register(type, instance)`
-2. ServiceLoader：`META-INF/services/` 自动发现
-3. 优先级仲裁：高 priority 值优先
-4. 白名单过滤：`setAllowedProviders()`
+1. 启动期可通过 `ProviderRegistry.register(type, instance)` 手动注册，或由 `META-INF/services/` 自动发现。
+2. 存在有效手动注册候选时短路 ServiceLoader；每个来源内部按 priority 降序，同值保持注册/发现 FIFO。
+3. 首次以非 null Provider type 调用 `resolve(type)` 就冻结本 epoch，无论选中 Provider 还是 empty；之后
+   register/unregister/whitelist/load 明确失败，避免运行期混用两套配置。
+4. 白名单统一约束 manual、bundled 与 external Provider，支持精确类名和 `package.*`，不做模糊前缀匹配。
+5. 外部 Session/Task scope 全部静默后，可用 `clearAll()` 开启新 epoch；reset 清空 Provider/ClassLoader
+   引用和容量状态但保留显式配置的 whitelist，不支持 active-scope live reset。
+
+**资源边界**：每个 epoch 最多 64 个 Provider type；每 type 最多 64 个手动注册、8 个 ClassLoader
+identity；每次 ServiceLoader scan 最多 64 个 declaration。单次 resolve/load 最多尝试 3 次原子发布，
+失败不得留下半发布 candidate、selected 或 capacity reservation。
 
 ### F7：全局控制
 
 | 功能项 | 说明 | API |
 |--------|------|-----|
-| 全局开关 | 启用/禁用所有功能 | `enable()` / `disable()` |
+| 全局开关 | 启用/禁用新追踪、记录、查询与导出 | `enable()` / `disable()` |
 | 状态查询 | 检查是否启用 | `isEnabled()` |
 | 上下文清理 | 清理当前线程上下文 | `clear()` |
-| Provider 注册 | 注册自定义 Provider | `registerFlowProvider()` |
+| Provider 注册 | 首次 Provider resolution 前注册自定义流程/导出实现 | `registerFlowProvider()` / `registerExportProvider()` |
 
 ---
 
@@ -167,22 +211,23 @@
 
 ### 4.1 性能要求
 
-| 指标 | 要求 | 当前值 |
-|------|------|--------|
-| 禁用态开销 | < 5ns/op | ~0.5ns/op (1.84B ops/s) |
-| Stage 创建/关闭 | < 100μs/op | ~43μs/op (23K ops/s) |
-| 消息记录 | < 10μs/op | ~1.25μs/op (800K ops/s) |
-| JSON 导出 | < 10μs/op | ~2.85μs/op (351K ops/s) |
-| Registry 查找 | < 100ns/op | ~5.4ns/op (185M ops/s) |
+性能回归由同一环境下的 JMH profile 和受控基线比较；当前独立 perf workflow 是 report-only，不是 Core
+hard gate。PRD 不保存会随硬件、JVM 与代码变化的吞吐快照。
+Export 必须保持一次捕获、显式栈遍历和有限预算，不允许为提高表面吞吐恢复 mutable-tree 多次扫描、递归深树或
+跳过 callback-free 安全边界。
 
 ### 4.2 可靠性要求
 
 | 要求 | 实现方式 |
 |------|----------|
-| 不影响业务 | 门面层 try-catch(Throwable) |
-| 不泄漏资源 | 四道防线（AutoCloseable → 泄漏检测 → 嵌套跟踪 → Shutdown Hook） |
-| 不阻塞业务 | 异步任务使用 CallerRunsPolicy |
-| 正常降级 | 禁用时全部 no-op |
+| 框架失败隔离 | 路由/查询/导出 facade 捕获非 JVM-fatal 的框架或 Provider failure 并返回安全默认值；`VirtualMachineError` 原样传播 |
+| 业务失败可见 | `run`/`call`/函数式 Stage 不吞用户异常；受检异常保留 cause 后包装 |
+| Context 回收 | AutoCloseable + 唯一 manager registry + 可配置 dead-thread/timeout detector + Shutdown Hook |
+| 有界异步 | manager executor 使用有界队列；满载时 CallerRunsPolicy 对提交方施加回压，而不是丢弃任务 |
+| 禁用边界 | 禁止新追踪并返回安全默认值；`run/call` 仍执行用户代码，`end/stop/clear` 仍执行资源清理 |
+
+嵌套深度只来自 `ManagedThreadContext` 的真实 task stack。`ZeroLeakThreadLocalManager`、
+`NestedStageTracker` 及其独立 scheduler/metrics 已删除，不属于泄漏防线。
 
 ### 4.3 兼容性要求
 
@@ -191,14 +236,21 @@
 | Java 版本 | Java 21+（使用 `threadId()` API） |
 | 框架无关 | 不依赖任何框架，可嵌入任意 Java 应用 |
 | 日志框架 | 通过 SLF4J 桥接，用户选择具体实现 |
+| 4.0 删除政策 | 只由 [ADR-005](../../docs/adr/ADR-005-TFI-Flow-Core-Compatibility-Policy.md) 决定 |
+| 精确删除集合 | 只由 [breaking manifest](../src/test/resources/compatibility/breaking-changes-v4.json) 拥有 |
+| Export schema | 只由 [ADR-008](../../docs/adr/ADR-008-TFI-Export-Snapshot-And-Schema.md) 决定 |
+
+`TaskDurationCache` 没有接收 bare `TaskNode` 的 drop-in replacement。拥有 Session 的调用方迁移到
+`SessionExportSnapshot.capture(session)`，再读取 immutable `TaskSnapshot`。本 PRD 不复制 manifest 的 exact
+symbol 清单，也不创建第二份弃用政策或 maturity 状态。
 
 ### 4.4 安全性要求
 
 | 要求 | 实现方式 |
 |------|----------|
-| Provider 白名单 | `ProviderRegistry.setAllowedProviders()` |
-| 无敏感信息 | Message 内容由用户控制，框架不收集系统信息 |
-| 线程隔离 | ThreadLocal 隔离不同线程的上下文 |
+| Provider 白名单 | `ProviderRegistry.setAllowedProviders()`；对所有来源统一生效，首次解析后冻结 |
+| 载荷责任 | Message/attribute/tag 由调用方提供；Session 另含线程名/线程 ID 等诊断元数据，调用方负责敏感信息策略 |
+| 线程与传播隔离 | 唯一 manager ThreadLocal 隔离 worker binding；跨线程只通过不可变 snapshot 建立 linked child |
 
 ---
 
@@ -210,7 +262,7 @@
 
 **验收标准**：
 ```java
-// 5 行代码完成基本使用
+// 显式 Session + AutoCloseable Stage
 TfiFlow.startSession("订单处理");
 try (var stage = TfiFlow.stage("参数验证")) {
     stage.message("验证通过");
@@ -230,10 +282,11 @@ TfiFlow.endSession();
 ```java
 ExecutorService executor = ContextPropagatingExecutor.wrap(
     Executors.newFixedThreadPool(4));
-// 子线程自动继承父线程的 Session 上下文
+// 子线程恢复为 linked child，不共享父 Session 的可变任务树
 ```
 - [x] 快照创建和恢复正确传播上下文
-- [x] 子线程执行完毕后自动清理
+- [x] manager wrapper 的 owned child 执行完毕后由 `ContextScope.close()` 清理，随后恢复 suspended worker prior binding
+- [x] child close 不终止父 Session；父 owner 继续负责父终态
 - [x] 多线程并发安全
 
 ### US-003：SPI 自定义扩展
@@ -248,17 +301,20 @@ ExecutorService executor = ContextPropagatingExecutor.wrap(
 ProviderRegistry.register(FlowProvider.class, myProvider);
 ```
 - [x] ServiceLoader 自动加载
-- [x] 优先级仲裁正确（高 priority 覆盖低 priority）
-- [x] 白名单过滤有效
+- [x] 手动注册来源先于 ServiceLoader；同来源高 priority 优先、同值 FIFO
+- [x] 白名单对所有 Provider 来源统一有效且包前缀边界精确
+- [x] 首次解析冻结 mutation；外部静默 `clearAll()` 才能开启新 epoch
+- [x] 容量、ClassLoader identity 与三次原子发布失败语义可预测
 
 ### US-004：生产环境按需开关
 
 > 作为一名**运维工程师**，我希望能在不重启服务的情况下开关追踪功能，以便在需要诊断时开启，平时关闭减少开销。
 
 **验收标准**：
-- [x] `TfiFlow.disable()` 后所有操作为 no-op
+- [x] `TfiFlow.disable()` 后不创建新追踪；查询/导出返回安全默认值
+- [x] 禁用时 `run/call` 仍执行业务代码，`end/stop/clear` 仍清理已有资源
 - [x] `TfiFlow.enable()` 后立即恢复功能
-- [x] 禁用态开销 < 5ns/op
+- [x] 禁用快速路径不创建 Session、Task 或 Provider scope；性能只由同环境 JMH 证据判断
 - [x] 开关切换线程安全
 
 ### US-005：多格式导出
@@ -266,46 +322,42 @@ ProviderRegistry.register(FlowProvider.class, myProvider);
 > 作为一名**应用开发者**，我希望将执行流导出为不同格式，以便集成到日志系统、监控平台或测试断言中。
 
 **验收标准**：
-- [x] Console：emoji 树状输出，人类可读
-- [x] JSON：结构化数据，可解析
-- [x] Map：程序化处理，测试断言
+- [x] Console：TREE/SIMPLE 人类诊断文本，不声明 V1/V2 schema
+- [x] Console：style 与 timestamp 是两个正交维度，每个非空 direct 调用只捕获一次
+- [x] JSON/Map：只发布同一 `schemaVersion=2` canonical tree
+- [x] depth/node 边界发布 truncation，payload/text 超限在 projection/output 前失败
+- [x] attribute 冻结不迭代 container、不调用用户对象回调
+- [x] capture 后修改原 Session 不改变本次输出；capture/projection 在 JSON Writer 首次写入前失败时无输出
+- [x] JSON Writer 直接流式写 caller Writer；Writer I/O failure 原样传播，且允许已经留下部分输出；Console/Map 保持各自的原子结果合同
 
-### US-006：零泄漏保证
+### US-006：泄漏检测与回收
 
-> 作为一名**库集成者**，我希望在长时间运行的服务中使用时不会出现内存泄漏，即使偶尔忘记关闭上下文。
+> 作为一名**库集成者**，我希望遗漏正常 close 时仍有可观测、可配置的回收边界。
 
 **验收标准**：
 - [x] 泄漏检测可配置开启
-- [x] 死线程上下文自动清理
-- [x] 超时上下文自动清理
+- [x] leak detector 启用后自动清理 dead-thread Context
+- [x] leak detector 启用后自动清理 timeout Context
 - [x] Shutdown Hook 兜底清理
+- [x] 正常嵌套只由 task stack 表达，不创建第二 registry、scheduler 或 metrics owner
 
 ---
 
-## 六、版本路线图
+## 六、版本与变更边界
 
-| 版本 | 时间 | 核心交付 |
-|------|------|----------|
-| **v3.0.0** (当前) | 2025-Q4 | 纯 Java 内核发布，SPI 架构，四道防线 |
-| **v3.1.0** | 2026-Q1 | ExportProvider 集成，HTML 导出，自定义渲染模板 |
-| **v4.0.0** | 2026-Q2 | 多 Provider 路由，条件激活，@TfiTask AOP |
-| **v4.1.0** | 2026-Q3 | OpenTelemetry 集成，Trace ID 关联 |
-| **v5.0.0** | 2026-Q4 | 虚拟线程原生支持，Scoped Value 替换 ThreadLocal |
+当前开发版本为 `4.0.0-SNAPSHOT`。4.0 的兼容路线是 ADR-005 已接受的 breaking-major direct removal；
+Export 路线是 ADR-008 已接受的 V2-only。HTML exporter、OpenTelemetry、Scoped Value 等候选方向不构成已承诺
+版本或交付日期；任何 public API/schema/ownership 变化必须先更新对应 ADR 与机器门禁。
 
 ---
 
-## 七、竞品对比
+## 七、产品边界
 
-| 特性 | tfi-flow-core | Spring Sleuth | OpenTelemetry Java |
-|------|---------------|---------------|-------------------|
-| 框架依赖 | 无 | Spring Boot | 无（但重量级） |
-| 运行时依赖 | 1（slf4j） | 20+ | 10+ |
-| 执行树可视化 | 原生支持 | 需第三方 | 需第三方 |
-| 接入成本 | 5 行代码 | Spring 配置 | 配置 + Agent |
-| 禁用态开销 | < 1ns | N/A | ~10ns |
-| 内存泄漏防护 | 四道防线 | 依赖 Spring 生命周期 | ThreadLocal 手动管理 |
-| 体积 | ~50KB JAR | ~500KB+ | ~2MB+ |
+- Core 解决进程内 Session/task tree 的结构化追踪，不替代分布式 tracing backend、日志平台或 APM agent。
+- Spring、Micrometer、HTTP 与 health 适配属于其他模块；Core 保持纯 Java 与 SLF4J runtime 边界。
+- 性能、构件大小、覆盖率和静态分析结果必须从同一 checkout 的 JMH/CI/Maven artifact 读取，本 PRD
+  不保存会随硬件、JDK 或实现变化的比较数字。
 
 ---
 
-*本文档由产品经理张琳编写，基于对 tfi-flow-core 用户价值和市场定位的深入分析。*
+*架构内部边界见 [开发设计文档](design-doc.md)，可复制验收见 [测试方案](test-plan.md)。*

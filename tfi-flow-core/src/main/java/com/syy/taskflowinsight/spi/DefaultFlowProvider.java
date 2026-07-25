@@ -1,6 +1,7 @@
 package com.syy.taskflowinsight.spi;
 
 import com.syy.taskflowinsight.context.ManagedThreadContext;
+import com.syy.taskflowinsight.context.ThreadContext;
 import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
@@ -14,6 +15,10 @@ import org.slf4j.LoggerFactory;
  * <p>不依赖Spring，纯Java环境可用。
  * <p>异常安全：所有操作不抛出异常，失败时记录日志并返回null/不执行操作。
  *
+ * <p>该类同时承担 TfiFlow facade 的默认运行路径。这样做的原因是让
+ * {@code TfiFlow.start/stage/stop/message/clear} 和自定义 Provider 走同一套生命周期契约，
+ * 避免 facade 里再复制一份 {@link ManagedThreadContext} 分支逻辑。
+ *
  * @author TaskFlow Insight Team
  * @since 4.0.0
  */
@@ -21,11 +26,24 @@ public class DefaultFlowProvider implements FlowProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultFlowProvider.class);
 
+    /**
+     * 创建无实例状态的默认流程 Provider；会话状态始终由当前线程上下文持有。
+     */
+    public DefaultFlowProvider() {
+    }
+
     @Override
     public String startSession(String name) {
         try {
-            // create() 内部已调用 startSession()，直接获取已创建的会话即可
-            ManagedThreadContext context = ManagedThreadContext.create(name);
+            ManagedThreadContext context = ManagedThreadContext.current();
+            if (context != null && !context.isClosed()) {
+                /*
+                 * G2 规定一 Session 一 Context。endSession() 会终止并注销旧 Context，
+                 * 所以下一会话必须通过 create() 获得新 owner，不能在旧实例上再次 startSession()。
+                 */
+                context.endSession();
+            }
+            context = ManagedThreadContext.create(name);
             Session session = context.getCurrentSession();
             return session != null ? session.getSessionId() : null;
         } catch (Exception e) {
@@ -57,10 +75,16 @@ public class DefaultFlowProvider implements FlowProvider {
     public TaskNode startTask(String name) {
         try {
             ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null) {
-                return context.startTask(name);
+            if (context == null || context.isClosed()) {
+                /*
+                 * 保留 TfiFlow.stage/start 的 auto-session 行为。
+                 * auto-session 放在默认 Provider 内，是为了让 facade 不再知道底层上下文创建细节。
+                 */
+                context = ManagedThreadContext.create("auto-session");
+            } else if (context.getCurrentSession() == null) {
+                context.startSession("auto-session");
             }
-            return null;
+            return context.startTask(name);
         } catch (Exception e) {
             logger.warn("DefaultFlowProvider.startTask failed for name={}: {}",
                 name, e.getMessage());
@@ -82,6 +106,25 @@ public class DefaultFlowProvider implements FlowProvider {
             logger.warn("DefaultFlowProvider.endTask failed: {}", e.getMessage());
             if (logger.isDebugEnabled()) {
                 logger.debug("EndTask error details", e);
+            }
+        }
+    }
+
+    @Override
+    public void clear() {
+        try {
+            ManagedThreadContext context = ManagedThreadContext.current();
+            if (context != null) {
+                /*
+                 * 不使用 FlowProvider 默认 clear()，因为默认实现只结束任务/会话，
+                 * 不能保证释放 SafeContextManager 中的 ThreadLocal 注册。
+                 */
+                ThreadContext.clear();
+            }
+        } catch (Exception e) {
+            logger.warn("DefaultFlowProvider.clear failed: {}", e.getMessage());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Clear error details", e);
             }
         }
     }

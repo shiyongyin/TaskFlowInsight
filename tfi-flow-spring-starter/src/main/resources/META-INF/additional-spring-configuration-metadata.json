@@ -25,18 +25,6 @@
       "description": "Interval between leak detection checks in milliseconds."
     },
     {
-      "name": "tfi.context.cleanup-enabled",
-      "type": "java.lang.Boolean",
-      "defaultValue": false,
-      "description": "Enable automatic cleanup of expired context entries. Recommended for thread-pool-intensive environments."
-    },
-    {
-      "name": "tfi.context.cleanup-interval-millis",
-      "type": "java.lang.Long",
-      "defaultValue": 60000,
-      "description": "Interval between cleanup operations in milliseconds."
-    },
-    {
       "name": "tfi.security.spel-max-length",
       "type": "java.lang.Integer",
       "defaultValue": 1000,

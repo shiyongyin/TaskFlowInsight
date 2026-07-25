@@ -1,8 +1,8 @@
 /**
- * 内部实现，非公开 API.
+ * Flow Core 内部实现，非公开扩展入口。
  *
- * <p>包含 FlowConfigDefaults 等内部配置默认值，以及保留兼容别名的 ConfigDefaults。
- * 仅供模块内部使用。
+ * <p>本包只承载 {@link com.syy.taskflowinsight.internal.FlowConfigDefaults} 等 flow 内核实现。
+ * Compare/tracking 默认值由 {@code tfi-compare} 自己拥有，Core 不发布同名兼容别名。
  * 本包中的类不保证向后兼容，请勿在应用代码中直接依赖。
  *
  * @author TaskFlow Insight Team

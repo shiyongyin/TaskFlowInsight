@@ -1,7 +1,6 @@
 package com.syy.taskflowinsight.api;
 
 import com.syy.taskflowinsight.context.ManagedThreadContext;
-import com.syy.taskflowinsight.enums.TaskStatus;
 import com.syy.taskflowinsight.model.TaskNode;
 import com.syy.taskflowinsight.spi.FlowProvider;
 import org.slf4j.Logger;
@@ -64,7 +63,7 @@ final class TaskContextImpl implements TaskContext {
     public TaskContext debug(String message) {
         if (!closed.get() && message != null && !message.trim().isEmpty()) {
             try {
-                taskNode.addInfo("[DEBUG] " + message.trim());
+                taskNode.addDebug(message.trim());
             } catch (Throwable t) {
                 logger.debug("Failed to add debug message: {}", t.getMessage());
             }
@@ -76,7 +75,7 @@ final class TaskContextImpl implements TaskContext {
     public TaskContext warn(String message) {
         if (!closed.get() && message != null && !message.trim().isEmpty()) {
             try {
-                taskNode.addInfo("[WARN] " + message.trim());
+                taskNode.addWarn(message.trim());
             } catch (Throwable t) {
                 logger.debug("Failed to add warn message: {}", t.getMessage());
             }
@@ -229,24 +228,63 @@ final class TaskContextImpl implements TaskContext {
     
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            try {
-                // 结束任务时，如果状态仍为RUNNING，则设置为完成
-                // 如果已经是FAILED状态，保持不变
-                if (taskNode.getStatus() == TaskStatus.RUNNING) {
-                    taskNode.complete();
-                }
-                if (provider != null) {
-                    provider.endTask();
-                    return;
-                }
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
 
-                ManagedThreadContext context = ManagedThreadContext.current();
-                if (context != null && context.getCurrentTask() == taskNode) {
-                    context.endTask();
-                }
-            } catch (Throwable t) {
-                logger.debug("Failed to close task context: {}", t.getMessage());
+        try {
+            // 结束任务时，如果状态仍为RUNNING，则设置为完成；
+            // tryComplete 幂等：已是 FAILED/COMPLETED（含并发终止）时保持原状态不抛异常，
+            // 保证下方的弹栈逻辑不会因状态竞态被跳过（closed 已置位，跳过即永久滞留栈中）
+            taskNode.tryComplete();
+        } catch (Throwable t) {
+            logger.debug("Failed to complete task on close: {}", t.getMessage());
+        }
+
+        try {
+            if (provider != null) {
+                closeOnProvider();
+                return;
+            }
+
+            ManagedThreadContext context = ManagedThreadContext.current();
+            if (context != null && context.getCurrentTask() == taskNode) {
+                context.endTask();
+            }
+        } catch (Throwable t) {
+            logger.debug("Failed to close task context: {}", t.getMessage());
+        }
+    }
+
+    /**
+     * Provider 路径的收栈逻辑。
+     *
+     * <p>仅当本任务仍在当前任务栈（等价于当前任务的父链）上时才执行弹栈，
+     * 防止乱序 close 把不相干的兄弟/后继任务弹出；本任务在栈中但不在栈顶时，
+     * 按 LIFO 收栈到本任务为止，未显式关闭的子任务随外层 close 一并结束。
+     */
+    private void closeOnProvider() {
+        boolean inStack = false;
+        for (TaskNode node = provider.currentTask(); node != null; node = node.getParent()) {
+            if (node == taskNode) {
+                inStack = true;
+                break;
+            }
+        }
+        if (!inStack) {
+            logger.debug("Skip endTask for '{}': task is not on the current stack", taskNode.getTaskName());
+            return;
+        }
+
+        while (true) {
+            TaskNode top = provider.currentTask();
+            if (top == null) {
+                return;
+            }
+            provider.endTask();
+            // 已弹到本任务，或 endTask 无效果（保护性退出，避免死循环）
+            if (top == taskNode || provider.currentTask() == top) {
+                return;
             }
         }
     }

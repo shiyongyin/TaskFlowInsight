@@ -2,21 +2,26 @@ package com.syy.taskflowinsight.context;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
- * 上下文传播执行器
- * 包装标准ExecutorService，自动传播ManagedThreadContext到异步任务
- * 
- * 特性：
- * - 自动捕获父线程上下文快照
- * - 在子线程恢复上下文
- * - 任务完成后自动清理
- * - 支持所有ExecutorService操作
- * 
+ * 跨线程传播 TFI Context 的唯一 {@link ExecutorService} 装饰器。
+ *
+ * <p>线程池的容量、队列与拒绝策略由调用方决定，本类只负责完整转发 ExecutorService 合约，
+ * 并把任务统一交给 {@link SafeContextManager} 包装。这样 ContextScope 的恢复、异常和清理语义只有
+ * 一个实现位置，不会因不同线程池工厂再次漂移。
+ *
+ * <p>该类型不创建线程池，也不保存任务级可变状态，线程安全能力与 delegate 一致。所有生命周期方法
+ * 直接转发，因此关闭 wrapper 会关闭传入的 delegate；调用方应在不再共享该线程池时才关闭 wrapper。
+ *
  * @author TaskFlow Insight Team
- * @version 2.1.0
+ * @version 4.0.0
  * @since 2025-01-13
  */
 public class ContextPropagatingExecutor implements ExecutorService {
@@ -30,10 +35,13 @@ public class ContextPropagatingExecutor implements ExecutorService {
     }
     
     /**
-     * 包装现有的ExecutorService
-     * 
-     * @param executor 要包装的执行器
-     * @return 支持上下文传播的执行器
+     * 把调用方拥有的线程池包装为 Context 传播执行器。
+     *
+     * <p>重复包装返回原实例，避免叠加两层 ContextScope；关闭返回值会关闭传入线程池。
+     *
+     * @param executor 非空、由调用方选择策略的底层执行器
+     * @return 支持 TFI Context 传播的执行器；已包装时返回同一实例
+     * @throws IllegalArgumentException executor 为 null 时抛出
      */
     public static ExecutorService wrap(ExecutorService executor) {
         if (executor == null) {
@@ -45,16 +53,10 @@ public class ContextPropagatingExecutor implements ExecutorService {
         return new ContextPropagatingExecutor(executor);
     }
     
-    /**
-     * 包装Runnable任务，添加上下文传播
-     */
     private Runnable wrapTask(Runnable task) {
         return contextManager.wrapRunnable(task);
     }
-    
-    /**
-     * 包装Callable任务，添加上下文传播
-     */
+
     private <T> Callable<T> wrapTask(Callable<T> task) {
         return contextManager.wrapCallable(task);
     }

@@ -1,115 +1,39 @@
-# TFI-Compare 文档中心
+# TFI-Compare 文档索引
 
-> **项目**: TaskFlowInsight — TFI-Compare 模块  
-> **版本**: 3.0.0 (当前分支: feature/v4.0.0-routing-refactor)  
-> **初版日期**: 2026-02-15  
-> **更新日期**: 2026-02-16 (v5 — 覆盖率 87.8%/75.1% + 性能基线 + API 兼容性 + 命名规范化)  
-> **生成方式**: 专家小组深度研究输出 + v5 迭代更新  
+**状态**：CURRENT
+**职责**：只提供当前文档、已接受决策与机器合同的导航
 
----
+## 当前文档
 
-## 专家小组成员
+- [当前架构 SSOT](design-doc.md)：已实现架构、核心语义、模块边界与演进约束。
+- [产品边界](prd.md)：目标用户、支持场景、用户可观察合同与非目标。
+- [验证策略](test-plan.md)：可重复门禁、测试分层与证据 owner。
+- [运行手册](ops-doc.md)：配置、指标、健康检查、故障处置与回滚。
 
-| 角色 | 职责 | 输出物 |
-|------|------|--------|
-| **项目经理** | 协调组织、分配工作、全局把控、质量保证 | 本索引文档 + [评分报告](scoring-report.md) |
-| **资深开发专家** | Spring Boot 领域，代码架构分析与评分 | [开发设计文档](design-doc.md) |
-| **资深产品经理** | 产品定位、功能需求、竞品分析、版本规划 | [产品 PRD 文档](prd.md) |
-| **资深测试专家** | 白盒/黑盒/功能/性能全方位测试方案 | [测试方案文档](test-plan.md) |
-| **资深运维专家** | 部署、监控、调优、故障排查、灾难恢复 | [运维文档](ops-doc.md) |
+## 已接受决策
 
----
+- [ADR-011：兼容性与结果真值](../../docs/adr/ADR-011-Compare-Compatibility-And-Result-Truth.md)
+- [ADR-012：内核与集合语义](../../docs/adr/ADR-012-Compare-Kernel-And-Collection-Semantics.md)
+- [ADR-013：Tracking、Provider 与 Spring 组合](../../docs/adr/ADR-013-Compare-Tracking-Provider-And-Spring-Composition.md)
+- [ADR-014：Projection、配置与质量门禁](../../docs/adr/ADR-014-Compare-Projection-Config-And-Quality.md)
 
-## 文档目录
+ADR 保存决策原因与 accepted token；当前实现事实以[当前架构 SSOT](design-doc.md)为入口。
 
-### 1. [开发设计文档](design-doc.md) — v5.0.0
+## 兼容与交付证据
 
-架构设计、核心类详解、算法分析、设计模式、SPI 扩展、Spring Boot 集成、线程安全、性能设计，以及 **代码设计评分（v1: 8.06 → v5: 9.17/10，A 优秀）**。
+- [`breaking-changes-v4.json`](../src/test/resources/compatibility/breaking-changes-v4.json)：API、resource、config、schema 与 behavior 变更清单。
+- [实施任务索引](ssot-convergence-task/INDEX.md)：Wave、owner、消费者矩阵、任务状态与历史验证证据。
+- [发布加固任务索引](release-hardening-task/INDEX.md)：XRT-01..04 remediation、依赖顺序与 fresh release-readiness 复验入口。
+- [红队复核](convergence-review/red-team-review.md)：设计期反证记录。
+- [二次红队复核](convergence-review/second-red-team-review.md)：设计收敛复核记录。
+- [抽取实现与发布就绪红队审查](convergence-review/extraction-red-team-review-2026-07-16.md)：当前制品、真实 Boot 组合与发布阻断记录。
 
-**关键结论**:
-- 六层架构分明，SSOT 原则贯穿
-- Strategy + SPI 扩展机制成熟
-- CompareEngine 排序唯一入口设计优秀
-- ✅ SpotBugs 0 个 High，Checkstyle/PMD 全部通过
-- ✅ 所有 P0/P1 改进项已完成
+## 机器合同入口
 
-### 2. [产品 PRD 文档](prd.md) — v5.0.0
+- `tfi-compare/src/test/java/com/syy/taskflowinsight/compatibility/`：API、manifest、resource 与行为合同。
+- `tfi-compare/src/test/java/com/syy/taskflowinsight/architecture/`：依赖、构建、文档与完成审计合同。
+- `tfi-compare/src/test/java/com/syy/taskflowinsight/tracking/`：结果、内核、集合、Tracking 与 Projection 合同。
+- `.github/workflows/tfi-compare-ci.yml`：模块、兼容、消费者与 portfolio 门禁。
+- `.github/workflows/perf-gate.yml`：严格 routing 性能门禁。
 
-产品定位、目标用户画像、核心使用场景、功能全景图（7 大功能域）、非功能需求、竞品分析、版本规划。
-
-**关键结论**:
-- 覆盖 5 种列表比较策略，业界领先
-- 独有特性：PerfGuard 性能预算、@NumericPrecision 精度控制
-- 相比 Javers，在三方合并、流式导出、降级机制上有差异化
-- ✅ v5 更新: KPI 全面达标（87.8% 覆盖率、14 性能测试、22 API 测试）
-
-### 3. [测试方案文档](test-plan.md) — v5.0.0
-
-白盒测试（控制流/数据流覆盖）、黑盒测试（等价类/边界值/决策表）、功能测试（18 类场景）、性能测试（10 种基准 + 压力 + 降级）。
-
-**关键结论**:
-- 规划 247 个测试用例（白盒 97、黑盒 62、功能 60、性能 28）
-- ✅ 实际: 79 个测试文件、3,591 个 test case
-- ✅ 指令覆盖率 **87.8%**、分支覆盖率 **75.1%**、方法覆盖率 89.4%
-- ✅ 14 个性能测试 + 22 个 API 兼容性测试
-- ✅ 17 个测试文件命名规范化（消除 Surgical/Final/Ultimate 命名残留）
-
-### 4. [运维文档](ops-doc.md) — v5.0.0
-
-部署架构、构建发布、配置管理（环境差异表）、Prometheus 监控 + 告警规则、Grafana 面板建议、性能调优（3 种场景）、故障排查手册（5 大常见问题）、灾难恢复预案。
-
-**关键结论**:
-- 嵌入式库模式，运维重点在配置调优和监控
-- 5 条关键告警规则覆盖延迟/降级/错误率/内存/缓存
-- ✅ v5 更新: 发布检查清单包含覆盖率门禁 85%/75%、性能测试、API 兼容性
-
-### 5. [评分报告](scoring-report.md) — v4.0.0
-
-多维度评分详细报告，包含 v1 → v4 改进对照。
-
----
-
-## 综合评估
-
-| 维度 | v1 评分 | v2 评分 | v5 评分 | 说明 |
-|------|---------|---------|---------|------|
-| **架构成熟度** | ★★★★☆ | ★★★★★ | ★★★★★ | CompareService 拆分完成，ArchUnit 强制分层 |
-| **代码质量** | ★★★★☆ (8.06) | ★★★★☆ (8.81) | ★★★★★ (9.17) | SpotBugs 0 High，TODO/FIXME 清零 |
-| **功能完整度** | ★★★★★ | ★★★★★ | ★★★★★ | 保持不变，功能全面 |
-| **测试覆盖** | ★★★☆☆ (~60%) | ★★★★☆ (~75%) | ★★★★★ (87.8%/75.1%) | 3,591 case + 14 perf + 22 API compat |
-| **运维就绪** | ★★★★☆ | ★★★★☆ | ★★★★☆ | 并发模型更新，Grafana 模板待补充 |
-| **文档完整** | ★★★★☆ | ★★★★★ | ★★★★★ | 6 份文档全部 v5 更新 |
-
----
-
-## 改进历程
-
-| 轮次 | 综合评分 | 关键成果 |
-|------|---------|---------|
-| v1 | 8.06/10 (B+) | 初始评估 |
-| v2 | 8.81/10 (A-) | System.out 清除、volatile 修复、CompareService 拆分 |
-| v3 | 9.01/10 (A) | SpotBugs 清零、覆盖率 85.2%、2918 tests |
-| v4 | 9.17/10 (A) | SPI 分支 60%+、测试整合、TODO 清理 |
-| v5 | 9.17/10 (A) | 分支 75.1%、性能测试 14 个、API 兼容性 22 个、命名规范化 |
-
----
-
-## 下一步行动
-
-| 优先级 | 行动项 | 责任方 | 状态 |
-|--------|--------|--------|------|
-| ~~P0~~ | ~~覆盖率达到 85%+~~ | 测试 | ✅ 87.8% |
-| ~~P0~~ | ~~SpotBugs 0 High~~ | 开发 | ✅ 全部修复 |
-| ~~P1~~ | ~~分支覆盖率 75%+~~ | 测试 | ✅ 75.1% |
-| ~~P1~~ | ~~性能测试基线~~ | 测试 | ✅ 14 个性能测试 |
-| ~~P1~~ | ~~API 兼容性守护~~ | 开发 | ✅ 22 个 API surface tests |
-| ~~P2~~ | ~~测试文件命名规范化~~ | 测试 | ✅ 17 文件重命名 |
-| P2 | 部署 Grafana Dashboard | 运维 | ⏳ 待执行 |
-| P2 | 完善 API 文档（@since 标签） | 开发 | ⏳ 部分完成 |
-| P3 | jqwik 属性测试 | 测试 | ⏳ 计划中 |
-| P3 | Pitest 变异测试评估 | 测试 | ⏳ 未开始 |
-| P3 | GraalVM native-image 兼容性 | 开发 | ⏳ 未开始 |
-
----
-
-*文档由项目经理汇总输出。v5 更新于 2026-02-16。*
+构建结果、静态分析报告和性能报告由 Maven `target/` 与 CI artifact 持有，不复制到长期文档。

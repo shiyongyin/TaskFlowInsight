@@ -3,23 +3,24 @@ package com.syy.taskflowinsight.api;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult;
-import com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor;
+import com.syy.taskflowinsight.tracking.projection.CompareProjection;
+import com.syy.taskflowinsight.tracking.projection.CompareProjectionFactory;
+import com.syy.taskflowinsight.tracking.projection.MaskingPolicy;
+import com.syy.taskflowinsight.tracking.projection.ProjectionMetadata;
+import com.syy.taskflowinsight.tracking.projection.ProjectionOptions;
 import com.syy.taskflowinsight.tracking.render.ChangeReportRenderer;
-import com.syy.taskflowinsight.tracking.render.RenderStyle;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
- * 列表比较外观（推荐用法）
- * <p>
- * 这是 TaskFlowInsight 提供的列表比较外观 API，简化了底层 ListCompareExecutor 的使用。
- * 推荐通过 Spring 依赖注入使用此 Bean，以获得更好的可测试性和一致性。
- * </p>
+ * 绑定一个不可变运行时的列表比较外观。
  *
- * <h3>使用示例</h3>
+ * <p>该类型位于纯Java API边界，不负责寻找Spring容器或构造默认引擎。宿主必须显式传入
+ * {@link CompareOperations}，因此Spring上下文只会使用自身的runtime，standalone调用也不会生成fallback图。</p>
+ *
+ * <h2>使用示例</h2>
  * <pre>{@code
  * @Autowired
  * private TfiListDiffFacade listDiff;
@@ -33,25 +34,38 @@ import java.util.List;
  * String report = listDiff.render(result);
  * System.out.println(report);
  *
- * // 使用不同样式
- * String detailedReport = listDiff.render(result, RenderStyle.detailed());
- * String simpleReport = listDiff.render(result, "simple");
  * }</pre>
  *
  * @author TaskFlow Insight Team
- * @version 2.1.0
- * @since v3.0.0
+ * @version 4.0.0
+ * @since 3.0.0
  */
-@Component
 public class TfiListDiffFacade {
 
-    private final ListCompareExecutor executor;
+    /** facade只在渲染边界构造一次safe projection，不把raw result交给formatter。 */
+    private static final CompareProjectionFactory PROJECTION_FACTORY = new CompareProjectionFactory();
+
+    /** 当前宿主已经选择的唯一比较执行入口。 */
+    private final CompareOperations operations;
+    /** 当前宿主的完整脱敏策略，渲染时不得由调用入口覆盖。 */
+    private final MaskingPolicy maskingPolicy;
+    /** 只消费canonical projection的Markdown渲染器。 */
     private final ChangeReportRenderer markdownRenderer;
 
-    public TfiListDiffFacade(ListCompareExecutor executor,
-                             @Qualifier("markdownRenderer") ChangeReportRenderer markdownRenderer) {
-        this.executor = executor;
-        this.markdownRenderer = markdownRenderer;
+    /**
+     * 创建绑定到既有runtime的列表门面。
+     *
+     * @param operations 当前宿主唯一的比较执行入口
+     * @param maskingPolicy 当前宿主已经验证的完整脱敏策略
+     * @param markdownRenderer 只接受canonical projection的Markdown渲染器
+     */
+    public TfiListDiffFacade(
+            CompareOperations operations,
+            MaskingPolicy maskingPolicy,
+            ChangeReportRenderer markdownRenderer) {
+        this.operations = Objects.requireNonNull(operations, "operations");
+        this.maskingPolicy = Objects.requireNonNull(maskingPolicy, "maskingPolicy");
+        this.markdownRenderer = Objects.requireNonNull(markdownRenderer, "markdownRenderer");
     }
 
     /**
@@ -66,32 +80,9 @@ public class TfiListDiffFacade {
      * @return 比较结果，包含所有检测到的变更
      */
     public CompareResult diff(List<?> oldList, List<?> newList) {
-        return diff(oldList, newList, (String) null);
-    }
-
-    /**
-     * 比较两个列表（指定策略）
-     * <p>
-     * 使用指定的比较策略进行比较。可用策略：
-     * <ul>
-     *   <li>SIMPLE - 简单顺序比较，适用于小列表或基本类型</li>
-     *   <li>ENTITY - 实体比较，基于 @Key 字段匹配，适用于实体列表</li>
-     *   <li>AS_SET - 集合比较，忽略顺序，适用于无序列表</li>
-     *   <li>LEVENSHTEIN - 编辑距离算法，检测移动、插入、删除操作</li>
-     * </ul>
-     * </p>
-     *
-     * @param oldList 旧列表（null 视为空列表）
-     * @param newList 新列表（null 视为空列表）
-     * @param strategy 策略名称（null 则自动选择）
-     * @return 比较结果，包含所有检测到的变更
-     */
-    public CompareResult diff(List<?> oldList, List<?> newList, String strategy) {
-        CompareOptions.CompareOptionsBuilder builder = CompareOptions.builder();
-        if (strategy != null) {
-            builder.strategyName(strategy);
-        }
-        return diff(oldList, newList, builder.build());
+        List<?> safeOld = oldList != null ? oldList : Collections.emptyList();
+        List<?> safeNew = newList != null ? newList : Collections.emptyList();
+        return operations.compare(safeOld, safeNew);
     }
 
     /**
@@ -108,8 +99,9 @@ public class TfiListDiffFacade {
     public CompareResult diff(List<?> oldList, List<?> newList, CompareOptions options) {
         List<?> safeOld = oldList != null ? oldList : Collections.emptyList();
         List<?> safeNew = newList != null ? newList : Collections.emptyList();
-        CompareOptions safeOptions = options != null ? options : CompareOptions.builder().build();
-        return executor.compare(safeOld, safeNew, safeOptions);
+        return options == null
+                ? operations.compare(safeOld, safeNew)
+                : operations.compare(safeOld, safeNew, options);
     }
 
     /**
@@ -117,17 +109,6 @@ public class TfiListDiffFacade {
      */
     public EntityListDiffResult diffEntities(List<?> oldList, List<?> newList) {
         return EntityListDiffResult.from(diff(oldList, newList));
-    }
-
-    /**
-     * 便捷方法：比较并返回实体级分组结果（指定策略）
-     */
-    public EntityListDiffResult diffEntities(List<?> oldList, List<?> newList, String strategy) {
-        CompareOptions.CompareOptionsBuilder builder = CompareOptions.builder();
-        if (strategy != null) {
-            builder.strategyName(strategy);
-        }
-        return diffEntities(oldList, newList, builder.build());
     }
 
     /**
@@ -139,66 +120,23 @@ public class TfiListDiffFacade {
     }
 
     /**
-     * 渲染比较结果为 Markdown 报告（使用标准样式）
+     * 渲染比较结果为Markdown诊断报告。
      * <p>
-     * 将 CompareResult 转换为可读的 Markdown 格式报告。
-     * 使用标准样式（显示统计、GitHub 表格格式）。
+     * 先在facade边界构造safe-default projection，再交给只读renderer，防止raw结果成为输出入口。
      * </p>
      *
      * @param result 比较结果
      * @return Markdown 格式的报告字符串
      */
     public String render(CompareResult result) {
-        return render(result, RenderStyle.standard());
-    }
-
-    /**
-     * 渲染比较结果为 Markdown 报告（指定样式）
-     * <p>
-     * 支持多种样式参数：
-     * <ul>
-     *   <li>RenderStyle 对象：直接使用指定样式</li>
-     *   <li>字符串 "simple"：使用简洁样式</li>
-     *   <li>字符串 "detailed"：使用详细样式</li>
-     *   <li>null：使用标准样式</li>
-     * </ul>
-     * </p>
-     *
-     * @param result 比较结果（null 返回空字符串）
-     * @param style  样式配置（支持 RenderStyle 对象或字符串）
-     * @return Markdown 格式的报告字符串
-     */
-    public String render(CompareResult result, Object style) {
         if (result == null) {
             return "";
         }
-
-        // 转换为实体列表差异结果
-        EntityListDiffResult entityResult = EntityListDiffResult.from(result);
-
-        // 解析样式参数
-        RenderStyle renderStyle = parseStyle(style);
-
-        // 委托给渲染器
-        return markdownRenderer.render(entityResult, renderStyle);
-    }
-
-    /**
-     * 解析样式参数
-     */
-    private RenderStyle parseStyle(Object style) {
-        if (style instanceof RenderStyle rs) {
-            return rs;
-        }
-
-        if (style instanceof String styleStr) {
-            return switch (styleStr.toLowerCase()) {
-                case "simple" -> RenderStyle.simple();
-                case "detailed" -> RenderStyle.detailed();
-                default -> RenderStyle.standard();
-            };
-        }
-
-        return RenderStyle.standard();
+        CompareProjection projection = PROJECTION_FACTORY.create(
+                result,
+                ProjectionMetadata.empty(),
+                maskingPolicy,
+                ProjectionOptions.defaults());
+        return markdownRenderer.render(projection);
     }
 }

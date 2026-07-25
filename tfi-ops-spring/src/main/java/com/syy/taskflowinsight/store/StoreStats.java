@@ -24,6 +24,13 @@ import lombok.Data;
 @Data
 @Builder
 public class StoreStats {
+
+    /**
+     * 为发布文档显式声明 builder 类型；Lombok 继续注入既有统计字段构建 API。
+     */
+    public static class StoreStatsBuilder {
+    }
+
     private long hitCount;
     private long missCount;
     private long loadSuccessCount;

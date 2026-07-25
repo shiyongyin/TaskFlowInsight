@@ -10,6 +10,8 @@ import lombok.NoArgsConstructor;
  * @author TaskFlow Insight Team
  * @version 2.1.0
  * @since 2025-01-13
+ * @param <L> 左侧值类型
+ * @param <R> 右侧值类型
  */
 @Data
 @NoArgsConstructor

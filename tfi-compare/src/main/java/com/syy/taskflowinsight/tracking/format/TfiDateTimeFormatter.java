@@ -1,6 +1,5 @@
 package com.syy.taskflowinsight.tracking.format;
 
-import com.syy.taskflowinsight.annotation.DateFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -219,15 +218,12 @@ public class TfiDateTimeFormatter {
     }
     
     /**
-     * 获取字段的格式模式
+     * 返回兼容构造器提供的格式。
+     *
+     * <p>字段级 {@code DateFormat} annotation 已删除；Field 参数只为旧调用签名保留，
+     * 不再成为隐藏的格式或相等性配置源。</p>
      */
     private String getFormatPattern(Field field) {
-        if (field != null) {
-            DateFormat annotation = field.getAnnotation(DateFormat.class);
-            if (annotation != null && !annotation.pattern().isEmpty()) {
-                return annotation.pattern();
-            }
-        }
         return defaultPattern;
     }
     
@@ -246,26 +242,10 @@ public class TfiDateTimeFormatter {
     }
     
     /**
-     * 解析时区配置
+     * 固定使用 UTC，避免同一结果随宿主机默认时区变化。
      */
     private ZoneId resolveZoneId(String timezone) {
-        if (timezone == null || timezone.isEmpty()) {
-            return ZoneId.systemDefault();
-        }
-        
-        switch (timezone.toUpperCase()) {
-            case "SYSTEM":
-                return ZoneId.systemDefault();
-            case "UTC":
-                return ZoneOffset.UTC;
-            default:
-                try {
-                    return ZoneId.of(timezone);
-                } catch (DateTimeException e) {
-                    logger.warn("Invalid timezone '{}', using system default", timezone);
-                    return ZoneId.systemDefault();
-                }
-        }
+        return ZoneOffset.UTC;
     }
     
     /**

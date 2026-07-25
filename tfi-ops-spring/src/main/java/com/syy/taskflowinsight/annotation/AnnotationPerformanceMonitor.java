@@ -11,9 +11,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * 注解性能监控器
  * 
  * 监控注解处理的性能开销，确保符合性能目标：
- * - 零采样路径 < 1μs
- * - AOP切面开销 P99 < 10μs  
- * - SpEL评估 P99 < 50μs
+ * - 零采样路径 &lt; 1μs
+ * - AOP切面开销 P99 &lt; 10μs  
+ * - SpEL评估 P99 &lt; 50μs
  * 
  * @since 3.0.0
  */

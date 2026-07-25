@@ -52,32 +52,18 @@ public final class ChangeAdapters {
             event.put("path", change.getFieldPath() != null ? change.getFieldPath() : change.getFieldName());
             event.put("timestamp", timestamp);
 
-            if (change.isReferenceChange() && change.getReferenceDetail() != null) {
-                // 映射为 reference_change 事件
-                event.put("kind", "reference_change");
-                event.put("details", change.getReferenceDetail().toMap());
-            } else {
-                // 原有逻辑：映射 ChangeType → kind（保持向后兼容）
-                switch (change.getChangeType()) {
-                    case CREATE -> event.put("kind", "entry_added");
-                    case DELETE -> event.put("kind", "entry_removed");
-                    case UPDATE -> event.put("kind", "entry_updated");  // 保持原有映射
-                    case MOVE -> event.put("kind", "entry_moved");
-                }
-
-                // 详情
-                Map<String, Object> details = new HashMap<>();
-                if (change.getOldValue() != null) {
-                    details.put("oldEntryValue", change.getOldValue());
-                }
-                if (change.getNewValue() != null) {
-                    details.put("newEntryValue", change.getNewValue());
-                }
-                if (change.getValueType() != null) {
-                    details.put("valueType", change.getValueType());
-                }
-                event.put("details", details);
+            switch (change.kind()) {
+                case ADD -> event.put("kind", "entry_added");
+                case REMOVE -> event.put("kind", "entry_removed");
+                case MOVE -> event.put("kind", "entry_moved");
+                case MODIFY, NULLNESS, TYPE_MISMATCH -> event.put("kind", "entry_updated");
             }
+
+            Map<String, Object> details = new HashMap<>();
+            change.beforeValue().ifPresent(value -> details.put("oldEntryValue", value));
+            change.afterValue().ifPresent(value -> details.put("newEntryValue", value));
+            details.put("valueType", change.getValueType());
+            event.put("details", details);
 
             events.add(event);
         }

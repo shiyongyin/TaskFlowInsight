@@ -1,21 +1,14 @@
 package com.syy.taskflowinsight.api;
 
-import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.enums.MessageType;
-import com.syy.taskflowinsight.exporter.json.JsonExporter;
-import com.syy.taskflowinsight.exporter.map.MapExporter;
-import com.syy.taskflowinsight.exporter.text.ConsoleExporter;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
-import com.syy.taskflowinsight.spi.DefaultExportProvider;
 import com.syy.taskflowinsight.spi.ExportProvider;
 import com.syy.taskflowinsight.spi.FlowProvider;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -31,7 +24,13 @@ import java.util.concurrent.Callable;
  *   <li>纯 Java 实现：不依赖 Spring/Micrometer/Actuator/Caffeine</li>
  *   <li>异常安全：门面层捕获所有异常，使用 SLF4J 记录</li>
  *   <li>轻量级：最小依赖集合，适合嵌入式/库场景</li>
+ *   <li>Provider 单一路由：门面不直接操作线程上下文，默认实现也通过 SPI 承接</li>
  * </ul>
+ *
+ * <p>Provider 单一路由的目的不是增加抽象层，而是减少并行语义：
+ * 若 facade 同时维护「Provider 路径」和「ManagedThreadContext 兜底路径」，
+ * 自定义 Provider、默认 Provider、TaskContext 关闭、导出会逐渐出现不一致。
+ * 因此默认行为也由 ServiceLoader Provider 承接，facade 只负责参数校验与异常边界，选择状态统一交给 Registry。
  *
  * @author TaskFlow Insight Team
  * @version 4.0.0
@@ -43,11 +42,6 @@ public final class TfiFlow {
 
     // 启用/禁用开关
     private static volatile boolean enabled = true;
-
-    // FlowProvider 缓存（双重检查锁机制）
-    private static volatile FlowProvider cachedFlowProvider;
-    private static volatile ExportProvider cachedExportProvider;
-    private static volatile long providerGeneration = Long.MIN_VALUE;
 
     /**
      * 私有构造函数，防止实例化
@@ -85,24 +79,16 @@ public final class TfiFlow {
 
     /**
      * 清理当前线程的所有上下文
+     *
+     * <p>注意：清理类 API 不受 {@code enabled} 开关门控。运行期 {@link #disable()}
+     * 之后在途请求仍需释放已注册的 ThreadLocal 上下文，否则线程池场景下
+     * Session/TaskNode 树将随池线程永久驻留（违反零泄漏承诺）。
      */
     public static void clear() {
-        if (!enabled) {
-            return;
-        }
-
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                provider.clear();
-            } else {
-                ManagedThreadContext context = ManagedThreadContext.current();
-                if (context != null) {
-                    context.close();
-                }
-            }
+            getFlowProvider().clear();
         } catch (Throwable t) {
-            logger.warn("Failed to clear context: {}", t.getMessage());
+            logInternalFailure("Failed to clear context", t);
         }
     }
 
@@ -120,51 +106,23 @@ public final class TfiFlow {
         }
 
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                return provider.startSession(sessionName.trim());
-            }
-
-            // 传统路径（无 Provider 时的兜底逻辑）
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context == null) {
-                context = ManagedThreadContext.create(sessionName.trim());
-                Session session = context.getCurrentSession();
-                return session != null ? session.getSessionId() : null;
-            } else {
-                if (context.getCurrentSession() != null && context.getCurrentSession().isActive()) {
-                    context.endSession();
-                }
-                Session session = context.startSession(sessionName.trim());
-                return session != null ? session.getSessionId() : null;
-            }
+            return getFlowProvider().startSession(sessionName.trim());
         } catch (Throwable t) {
-            logger.warn("Failed to start session: {}", t.getMessage());
+            logInternalFailure("Failed to start session", t);
             return null;
         }
     }
 
     /**
      * 结束当前会话
+     *
+     * <p>清理类 API 不受 {@code enabled} 开关门控，理由见 {@link #clear()}。
      */
     public static void endSession() {
-        if (!enabled) {
-            return;
-        }
-
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                provider.endSession();
-                return;
-            }
-
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null) {
-                context.endSession();
-            }
+            getFlowProvider().endSession();
         } catch (Throwable t) {
-            logger.warn("Failed to end session: {}", t.getMessage());
+            logInternalFailure("Failed to end session", t);
         }
     }
 
@@ -192,25 +150,44 @@ public final class TfiFlow {
     /**
      * 在Stage中执行操作（函数式API）
      *
+     * <p>业务函数抛出的异常会原样传播给调用方（受检异常包装为
+     * {@link RuntimeException} 后传播，保留原因链）；TFI 自身的失败仍不影响业务执行。
+     *
      * @param stageName Stage名称
      * @param stageFunction 要在Stage中执行的函数
      * @param <T> 返回值类型
-     * @return 执行结果，如果失败返回null
+     * @return 执行结果
      */
     public static <T> T stage(String stageName, StageFunction<T> stageFunction) {
-        if (!enabled || stageFunction == null) {
-            try {
-                return stageFunction != null ? stageFunction.apply(NullTaskContext.INSTANCE) : null;
-            } catch (Exception e) {
-                return null;
-            }
+        if (stageFunction == null) {
+            return null;
+        }
+        if (!enabled) {
+            return applyUserFunction(stageFunction, NullTaskContext.INSTANCE);
         }
 
-        try (TaskContext stage = start(stageName)) {
+        TaskContext stage = start(stageName);   // 异常安全：TFI 失败时返回 NullTaskContext
+        try {
+            return applyUserFunction(stageFunction, stage);
+        } catch (RuntimeException | Error e) {
+            stage.fail(e);                      // 记录失败后原样传播业务异常
+            throw e;
+        } finally {
+            stage.close();                      // close 内部吞掉 TFI 自身异常
+        }
+    }
+
+    /**
+     * 执行业务函数：unchecked 异常原样传播，受检异常包装为 RuntimeException 传播。
+     * TFI 门面不再吞掉业务代码自身的失败（红队审计 H3）。
+     */
+    private static <T> T applyUserFunction(StageFunction<T> stageFunction, TaskContext stage) {
+        try {
             return stageFunction.apply(stage);
-        } catch (Throwable t) {
-            logger.warn("Failed to execute stage: {}", t.getMessage());
-            return null;
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -227,97 +204,95 @@ public final class TfiFlow {
 
         try {
             FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                if (provider.currentSession() == null) {
-                    provider.startSession("auto-session");
-                }
-                TaskNode taskNode = provider.startTask(taskName.trim());
-                return taskNode != null ? new TaskContextImpl(taskNode, provider) : NullTaskContext.INSTANCE;
-            }
-
-            // 传统路径（无 Provider 时的兜底逻辑）
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context == null) {
-                context = ManagedThreadContext.create("auto-session");
-            }
-            if (context.getCurrentSession() == null) {
-                context.startSession("auto-session");
-            }
-            TaskNode taskNode = context.startTask(taskName.trim());
-            return taskNode != null ? new TaskContextImpl(taskNode) : NullTaskContext.INSTANCE;
+            TaskNode taskNode = provider.startTask(taskName.trim());
+            return taskNode != null ? new TaskContextImpl(taskNode, provider) : NullTaskContext.INSTANCE;
         } catch (Throwable t) {
-            logger.warn("Failed to start task: {}", t.getMessage());
+            logInternalFailure("Failed to start task", t);
             return NullTaskContext.INSTANCE;
         }
     }
 
     /**
      * 结束当前任务
+     *
+     * <p>清理类 API 不受 {@code enabled} 开关门控，理由见 {@link #clear()}。
      */
     public static void stop() {
-        if (!enabled) {
-            return;
-        }
-
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                provider.endTask();
-                return;
-            }
-
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null) {
-                context.endTask();
-            }
+            getFlowProvider().endTask();
         } catch (Throwable t) {
-            logger.warn("Failed to stop task: {}", t.getMessage());
+            logInternalFailure("Failed to stop task", t);
         }
     }
 
     /**
      * 在新任务中执行操作
      *
+     * <p>业务操作抛出的异常会原样传播给调用方；TFI 自身的失败不影响业务执行。
+     *
      * @param taskName 任务名称
      * @param runnable 要执行的操作
      */
     public static void run(String taskName, Runnable runnable) {
-        if (!enabled || runnable == null) {
-            if (runnable != null) {
-                runnable.run();
-            }
+        if (runnable == null) {
+            return;
+        }
+        if (!enabled) {
+            runnable.run();
             return;
         }
 
-        try (TaskContext ignored = start(taskName)) {
+        TaskContext ctx = start(taskName);
+        try {
             runnable.run();
-        } catch (Throwable t) {
-            logger.warn("Failed to run task: {}", t.getMessage());
+        } catch (RuntimeException | Error e) {
+            ctx.fail(e);
+            throw e;
+        } finally {
+            ctx.close();
         }
     }
 
     /**
      * 在新任务中执行操作并返回结果
      *
+     * <p>业务操作抛出的异常会原样传播给调用方（受检异常包装为
+     * {@link RuntimeException} 后传播，保留原因链）；TFI 自身的失败不影响业务执行。
+     *
      * @param taskName 任务名称
      * @param callable 要执行的操作
      * @param <T> 返回值类型
-     * @return 执行结果，如果失败返回null
+     * @return 执行结果
      */
     public static <T> T call(String taskName, Callable<T> callable) {
-        if (!enabled || callable == null) {
-            try {
-                return callable != null ? callable.call() : null;
-            } catch (Exception e) {
-                return null;
-            }
+        if (callable == null) {
+            return null;
+        }
+        if (!enabled) {
+            return invokeUserCallable(callable);
         }
 
-        try (TaskContext ignored = start(taskName)) {
+        TaskContext ctx = start(taskName);
+        try {
+            return invokeUserCallable(callable);
+        } catch (RuntimeException | Error e) {
+            ctx.fail(e);
+            throw e;
+        } finally {
+            ctx.close();
+        }
+    }
+
+    /**
+     * 执行业务 Callable：unchecked 异常原样传播，受检异常包装为 RuntimeException 传播。
+     */
+    private static <T> T invokeUserCallable(Callable<T> callable) {
+        try {
             return callable.call();
-        } catch (Throwable t) {
-            logger.warn("Failed to call task: {}", t.getMessage());
-            return null;
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -335,19 +310,10 @@ public final class TfiFlow {
         }
 
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                // 传递 MessageType 本体而非 displayName，保留类型语义（getType()/isAlert() 等仍可用）
-                provider.messageWithType(content.trim(), messageType);
-                return;
-            }
-
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null && context.getCurrentTask() != null) {
-                context.getCurrentTask().addMessage(content.trim(), messageType);
-            }
+            // 传递 MessageType 本体而非 displayName，保留类型语义（getType()/isAlert() 等仍可用）
+            getFlowProvider().messageWithType(content.trim(), messageType);
         } catch (Throwable t) {
-            logger.warn("Failed to record message: {}", t.getMessage());
+            logInternalFailure("Failed to record message", t);
         }
     }
 
@@ -364,18 +330,9 @@ public final class TfiFlow {
         }
 
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                provider.message(content.trim(), customLabel.trim());
-                return;
-            }
-
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null && context.getCurrentTask() != null) {
-                context.getCurrentTask().addMessage(content.trim(), customLabel.trim());
-            }
+            getFlowProvider().message(content.trim(), customLabel.trim());
         } catch (Throwable t) {
-            logger.warn("Failed to record message: {}", t.getMessage());
+            logInternalFailure("Failed to record message", t);
         }
     }
 
@@ -395,9 +352,14 @@ public final class TfiFlow {
      * @param throwable 异常对象
      */
     public static void error(String content, Throwable throwable) {
-        String errorMessage = content;
+        // content 为空时以异常描述为消息主体，避免拼出字面 "null - Xxx: msg"
+        String base = (content == null || content.trim().isEmpty()) ? null : content;
+        String errorMessage;
         if (throwable != null) {
-            errorMessage = content + " - " + throwable.getClass().getSimpleName() + ": " + safeMessage(throwable);
+            String detail = throwable.getClass().getSimpleName() + ": " + safeMessage(throwable);
+            errorMessage = base != null ? base + " - " + detail : detail;
+        } else {
+            errorMessage = base;
         }
         message(errorMessage, MessageType.ALERT);
     }
@@ -415,15 +377,9 @@ public final class TfiFlow {
         }
 
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                return provider.currentSession();
-            }
-
-            ManagedThreadContext context = ManagedThreadContext.current();
-            return context != null ? context.getCurrentSession() : null;
+            return getFlowProvider().currentSession();
         } catch (Throwable t) {
-            logger.warn("Failed to get current session: {}", t.getMessage());
+            logInternalFailure("Failed to get current session", t);
             return null;
         }
     }
@@ -439,15 +395,9 @@ public final class TfiFlow {
         }
 
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                return provider.currentTask();
-            }
-
-            ManagedThreadContext context = ManagedThreadContext.current();
-            return context != null ? context.getCurrentTask() : null;
+            return getFlowProvider().currentTask();
         } catch (Throwable t) {
-            logger.warn("Failed to get current task: {}", t.getMessage());
+            logInternalFailure("Failed to get current task", t);
             return null;
         }
     }
@@ -463,25 +413,9 @@ public final class TfiFlow {
         }
 
         try {
-            FlowProvider provider = getFlowProvider();
-            if (provider != null) {
-                return provider.getTaskStack();
-            }
-
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null) {
-                List<TaskNode> stack = new ArrayList<>();
-                TaskNode current = context.getCurrentTask();
-                while (current != null) {
-                    stack.add(current);
-                    current = current.getParent();
-                }
-                Collections.reverse(stack);
-                return stack;
-            }
-            return List.of();
+            return getFlowProvider().getTaskStack();
         } catch (Throwable t) {
-            logger.warn("Failed to get task stack: {}", t.getMessage());
+            logInternalFailure("Failed to get task stack", t);
             return List.of();
         }
     }
@@ -489,7 +423,7 @@ public final class TfiFlow {
     // ==================== 导出方法 ====================
 
     /**
-     * 导出当前会话到控制台（简化输出，无时间戳）
+     * 导出当前会话为 TREE 控制台诊断文本，不显示消息时间戳。
      *
      * @return true 如果导出成功
      */
@@ -498,9 +432,11 @@ public final class TfiFlow {
     }
 
     /**
-     * 导出当前会话的任务树到控制台
+     * 导出当前会话为 TREE 控制台诊断文本。
      *
-     * @param showTimestamp 是否显示时间戳
+     * <p>{@code showTimestamp} 只控制消息时间戳，不选择 TREE/SIMPLE 样式。
+     *
+     * @param showTimestamp 是否显示消息时间戳
      * @return true 如果导出成功
      */
     public static boolean exportToConsole(boolean showTimestamp) {
@@ -509,18 +445,9 @@ public final class TfiFlow {
         }
 
         try {
-            ExportProvider provider = getExportProvider();
-            if (isCustomExportProvider(provider)) {
-                return provider.exportToConsole(showTimestamp);
-            }
-
-            Session session = getCurrentSession();
-            if (session != null) {
-                return exportToConsoleDefault(session, showTimestamp);
-            }
-            return false;
+            return getExportProvider().exportToConsole(showTimestamp);
         } catch (Throwable t) {
-            logger.warn("Failed to export to console: {}", t.getMessage());
+            logInternalFailure("Failed to export to console", t);
             return false;
         }
     }
@@ -536,18 +463,9 @@ public final class TfiFlow {
         }
 
         try {
-            ExportProvider provider = getExportProvider();
-            if (isCustomExportProvider(provider)) {
-                return provider.exportToJson();
-            }
-
-            Session session = getCurrentSession();
-            if (session != null) {
-                return new JsonExporter().export(session);
-            }
-            return "{}";
+            return getExportProvider().exportToJson();
         } catch (Throwable t) {
-            logger.warn("Failed to export to JSON: {}", t.getMessage());
+            logInternalFailure("Failed to export to JSON", t);
             return "{}";
         }
     }
@@ -563,18 +481,9 @@ public final class TfiFlow {
         }
 
         try {
-            ExportProvider provider = getExportProvider();
-            if (isCustomExportProvider(provider)) {
-                return provider.exportToMap();
-            }
-
-            Session session = getCurrentSession();
-            if (session == null) {
-                return Map.of();
-            }
-            return MapExporter.export(session);
+            return getExportProvider().exportToMap();
         } catch (Throwable t) {
-            logger.warn("Failed to export to Map: {}", t.getMessage());
+            logInternalFailure("Failed to export to Map", t);
             return Map.of();
         }
     }
@@ -582,65 +491,21 @@ public final class TfiFlow {
     // ==================== Provider 获取方法 ====================
 
     /**
-     * 获取 FlowProvider（带缓存）
+     * 获取本 epoch 唯一的 FlowProvider。
      *
-     * @return FlowProvider 实例，可能为 null
+     * @return Registry 选中的 FlowProvider；没有可信实现时返回 null
      */
     private static FlowProvider getFlowProvider() {
-        long generation = ProviderRegistry.getGeneration();
-        if (providerGeneration == generation && cachedFlowProvider != null) {
-            return cachedFlowProvider;
-        }
-
-        synchronized (TfiFlow.class) {
-            refreshProviderCacheIfStale(generation);
-            if (cachedFlowProvider == null) {
-                cachedFlowProvider = lookupProvider(FlowProvider.class);
-            }
-        }
-
-        return cachedFlowProvider;
+        return ProviderRegistry.resolve(FlowProvider.class);
     }
 
     /**
-     * 获取 ExportProvider（带 Registry generation 缓存）。
+     * 获取本 epoch 唯一的 ExportProvider。
      *
-     * @return ExportProvider 实例，可能为 null
+     * @return Registry 选中的 ExportProvider；没有可信实现时返回 null
      */
     private static ExportProvider getExportProvider() {
-        long generation = ProviderRegistry.getGeneration();
-        if (providerGeneration == generation && cachedExportProvider != null) {
-            return cachedExportProvider;
-        }
-
-        synchronized (TfiFlow.class) {
-            refreshProviderCacheIfStale(generation);
-            if (cachedExportProvider == null) {
-                cachedExportProvider = lookupProvider(ExportProvider.class);
-            }
-        }
-
-        return cachedExportProvider;
-    }
-
-    private static void refreshProviderCacheIfStale(long generation) {
-        if (providerGeneration != generation) {
-            cachedFlowProvider = null;
-            cachedExportProvider = null;
-            providerGeneration = generation;
-        }
-    }
-
-    private static <T> T lookupProvider(Class<T> providerType) {
-        T provider = ProviderRegistry.lookup(providerType);
-        if (provider instanceof FlowProvider flowProvider) {
-            logger.debug("Found FlowProvider: {} (priority={})",
-                flowProvider.getClass().getSimpleName(), flowProvider.priority());
-        } else if (provider instanceof ExportProvider exportProvider) {
-            logger.debug("Found ExportProvider: {} (priority={})",
-                exportProvider.getClass().getSimpleName(), exportProvider.priority());
-        }
-        return provider;
+        return ProviderRegistry.resolve(ExportProvider.class);
     }
 
     /**
@@ -649,11 +514,15 @@ public final class TfiFlow {
      * @param provider FlowProvider实例
      */
     public static void registerFlowProvider(FlowProvider provider) {
+        if (provider == null) {
+            logger.warn("Ignoring null FlowProvider registration");
+            return;
+        }
         try {
             ProviderRegistry.register(FlowProvider.class, provider);
             logger.info("Registered custom FlowProvider: {}", provider.getClass().getSimpleName());
         } catch (Throwable t) {
-            logger.warn("Failed to register FlowProvider: {}", t.getMessage());
+            logInternalFailure("Failed to register FlowProvider", t);
         }
     }
 
@@ -663,29 +532,47 @@ public final class TfiFlow {
      * @param provider ExportProvider 实例
      */
     public static void registerExportProvider(ExportProvider provider) {
+        if (provider == null) {
+            logger.warn("Ignoring null ExportProvider registration");
+            return;
+        }
         try {
             ProviderRegistry.register(ExportProvider.class, provider);
             logger.info("Registered custom ExportProvider: {}", provider.getClass().getSimpleName());
         } catch (Throwable t) {
-            logger.warn("Failed to register ExportProvider: {}", t.getMessage());
+            logInternalFailure("Failed to register ExportProvider", t);
         }
-    }
-
-    private static boolean isCustomExportProvider(ExportProvider provider) {
-        return provider != null && provider.getClass() != DefaultExportProvider.class;
-    }
-
-    private static boolean exportToConsoleDefault(Session session, boolean showTimestamp) {
-        ConsoleExporter exporter = new ConsoleExporter();
-        if (showTimestamp) {
-            exporter.print(session);
-        } else {
-            exporter.printSimple(session);
-        }
-        return true;
     }
 
     // ==================== 内部工具方法 ====================
+
+    /**
+     * 统一处理 TFI 内部路径的失败。
+     *
+     * <p>规则：
+     * <ul>
+     *   <li>{@link VirtualMachineError}（OOM/StackOverflow 等）原样重抛——JVM 级故障
+     *       不应被降级为一条 warn 日志而系统性掩盖</li>
+     *   <li>{@link InterruptedException} 恢复线程中断位，保证优雅停机信号不丢失</li>
+     *   <li>debug 级别记录完整堆栈，warn 级别记录异常摘要（含类名，OOM 的 message 常为 null）</li>
+     * </ul>
+     *
+     * @param action 失败动作描述
+     * @param t 捕获的异常
+     */
+    private static void logInternalFailure(String action, Throwable t) {
+        if (t instanceof VirtualMachineError vmError) {
+            throw vmError;
+        }
+        if (t instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+        }
+        if (logger.isDebugEnabled()) {
+            logger.warn("{}", action, t);
+        } else {
+            logger.warn("{}: {}", action, t.toString());
+        }
+    }
 
     /**
      * 安全获取异常消息（null-safe）

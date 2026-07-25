@@ -32,6 +32,7 @@ public enum EntityOperation {
      */
     DELETE("删除");
 
+    /** 仅用于人类可读投影，不参与操作类型的协议判断。 */
     private final String displayName;
 
     EntityOperation(String displayName) {

@@ -4,6 +4,7 @@ import com.syy.taskflowinsight.annotation.TfiTask;
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.context.SafeContextManager;
+import com.syy.taskflowinsight.model.TaskNode;
 import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,14 +91,15 @@ public class DemoController {
         SafeContextManager.getInstance().executeAsync("asyncProcessing", () -> {
             try {
                 Thread.sleep(50);
-                log.info("Async processing completed for: {}", request.get("data"));
-                
-                // 验证上下文传播
                 ManagedThreadContext context = ManagedThreadContext.current();
                 if (context != null) {
-                    log.info("✅ Async context successfully propagated! ContextId: {}", context.getContextId());
+                    TaskNode task = context.getCurrentTask();
+                    log.info("Async processing completed for: {}, ContextId: {}, task: {}, path: {}",
+                            request.get("data"), context.getContextId(),
+                            task != null ? task.getTaskName() : "none",
+                            task != null ? task.getTaskPath() : "none");
                 } else {
-                    log.warn("❌ Context not propagated to async thread");
+                    log.warn("Context not propagated to async thread");
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -139,9 +141,13 @@ public class DemoController {
         SafeContextManager.getInstance().executeAsync("correctAsyncDemo", () -> {
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context != null) {
-                log.info("✅ Right way - Context successfully propagated: {}", context.getContextId());
+                TaskNode task = context.getCurrentTask();
+                log.info("Right way - Context: {}, task: {}, path: {}",
+                        context.getContextId(),
+                        task != null ? task.getTaskName() : "none",
+                        task != null ? task.getTaskPath() : "none");
             } else {
-                log.error("✅ Right way - Context should have been propagated but wasn't!");
+                log.error("Right way - Context should have been propagated but wasn't!");
             }
         });
         

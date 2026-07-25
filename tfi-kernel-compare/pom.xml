@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.syy</groupId>
+        <artifactId>taskflowinsight-parent</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>tfi-kernel-compare</artifactId>
+    <name>TFI Kernel Compare Bridge</name>
+    <description>Pure Java bridge from Compare Core truth to bounded Kernel records</description>
+
+    <properties>
+        <jacoco.skip>false</jacoco.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.syy</groupId>
+            <artifactId>tfi-kernel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.syy</groupId>
+            <artifactId>tfi-compare-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-kernel-compare-dependency-boundary</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>com.syy:tfi-flow-core</exclude>
+                                        <exclude>com.syy:tfi-compare</exclude>
+                                        <exclude>com.syy:tfi-flow-spring-starter</exclude>
+                                        <exclude>com.syy:tfi-compare-spring-starter</exclude>
+                                        <exclude>com.syy:tfi-ops-spring</exclude>
+                                        <exclude>com.syy:tfi-all</exclude>
+                                        <exclude>com.syy:tfi-examples</exclude>
+                                        <exclude>org.springframework:*</exclude>
+                                        <exclude>org.springframework.boot:*</exclude>
+                                        <exclude>com.fasterxml.jackson.*:*</exclude>
+                                        <exclude>com.github.ben-manes.caffeine:*</exclude>
+                                        <exclude>io.micrometer:*</exclude>
+                                        <exclude>org.aspectj:*</exclude>
+                                    </excludes>
+                                    <message>tfi-kernel-compare may depend only on the two pure Java cores</message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <configuration combine.self="override">
+                    <configLocation>${maven.multiModuleProjectDirectory}/tfi-kernel-compare/config/checkstyle/checkstyle.xml</configLocation>
+                    <consoleOutput>true</consoleOutput>
+                    <failsOnError>true</failsOnError>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <configuration combine.self="override">
+                    <effort>Max</effort>
+                    <threshold>High</threshold>
+                    <failOnError>true</failOnError>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

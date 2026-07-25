@@ -90,7 +90,7 @@ tfi-flow-spring-starter
 ├── F4: 上下文生命周期管理
 │   ├── F4.1: 上下文最大存活时间
 │   ├── F4.2: 泄漏检测
-│   └── F4.3: 自动清理
+│   └── F4.3: 唯一 detector 回收
 │
 └── F5: SpEL 安全求值
     ├── F5.1: 表达式白名单验证
@@ -120,8 +120,6 @@ tfi:
     max-age-millis: 3600000                # 上下文最大存活 1 小时
     leak-detection-enabled: false          # 泄漏检测（生产建议开启）
     leak-detection-interval-millis: 60000  # 泄漏检测间隔
-    cleanup-enabled: false                 # 自动清理（线程池场景建议开启）
-    cleanup-interval-millis: 60000         # 清理间隔
 ```
 
 ---
@@ -192,8 +190,11 @@ public void highFrequencyOp() { ... }
 | 功能 | 说明 | 配置 |
 |------|------|------|
 | 最大存活时间 | 超过阈值的上下文自动标记为过期 | `tfi.context.max-age-millis` |
-| 泄漏检测 | 定期扫描未释放的上下文并输出告警日志 | `tfi.context.leak-detection-enabled` |
-| 自动清理 | 定期清理过期的 ThreadLocal 上下文 | `tfi.context.cleanup-enabled` |
+| 泄漏检测与回收 | 唯一 manager scheduler 扫描并回收死线程或超时 Context | `tfi.context.leak-detection-enabled` |
+| 检测间隔 | 控制同一个 detector 的扫描周期 | `tfi.context.leak-detection-interval-millis` |
+
+4.0 不再暴露第二 cleaner 配置。检测和回收必须共享同一个 owner，避免两个 scheduler 使用不同
+timeout/interval 后对同一 Context 做出冲突判断。
 
 ---
 
@@ -279,13 +280,13 @@ Step 5: 查看控制台/日志 → 看到层级化的业务流程树
 Step 1: 配置 tfi.context.leak-detection-enabled=true
           │
           ▼
-Step 2: 配置 tfi.context.cleanup-enabled=true
+Step 2: 配置 tfi.context.leak-detection-interval-millis
           │
           ▼
 Step 3: 监控日志中的泄漏告警
           │
           ▼
-Step 4: 根据告警调整 max-age-millis 和 cleanup-interval-millis
+Step 4: 根据告警调整 max-age-millis 和 leak-detection-interval-millis
 ```
 
 ### 5.3 安全审计流程
@@ -317,7 +318,7 @@ Step 4: 验证 SpEL 表达式安全策略生效
 | **数据脱敏** | ✅ 内置 | ❌ 无 | ❌ 无 | 需自行实现 |
 | **SpEL 条件** | ✅ 安全求值 | ❌ 不支持 | ❌ 不支持 | N/A |
 | **采样控制** | ✅ 方法级 | ✅ 全局级 | ✅ 全局级 | N/A |
-| **ThreadLocal 管理** | ✅ 泄漏检测+自动清理 | 部分 | ❌ | 需自行实现 |
+| **ThreadLocal 管理** | ✅ 单一 detector 检测回收 | 部分 | ❌ | 需自行实现 |
 | **侵入性** | 极低（注解） | 低 | 低-中 | 高 |
 
 ### 6.2 差异化优势
@@ -401,7 +402,7 @@ Step 4: 验证 SpEL 表达式安全策略生效
 - [ ] `condition` SpEL 表达式为 `false` 时跳过追踪
 - [ ] `samplingRate=0.5` 时约 50% 的调用被追踪
 - [ ] 密码/Token/邮箱/电话/信用卡均被正确脱敏
-- [ ] 泄漏检测和自动清理按配置正常工作
+- [ ] 唯一 detector 按配置完成泄漏检测和回收
 
 ### 10.2 非功能验收
 

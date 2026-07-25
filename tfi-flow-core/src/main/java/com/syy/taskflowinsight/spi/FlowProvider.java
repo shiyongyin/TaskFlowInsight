@@ -21,7 +21,7 @@ import java.util.Collections;
  * @author TaskFlow Insight Team
  * @since 4.0.0
  */
-public interface FlowProvider {
+public interface FlowProvider extends PrioritizedProvider {
 
     /**
      * 开始新会话
@@ -110,9 +110,18 @@ public interface FlowProvider {
      */
     default void clear() {
         try {
-            // 先结束所有嵌套任务
-            while (currentTask() != null) {
+            // 先结束所有嵌套任务。
+            // 带推进保护：SPI 契约鼓励实现吞异常，若某实现的 endTask() 既不弹栈也不抛异常，
+            // 无保护的 while 会让调用线程永久挂死；检测到无推进立即退出，另设迭代上限兜底
+            int guard = 0;
+            TaskNode current = currentTask();
+            while (current != null && guard++ < 1024) {
                 endTask();
+                TaskNode next = currentTask();
+                if (next == current) {
+                    break;
+                }
+                current = next;
             }
             // 再结束会话
             if (currentSession() != null) {
@@ -144,7 +153,9 @@ public interface FlowProvider {
     default java.util.List<TaskNode> getTaskStack() {
         java.util.List<TaskNode> stack = new java.util.ArrayList<>();
         TaskNode current = currentTask();
-        while (current != null) {
+        // 深度上限防护：树结构若被并发操作破坏形成 parent 环，无界上溯会 OOM
+        int guard = 0;
+        while (current != null && guard++ < 1024) {
             stack.add(current);
             current = current.getParent();
         }
@@ -152,13 +163,4 @@ public interface FlowProvider {
         return java.util.List.copyOf(stack);  // 不可变列表
     }
 
-    /**
-     * Provider优先级（数值越大优先级越高）
-     * <p>Spring实现通常返回Integer.MAX_VALUE，ServiceLoader实现返回0</p>
-     *
-     * @return 优先级值，默认0
-     */
-    default int priority() {
-        return 0;
-    }
 }

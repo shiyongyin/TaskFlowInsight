@@ -35,6 +35,15 @@ public class ContextAwareSpELEvaluator {
     private final ConcurrentHashMap<String, Expression> expressionCache = new ConcurrentHashMap<>();
 
     /**
+     * 创建兼容旧 Map 上下文调用的求值器；新代码应使用 {@link SafeSpELEvaluator}。
+     *
+     * @deprecated 自 4.0.0 起由 {@link SafeSpELEvaluator} 统一承担安全求值职责
+     */
+    @Deprecated(since = "4.0.0", forRemoval = true)
+    public ContextAwareSpELEvaluator() {
+    }
+
+    /**
      * 支持 Map 变量访问的 SpEL 求值.
      *
      * @param expression   SpEL 表达式

@@ -16,6 +16,12 @@ import lombok.Data;
 @Data
 @Builder
 public class MetricSnapshot {
+
+    /**
+     * 为发布文档显式声明 builder 类型；Lombok 继续注入既有指标构建 API。
+     */
+    public static class MetricSnapshotBuilder {
+    }
     
     private String name;
     private long timestamp;

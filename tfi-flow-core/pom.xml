@@ -5,20 +5,19 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.5</version>
-        <relativePath/> <!-- lookup parent from repository -->
+        <groupId>com.syy</groupId>
+        <artifactId>taskflowinsight-parent</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <groupId>com.syy</groupId>
     <artifactId>tfi-flow-core</artifactId>
-    <version>3.0.0</version>
     <name>TFI Flow Core</name>
     <description>TaskFlowInsight Flow Core - Pure Java kernel for session/task/stage/message/export</description>
 
     <properties>
-        <java.version>21</java.version>
+        <jacoco.skip>false</jacoco.skip>
+        <jmh.version>1.37</jmh.version>
     </properties>
 
     <dependencies>
@@ -46,15 +45,41 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-core</artifactId>
+            <version>${jmh.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <!-- Exclude benchmark sources when JMH is not available (perf profile inactive) -->
+            <!-- Contract tests inspect the packaged service resources before the test phase. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <!-- 将生命周期主 JAR 提前构建；新增第二个 execution 会在 package 阶段重复挂载主产物。 -->
+                        <id>default-jar</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Exclude benchmark sources unless the perf profile is active. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -69,7 +94,6 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
-                <version>3.4.1</version>
                 <executions>
                     <execution>
                         <id>enforce-banned-dependencies</id>
@@ -97,54 +121,89 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
-                <version>3.6.0</version>
-                <configuration>
-                    <configLocation>config/checkstyle/checkstyle.xml</configLocation>
+                <configuration combine.self="override">
+                    <configLocation>${maven.multiModuleProjectDirectory}/tfi-flow-core/config/checkstyle/checkstyle.xml</configLocation>
                     <consoleOutput>true</consoleOutput>
                     <failsOnError>true</failsOnError>
-                    <includeTestSourceRoots>false</includeTestSourceRoots>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>checkstyle-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- SpotBugs - 静态分析 -->
             <plugin>
                 <groupId>com.github.spotbugs</groupId>
                 <artifactId>spotbugs-maven-plugin</artifactId>
-                <version>4.8.6.6</version>
-                <configuration>
+                <configuration combine.self="override">
                     <effort>Max</effort>
                     <threshold>High</threshold>
                     <failOnError>true</failOnError>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- JaCoCo - 覆盖率 -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <configuration combine.self="override">
+                    <skip>${jacoco.skip}</skip>
+                </configuration>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
-                        <goals><goal>prepare-agent</goal></goals>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <excludes combine.self="override"/>
+                        </configuration>
                     </execution>
                     <execution>
                         <id>report</id>
                         <phase>test</phase>
-                        <goals><goal>report</goal></goals>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                        <configuration>
+                            <excludes combine.self="override"/>
+                        </configuration>
                     </execution>
                     <execution>
                         <id>check</id>
-                        <goals><goal>check</goal></goals>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
                         <configuration>
-                            <rules>
+                            <rules combine.self="override">
                                 <rule>
                                     <element>BUNDLE</element>
                                     <limits>
                                         <limit>
                                             <counter>INSTRUCTION</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.50</minimum>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
                                         </limit>
                                     </limits>
                                 </rule>
@@ -156,8 +215,133 @@
         </plugins>
     </build>
 
-    <!-- JMH Benchmark Profile -->
+    <!-- Module-specific build profiles -->
     <profiles>
+        <profile>
+            <id>skip-coverage-for-strict-perf-gate</id>
+            <activation>
+                <property>
+                    <name>tfi.perf.strict</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <properties>
+                <!-- 上游模块不执行全量测试时，不用局部perf选择覆盖常规Core覆盖率证据。 -->
+                <jacoco.skip>true</jacoco.skip>
+            </properties>
+        </profile>
+        <profile>
+            <id>skip-coverage-when-tests-skipped</id>
+            <activation>
+                <property>
+                    <name>skipTests</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <properties>
+                <jacoco.skip>true</jacoco.skip>
+            </properties>
+        </profile>
+        <profile>
+            <id>api-compat</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.siom79.japicmp</groupId>
+                        <artifactId>japicmp-maven-plugin</artifactId>
+                        <version>0.24.2</version>
+                        <executions>
+                            <execution>
+                                <id>verify-core-api-compatibility</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>cmp</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <oldVersion>
+                                <dependency>
+                                    <groupId>com.syy</groupId>
+                                    <artifactId>tfi-flow-core</artifactId>
+                                    <version>${tfi.api.baseline.version}</version>
+                                </dependency>
+                            </oldVersion>
+                            <newVersion>
+                                <file>
+                                    <path>${project.build.directory}/${project.build.finalName}.jar</path>
+                                </file>
+                            </newVersion>
+                            <parameter>
+                                <accessModifier>protected</accessModifier>
+                                <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
+                                <breakBuildOnSourceIncompatibleModifications>true</breakBuildOnSourceIncompatibleModifications>
+                                <ignoreMissingClasses>false</ignoreMissingClasses>
+                                <excludes>
+                                    <exclude>com.syy.taskflowinsight.context.SafeContextManager#configure(long,boolean,long)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.SafeContextManager#registerContext(com.syy.taskflowinsight.context.ManagedThreadContext)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.SafeContextManager#unregisterContext(com.syy.taskflowinsight.context.ManagedThreadContext)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.SafeContextManager#applyTfiConfig(long,boolean,long)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.SafeContextManager#setContextTimeoutMillis(long)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.SafeContextManager#setLeakDetectionEnabled(boolean)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.SafeContextManager#setLeakDetectionIntervalMillis(long)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.SafeContextManager#getMetrics()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#registerContext(java.lang.Thread,java.lang.Object)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#unregisterContext(long)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#setCleanupEnabled(boolean)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#setContextTimeoutMillis(long)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#setCleanupIntervalMillis(long)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#detectLeaks()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#enableDiagnosticMode(boolean)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#disableDiagnosticMode()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#getHealthStatus()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#getDiagnostics()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager$HealthLevel</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager$HealthStatus</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#getInstance()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#registerNestedStage(long,java.lang.String,int)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#cleanupNestedStages(long,int)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#cleanupNestedStagesBatch()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager#getNestedStageStatus(long)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.ZeroLeakThreadLocalManager$NestedStageStatus</exclude>
+                                    <exclude>com.syy.taskflowinsight.internal.FlowConfigDefaults#NESTED_STAGE_MAX_DEPTH</exclude>
+                                    <exclude>com.syy.taskflowinsight.internal.FlowConfigDefaults#NESTED_CLEANUP_BATCH_SIZE</exclude>
+                                    <exclude>com.syy.taskflowinsight.internal.ConfigDefaults#NESTED_STAGE_MAX_DEPTH</exclude>
+                                    <exclude>com.syy.taskflowinsight.internal.ConfigDefaults#NESTED_CLEANUP_BATCH_SIZE</exclude>
+                                    <exclude>com.syy.taskflowinsight.internal.ConfigDefaults$Keys#NESTED_STAGE_MAX_DEPTH</exclude>
+                                    <exclude>com.syy.taskflowinsight.internal.ConfigDefaults$Keys#NESTED_CLEANUP_BATCH_SIZE</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#TFIAwareExecutor(java.util.concurrent.ExecutorService)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#newThreadPool(int,int,long,java.util.concurrent.TimeUnit)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#newFixedThreadPool(int)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#execute(java.lang.Runnable)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#shutdown()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#shutdownNow()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#isShutdown()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#isTerminated()</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#awaitTermination(long,java.util.concurrent.TimeUnit)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#submit(java.util.concurrent.Callable)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#submit(java.lang.Runnable,java.lang.Object)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#submit(java.lang.Runnable)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#invokeAll(java.util.Collection)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#invokeAll(java.util.Collection,long,java.util.concurrent.TimeUnit)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#invokeAny(java.util.Collection)</exclude>
+                                    <exclude>com.syy.taskflowinsight.context.TFIAwareExecutor#invokeAny(java.util.Collection,long,java.util.concurrent.TimeUnit)</exclude>
+                                    <exclude>com.syy.taskflowinsight.exporter.json.JsonExporter$ExportMode</exclude>
+                                    <exclude>com.syy.taskflowinsight.exporter.json.JsonExporter#JsonExporter(com.syy.taskflowinsight.exporter.json.JsonExporter$ExportMode)</exclude>
+                                    <exclude>com.syy.taskflowinsight.exporter.TaskDurationCache</exclude>
+                                    <exclude>com.syy.taskflowinsight.exporter.TaskDurationCache#from(com.syy.taskflowinsight.model.TaskNode)</exclude>
+                                    <exclude>com.syy.taskflowinsight.exporter.TaskDurationCache#getAccumulatedDurationMillis(com.syy.taskflowinsight.model.TaskNode)</exclude>
+                                    <exclude>com.syy.taskflowinsight.internal.ConfigDefaults</exclude>
+                                    <exclude>com.syy.taskflowinsight.internal.ConfigDefaults$Keys</exclude>
+                                </excludes>
+                            </parameter>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>perf</id>
             <activation>
@@ -169,14 +353,8 @@
             <dependencies>
                 <dependency>
                     <groupId>org.openjdk.jmh</groupId>
-                    <artifactId>jmh-core</artifactId>
-                    <version>1.37</version>
-                    <scope>test</scope>
-                </dependency>
-                <dependency>
-                    <groupId>org.openjdk.jmh</groupId>
                     <artifactId>jmh-generator-annprocess</artifactId>
-                    <version>1.37</version>
+                    <version>${jmh.version}</version>
                     <scope>test</scope>
                 </dependency>
             </dependencies>
@@ -188,6 +366,13 @@
                         <artifactId>maven-compiler-plugin</artifactId>
                         <configuration>
                             <testExcludes combine.self="override"/>
+                            <annotationProcessorPaths combine.children="append">
+                                <path>
+                                    <groupId>org.openjdk.jmh</groupId>
+                                    <artifactId>jmh-generator-annprocess</artifactId>
+                                    <version>${jmh.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
                         </configuration>
                     </plugin>
                 </plugins>

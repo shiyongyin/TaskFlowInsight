@@ -146,7 +146,7 @@ Session (会话)
 **核心类**: `SafeContextManager` (单例)
 
 - **ThreadLocal 隔离**: 每个线程维护独立的 `ManagedThreadContext`
-- **零泄漏保证**: `ZeroLeakThreadLocalManager` 使用 `WeakReference + ReferenceQueue` 检测死线程
+- **零泄漏保证**: `SafeContextManager` 通过 Context 持有的 `WeakReference<Thread>` 检测死线程
 - **异步传播**: `createSnapshot()` / `restoreFromSnapshot()` 支持跨线程上下文传递
 - **泄漏检测**: 定时任务检测超时未关闭的上下文
 
@@ -162,8 +162,9 @@ try (var stage = TFI.stage("processOrder")) {
 #### 4.1.3 异步支持
 
 ```java
-// TFIAwareExecutor 自动传播上下文
-ExecutorService executor = TFI.wrapExecutor(Executors.newFixedThreadPool(4));
+// 调用方保留线程池策略，ContextPropagatingExecutor 只增加上下文传播
+ExecutorService executor = ContextPropagatingExecutor.wrap(
+    Executors.newFixedThreadPool(4));
 executor.submit(() -> {
     // 这里能访问父线程的 TFI 上下文
     TFI.message("Async processing...");
@@ -350,7 +351,7 @@ tfi:
 | **Singleton** | `SafeContextManager` | 全局上下文管理 |
 | **AutoCloseable** | `TaskContext`, `ManagedThreadContext` | 资源自动释放 |
 | **Double-Checked Locking** | `TFI` 初始化 | 延迟初始化优化 |
-| **Decorator** | `TFIAwareExecutor` | 包装 Executor 添加上下文传播 |
+| **Decorator** | `ContextPropagatingExecutor` | 包装调用方的 ExecutorService 添加上下文传播 |
 | **Chain of Responsibility** | `DiffFacade` 解析链 | 编程 → Spring → 静态回退 |
 
 ### 5.2 线程安全设计
@@ -423,7 +424,7 @@ tfi:
 application.yml (Spring Boot)
     │
     ▼
-@EnableTfi 注解参数
+Starter typed properties
     │
     ▼
 默认值 (TfiConfig Record 默认)
@@ -434,31 +435,18 @@ application.yml (Spring Boot)
 
 ```yaml
 tfi:
-  enabled: true                              # 主开关
   annotation:
     enabled: true                            # @TfiTask/@TfiTrack 支持
-  api:
-    routing:
-      enabled: false                         # Provider 路由 (v4.0.0)
-      provider-mode: auto                    # auto/spring-only/service-loader-only
-    facade:
-      enabled: true                          # Facade API 开关
-  change-tracking:
-    snapshot:
-      max-depth: 10                          # 最大遍历深度
-      provider: direct                       # direct / facade
-    max-tracked-objects: 1000                # 最大追踪对象数
   compare:
-    auto-route:
-      lcs:
-        enabled: true                        # LCS 算法启用
-  diff:
-    heavy:
-      field-threshold: 50                    # 重型字段阈值
+    enabled: true                            # 当前上下文比较入口
+    max-depth: 10                            # 逻辑深度上限
+    max-compared-nodes: 10000                # 单次请求节点预算
+    max-elements: 1000                       # 两侧容器元素预算
+    tracking:
+      enabled: true                          # 接入当前 Flow advice
   context:
-    leak-detection:
-      enabled: true                          # 泄漏检测
-      timeout-seconds: 300                   # 超时秒数
+    max-age-millis: 3600000                  # 上下文最大存活时间
+    leak-detection-enabled: true             # 泄漏检测
 ```
 
 ### 7.3 Profile 配置

@@ -1,0 +1,3 @@
+com.syy.taskflowinsight.compare.spring.TfiCompareAutoConfiguration
+com.syy.taskflowinsight.compare.spring.TfiCompareTrackingPrerequisiteAutoConfiguration
+com.syy.taskflowinsight.compare.spring.TfiCompareTrackingAutoConfiguration

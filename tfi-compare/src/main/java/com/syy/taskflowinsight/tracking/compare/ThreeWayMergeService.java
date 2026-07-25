@@ -57,18 +57,6 @@ public class ThreeWayMergeService {
         // 检测冲突
         List<MergeConflict> conflicts = detectConflicts(leftChanges, rightChanges);
 
-        // 尝试自动合并
-        Object merged = null;
-        boolean autoMergeSuccessful = false;
-        if (options.isAttemptAutoMerge() && conflicts.isEmpty()) {
-            try {
-                merged = autoMerge(base, leftChanges.getChanges(), rightChanges.getChanges());
-                autoMergeSuccessful = true;
-            } catch (Exception e) {
-                logger.debug("Auto-merge failed: {}", e.getMessage());
-            }
-        }
-
         return MergeResult.builder()
                 .base(base)
                 .left(left)
@@ -76,8 +64,8 @@ public class ThreeWayMergeService {
                 .leftChanges(leftChanges.getChanges())
                 .rightChanges(rightChanges.getChanges())
                 .conflicts(conflicts)
-                .merged(merged)
-                .autoMergeSuccessful(autoMergeSuccessful)
+                .merged(null)
+                .autoMergeSuccessful(false)
                 .build();
     }
 
@@ -100,11 +88,11 @@ public class ThreeWayMergeService {
             FieldChange leftChange = leftMap.get(rightChange.getFieldName());
             if (leftChange != null) {
                 // 同一字段被两边修改
-                if (!Objects.equals(leftChange.getNewValue(), rightChange.getNewValue())) {
+                if (!Objects.equals(leftChange.afterValue(), rightChange.afterValue())) {
                     conflicts.add(MergeConflict.builder()
                             .fieldName(rightChange.getFieldName())
-                            .leftValue(leftChange.getNewValue())
-                            .rightValue(rightChange.getNewValue())
+                            .leftValue(leftChange.afterValue().orElse(null))
+                            .rightValue(rightChange.afterValue().orElse(null))
                             .conflictType(ConflictType.VALUE_CONFLICT)
                             .build());
                 }
@@ -114,20 +102,4 @@ public class ThreeWayMergeService {
         return conflicts;
     }
 
-    /**
-     * 自动合并（无冲突时）。
-     *
-     * <p>当前为占位实现 — 返回 base 对象。实际应用中需要更复杂的属性拷贝逻辑。
-     *
-     * @param base         基准对象
-     * @param leftChanges  左侧变更列表
-     * @param rightChanges 右侧变更列表
-     * @return 合并后的对象
-     */
-    private Object autoMerge(Object base, List<FieldChange> leftChanges,
-                             List<FieldChange> rightChanges) {
-        logger.debug("Auto-merge attempted for {} left changes and {} right changes",
-                leftChanges.size(), rightChanges.size());
-        return base; // 占位实现
-    }
 }

@@ -19,6 +19,12 @@ import java.time.Duration;
 @Builder
 @ConfigurationProperties(prefix = "tfi.store.caffeine")
 public class StoreConfig {
+
+    /**
+     * 为发布文档显式声明 builder 类型；Lombok 继续注入默认值与 fluent API。
+     */
+    public static class StoreConfigBuilder {
+    }
     
     @Builder.Default
     private long maxSize = 10000;

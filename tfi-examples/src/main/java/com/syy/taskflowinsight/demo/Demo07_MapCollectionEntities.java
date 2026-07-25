@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.demo;
 
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
 import com.syy.taskflowinsight.annotation.*;
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.demo.model.Address;
@@ -494,23 +496,17 @@ public class Demo07_MapCollectionEntities {
     // ==================== 使用 TFI Facade API 比较 ====================
 
     /**
-     * 使用 TFI Facade API 比较并显示Map变更（重构版）
-     * ✨ 核心改动：用 TFI.compare() 替换手写的比较逻辑
-     * ✅ 保留原有显示格式不变
+     * 使用 TFI Facade API 比较并显示Map变更。
+     *
+     * <p>公共renderer负责typed MapKeySegment投影，示例不从安全占位文本反向恢复动态key。</p>
      */
     private static <K, V> void compareAndDisplay(Map<K, V> oldMap, Map<K, V> newMap, String scenarioLabel) {
-        // ✨ 使用 TFI Facade API 比较
         CompareResult result = TFI.compare(oldMap, newMap);
 
         System.out.println("\n检测到的变更：");
         System.out.println("=".repeat(80));
 
-        if (result.getChanges().isEmpty()) {
-            System.out.println("✅ 无变更");
-        } else {
-            // 保留原有显示格式
-            displayChanges(result.getChanges());
-        }
+        System.out.println(TFI.render(result, RenderOptions.markdown()));
 
         System.out.println("=".repeat(80));
         printSummary(result, scenarioLabel);
@@ -543,9 +539,9 @@ public class Demo07_MapCollectionEntities {
 
             // 获取值对象
             if (changeType == ChangeType.CREATE) {
-                info.value = firstChange.getNewValue();
+                info.value = firstChange.afterValue().orElse(null);
             } else if (changeType == ChangeType.DELETE) {
-                info.value = firstChange.getOldValue();
+                info.value = firstChange.beforeValue().orElse(null);
             }
 
             changesByType.computeIfAbsent(changeType, k -> new ArrayList<>()).add(info);
@@ -611,29 +607,29 @@ public class Demo07_MapCollectionEntities {
             // Entity嵌套（深度比较）
             System.out.printf("     *  %s: %s → %s\n",
                 fieldName,
-                formatValue(change.getOldValue()),
-                formatValue(change.getNewValue()));
+                formatValue(change.beforeValue().orElse(null)),
+                formatValue(change.afterValue().orElse(null)));
 
         } else if (fieldName.contains("warehouse.key")) {
             // Entity嵌套（ShallowReference）
             System.out.printf("     *  %s: %s → %s\n",
                 fieldName,
-                formatValue(change.getOldValue()),
-                formatValue(change.getNewValue()));
+                formatValue(change.beforeValue().orElse(null)),
+                formatValue(change.afterValue().orElse(null)));
 
         } else if (fieldName.contains("shippingAddress.")) {
             // ValueObject嵌套
             System.out.printf("     *  %s: %s → %s\n",
                 fieldName,
-                formatValue(change.getOldValue()),
-                formatValue(change.getNewValue()));
+                formatValue(change.beforeValue().orElse(null)),
+                formatValue(change.afterValue().orElse(null)));
 
         } else {
             // 普通字段
             System.out.printf("     *  %s: %s → %s\n",
                 fieldName,
-                formatValue(change.getOldValue()),
-                formatValue(change.getNewValue()));
+                formatValue(change.beforeValue().orElse(null)),
+                formatValue(change.afterValue().orElse(null)));
         }
     }
 

@@ -7,13 +7,19 @@
     <parent>
         <groupId>com.syy</groupId>
         <artifactId>taskflowinsight-parent</artifactId>
-        <version>3.0.0</version>
+        <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>tfi-examples</artifactId>
     <name>TFI Examples</name>
     <description>TaskFlowInsight Examples - Demo application and sample code</description>
+
+    <properties>
+        <!-- Runnable demo 不属于 Compare 的 final Maven2 发布闭集。 -->
+        <tfi.release.final-version.skip>true</tfi.release.final-version.skip>
+        <tfi.release.javadoc.fail-on-warnings>false</tfi.release.javadoc.fail-on-warnings>
+    </properties>
 
     <dependencies>
         <!-- All TFI modules for demo -->
@@ -108,6 +114,20 @@
             </dependencies>
             <build>
                 <plugins>
+                    <!-- The parent limits processors to Lombok; JMH must be appended explicitly. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <annotationProcessorPaths combine.children="append">
+                                <path>
+                                    <groupId>org.openjdk.jmh</groupId>
+                                    <artifactId>jmh-generator-annprocess</artifactId>
+                                    <version>1.37</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </plugin>
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>
@@ -123,6 +143,18 @@
                                     <sources>
                                         <source>src/bench/java</source>
                                         <source>src/jmh/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>add-bench-test-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/bench-test/java</source>
                                     </sources>
                                 </configuration>
                             </execution>

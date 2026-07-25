@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.demo;
 
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.demo.model.Address;
 import com.syy.taskflowinsight.demo.model.Product;
@@ -30,11 +32,11 @@ import java.util.List;
  * // Entity list comparison (recommended)
  * CompareResult result = TFI.comparator()
  *     .typeAware()
- *     .withStrategyName("ENTITY")
+ *     
  *     .compare(list1, list2);
  *
  * // Render to Markdown
- * String markdown = TFI.render(result, "standard");
+ * String markdown = TFI.render(result, RenderOptions.markdown());
  * }</pre>
  *
  * @author TaskFlow Insight Team
@@ -86,8 +88,7 @@ public class Demo05_ListCollectionEntities {
         list2.add(new Product(5L, "Tablet", 1099.99, 5));     // changed; ID=3 removed
 
         CompareResult result = TFI.comparator()
-                .typeAware()
-                .withStrategyName("ENTITY")
+                
                 .compare(list1, list2);
 
         printResult(result);
@@ -129,8 +130,7 @@ public class Demo05_ListCollectionEntities {
         list2.add(p5n);
 
         CompareResult result = TFI.comparator()
-                .typeAware()
-                .withStrategyName("ENTITY")
+                
                 .compare(list1, list2);
 
         printResult(result);
@@ -172,8 +172,7 @@ public class Demo05_ListCollectionEntities {
         list2.add(p5n);
 
         CompareResult result = TFI.comparator()
-                .typeAware()
-                .withStrategyName("ENTITY")
+                
                 .compare(list1, list2);
 
         printResult(result);
@@ -215,8 +214,7 @@ public class Demo05_ListCollectionEntities {
         list2.add(p5n);
 
         CompareResult result = TFI.comparator()
-                .typeAware()
-                .withStrategyName("ENTITY")
+                
                 .compare(list1, list2);
 
         printResult(result);
@@ -226,7 +224,7 @@ public class Demo05_ListCollectionEntities {
         if (result.getChanges().isEmpty()) {
             System.out.println("No changes detected.");
         } else {
-            String markdown = TFI.render(result, "standard");
+            String markdown = TFI.render(result, RenderOptions.markdown());
             System.out.println(markdown);
         }
     }

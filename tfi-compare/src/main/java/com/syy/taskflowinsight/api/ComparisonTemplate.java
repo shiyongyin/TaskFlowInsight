@@ -1,7 +1,6 @@
 package com.syy.taskflowinsight.api;
 
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
-import com.syy.taskflowinsight.tracking.compare.ReportFormat;
 
 /**
  * 比较模板枚举
@@ -10,14 +9,14 @@ import com.syy.taskflowinsight.tracking.compare.ReportFormat;
  * 模板仅组合 {@link CompareOptions} 的常用选项；链式方法仍可覆盖模板默认值（后设覆盖前设）。
  * </p>
  *
- * <h3>模板说明</h3>
+ * <h2>模板说明</h2>
  * <ul>
- *   <li><b>AUDIT</b>（审计模式）：深度比较 + 报告 + 相似度，适用于审计、合规场景</li>
- *   <li><b>FAST</b>（快速模式）：浅比较 + 无报告，适用于性能敏感场景</li>
- *   <li><b>DEBUG</b>（调试模式）：深度比较 + 完整信息 + 类型感知，适用于开发调试</li>
+ *   <li><b>AUDIT</b>（审计模式）：在默认深度边界内请求相似度，适用于审计、合规场景</li>
+ *   <li><b>FAST</b>（快速模式）：只保留顶层比较，适用于性能敏感场景</li>
+ *   <li><b>DEBUG</b>（调试模式）：保留默认最大深度并请求相似度，适用于开发调试</li>
  * </ul>
  *
- * <h3>使用示例</h3>
+ * <h2>使用示例</h2>
  * <pre>{@code
  * // 使用模板
  * CompareResult result = TFI.comparator()
@@ -56,13 +55,8 @@ public enum ComparisonTemplate {
         @Override
         public void apply(CompareOptions.CompareOptionsBuilder builder) {
             builder
-                .enableDeepCompare(true)
                 .maxDepth(10)
-                .generateReport(true)
-                .reportFormat(ReportFormat.MARKDOWN)
-                .calculateSimilarity(true)
-                .includeNullChanges(false)
-                .detectMoves(false);
+                .computeSimilarity(true);
         }
     },
 
@@ -85,11 +79,8 @@ public enum ComparisonTemplate {
         @Override
         public void apply(CompareOptions.CompareOptionsBuilder builder) {
             builder
-                .enableDeepCompare(false)
-                .generateReport(false)
-                .calculateSimilarity(false)
-                .includeNullChanges(false)
-                .detectMoves(false);
+                .maxDepth(0)
+                .computeSimilarity(false);
         }
     },
 
@@ -101,26 +92,17 @@ public enum ComparisonTemplate {
      *
      * <p>配置项：</p>
      * <ul>
-     *   <li>深度比较：maxDepth=20（更深遍历）</li>
-     *   <li>生成报告：Markdown 格式</li>
+     *   <li>深度比较：maxDepth=10，不得越过默认policy</li>
      *   <li>计算相似度</li>
-     *   <li>类型感知：自动识别 @Entity/@ValueObject</li>
-     *   <li>包含 null 变更（完整信息）</li>
-     *   <li>检测移动（完整变更类型）</li>
+     *   <li>容器与类型语义仍由冻结runtime决定</li>
      * </ul>
      */
     DEBUG {
         @Override
         public void apply(CompareOptions.CompareOptionsBuilder builder) {
             builder
-                .enableDeepCompare(true)
-                .maxDepth(20)
-                .generateReport(true)
-                .reportFormat(ReportFormat.MARKDOWN)
-                .calculateSimilarity(true)
-                .typeAwareEnabled(true)
-                .includeNullChanges(true)
-                .detectMoves(true);
+                .maxDepth(10)
+                .computeSimilarity(true);
         }
     };
 

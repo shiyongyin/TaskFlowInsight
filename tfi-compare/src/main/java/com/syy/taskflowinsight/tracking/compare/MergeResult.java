@@ -16,7 +16,7 @@ import java.util.List;
 @Data
 @Builder
 public class MergeResult {
-    
+
     /**
      * 基础版本
      */
@@ -64,6 +64,12 @@ public class MergeResult {
      * 合并策略
      */
     private MergeStrategy strategy;
+
+    /**
+     * 为发布文档显式声明 builder 类型；Lombok 继续注入既有 fluent API。
+     */
+    public static class MergeResultBuilder {
+    }
     
     /**
      * 是否有冲突

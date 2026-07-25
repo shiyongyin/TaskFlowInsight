@@ -15,7 +15,7 @@ import java.util.Set;
  *
  * <p>对应配置前缀：{@code tfi.security}
  *
- * <h3>SpEL 安全限制</h3>
+ * <h2>SpEL 安全限制</h2>
  * <ul>
  *   <li>{@code tfi.security.spel-max-length} — 表达式最大长度</li>
  *   <li>{@code tfi.security.spel-max-nesting} — 括号最大嵌套深度</li>
@@ -23,7 +23,7 @@ import java.util.Set;
  *   <li>{@code tfi.security.spel-cache-max-size} — 表达式缓存容量上限</li>
  * </ul>
  *
- * <h3>数据脱敏</h3>
+ * <h2>数据脱敏</h2>
  * <ul>
  *   <li>{@code tfi.security.sensitive-keywords} — 敏感字段关键词列表</li>
  * </ul>
@@ -34,6 +34,12 @@ import java.util.Set;
 @Validated
 @ConfigurationProperties(prefix = "tfi.security")
 public class TfiSecurityProperties {
+
+    /**
+     * 使用安全基线默认值创建可由 Spring 绑定的属性对象。
+     */
+    public TfiSecurityProperties() {
+    }
 
     /** SpEL 表达式最大长度，超过此长度的表达式将被拒绝. */
     @Min(value = 1, message = "spelMaxLength must be positive")

@@ -12,13 +12,18 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Parameter;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
@@ -29,7 +34,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * <p>该切面位于 {@code tfi-flow-spring-starter}，只负责把 {@link TfiTask} 映射为
  * Flow Stage 的创建与消息输出，不包含 compare/change-tracking/micrometer 的编译期依赖。
  *
- * <h3>处理流程</h3>
+ * <h2>处理流程</h2>
  * <ol>
  *   <li>采样判断（{@link TfiTask#samplingRate()}）— 未采样则直接放行</li>
  *   <li>SpEL 条件求值（{@link TfiTask#condition()}）— 条件不满足则直接放行</li>
@@ -38,8 +43,8 @@ import java.util.concurrent.ThreadLocalRandom;
  *   <li>记录参数 → 执行目标方法 → 记录返回值/异常</li>
  * </ol>
  *
- * <p>当 {@link TfiTask#deepTracking()} 为 {@code true} 时，本切面不会执行深度追踪逻辑；
- * 深度追踪由 {@code tfi-compare} 模块提供的可选切面实现。
+ * <p>当 {@link TfiTask#deepTracking()} 为 {@code true} 时，本切面只向最多一个
+ * {@link TfiTaskDeepTrackingDelegate} 移交业务调用；实现方不能新增第二个切面或重复采样。
  *
  * @author TaskFlow Insight Team
  * @since 3.0.0
@@ -55,14 +60,19 @@ public class TfiAnnotationAspect {
 
     private static final Logger logger = LoggerFactory.getLogger(TfiAnnotationAspect.class);
 
-    // 消息模板常量
+    /** 标识业务返回值消息，实际值在写入Flow前统一脱敏。 */
     private static final String MSG_RETURN_VALUE = "返回值: ";
+    /** 标识业务异常消息，避免观测层自行改变异常传播语义。 */
     private static final String MSG_EXCEPTION = "方法执行异常: ";
+    /** 参数日志前缀；参数值只允许使用脱敏后的表示。 */
     private static final String MSG_PARAM_PREFIX = "参数 ";
+    /** 参数名与脱敏值之间的稳定分隔符。 */
     private static final String MSG_PARAM_SEPARATOR = ": ";
 
     private final SafeSpELEvaluator spelEvaluator;
     private final UnifiedDataMasker dataMasker;
+    /** 可选delegate在构造期解析一次，多实现由Spring按配置错误拒绝。 */
+    private final TfiTaskDeepTrackingDelegate deepTrackingDelegate;
 
     /**
      * 构造函数.
@@ -72,8 +82,54 @@ public class TfiAnnotationAspect {
      * @throws NullPointerException 任意参数为 {@code null} 时
      */
     public TfiAnnotationAspect(SafeSpELEvaluator spelEvaluator, UnifiedDataMasker dataMasker) {
+        this(spelEvaluator, dataMasker, (TfiTaskDeepTrackingDelegate) null);
+    }
+
+    /**
+     * 构造支持0..1深度追踪实现的Flow advice。
+     *
+     * @param spelEvaluator 安全SpEL解析器，不可为{@code null}
+     * @param dataMasker 统一脱敏器，不可为{@code null}
+     * @param delegateProvider 当前上下文的可选唯一delegate；多实现必须使启动失败
+     * @throws NullPointerException 任意基础设施参数为{@code null}
+     * @throws NoUniqueBeanDefinitionException 上下文存在多个delegate，即使其中一个标记为primary
+     */
+    @Autowired
+    public TfiAnnotationAspect(
+            SafeSpELEvaluator spelEvaluator,
+            UnifiedDataMasker dataMasker,
+            ObjectProvider<TfiTaskDeepTrackingDelegate> delegateProvider) {
+        this(spelEvaluator, dataMasker, resolveUniqueDelegate(delegateProvider));
+    }
+
+    private TfiAnnotationAspect(
+            SafeSpELEvaluator spelEvaluator,
+            UnifiedDataMasker dataMasker,
+            TfiTaskDeepTrackingDelegate deepTrackingDelegate) {
         this.spelEvaluator = Objects.requireNonNull(spelEvaluator, "spelEvaluator");
         this.dataMasker = Objects.requireNonNull(dataMasker, "dataMasker");
+        this.deepTrackingDelegate = deepTrackingDelegate;
+    }
+
+    /**
+     * 严格解析0..1个delegate，不允许Spring的primary规则把多实现歧义变成隐式路由。
+     *
+     * @param delegateProvider 当前上下文的delegate延迟目录
+     * @return 唯一delegate；未配置时返回{@code null}
+     * @throws NullPointerException provider为{@code null}
+     * @throws NoUniqueBeanDefinitionException 实际存在多个delegate
+     */
+    private static TfiTaskDeepTrackingDelegate resolveUniqueDelegate(
+            ObjectProvider<TfiTaskDeepTrackingDelegate> delegateProvider) {
+        List<TfiTaskDeepTrackingDelegate> delegates = Objects.requireNonNull(
+                delegateProvider, "delegateProvider").stream().limit(2).toList();
+        if (delegates.size() > 1) {
+            throw new NoUniqueBeanDefinitionException(
+                    TfiTaskDeepTrackingDelegate.class,
+                    delegates.size(),
+                    "deep tracking requires zero or one delegate; @Primary cannot resolve multiple owners");
+        }
+        return delegates.isEmpty() ? null : delegates.getFirst();
     }
 
     /**
@@ -89,6 +145,10 @@ public class TfiAnnotationAspect {
      */
     @Around("@annotation(tfiTask)")
     public Object around(ProceedingJoinPoint pjp, TfiTask tfiTask) throws Throwable {
+        // Flow关闭时不创建任何观测语义，避免把no-op stage误当成已激活追踪上下文。
+        if (!TfiFlow.isEnabled()) {
+            return pjp.proceed();
+        }
         // L1: 采样判断
         if (!shouldSample(tfiTask.samplingRate())) {
             return pjp.proceed();
@@ -103,13 +163,6 @@ public class TfiAnnotationAspect {
         // L3: 解析任务名
         String taskName = resolveTaskName(tfiTask, pjp, context);
 
-        // deepTracking 由 tfi-compare 的可选切面实现
-        if (tfiTask.deepTracking() && logger.isDebugEnabled()) {
-            logger.debug("TfiTask.deepTracking=true detected for {}.{}; handled by tfi-compare if present.",
-                    ((MethodSignature) pjp.getSignature()).getDeclaringTypeName(),
-                    pjp.getSignature().getName());
-        }
-
         // L4: 创建 Stage 并执行
         try (TaskContext stage = TfiFlow.stage(taskName)) {
             if (tfiTask.logArgs()) {
@@ -117,7 +170,7 @@ public class TfiAnnotationAspect {
             }
 
             try {
-                Object result = pjp.proceed();
+                Object result = proceedWithOptionalDeepTracking(pjp, tfiTask, stage);
 
                 if (tfiTask.logResult() && result != null) {
                     String maskedResult = dataMasker.maskValue("result", result);
@@ -134,6 +187,54 @@ public class TfiAnnotationAspect {
                 }
                 throw ex;
             }
+        }
+    }
+
+    /** Flow先完成stage激活，再向唯一delegate移交一次业务调用权。 */
+    private Object proceedWithOptionalDeepTracking(
+            ProceedingJoinPoint pjp,
+            TfiTask tfiTask,
+            TaskContext activeStage) throws Throwable {
+        if (!tfiTask.deepTracking() || deepTrackingDelegate == null) {
+            return pjp.proceed();
+        }
+        MethodSignature signature = (MethodSignature) pjp.getSignature();
+        Object[] sourceArguments = pjp.getArgs();
+        Object[] copiedArguments = sourceArguments == null
+                ? new Object[0] : Arrays.copyOf(sourceArguments, sourceArguments.length);
+        return deepTrackingDelegate.execute(
+                tfiTask,
+                signature.getMethod(),
+                copiedArguments,
+                activeStage,
+                new SingleInvocation(pjp));
+    }
+
+    /** Flow在移交调用权后仍强制单次消费，避免delegate实现错误重跑业务方法。 */
+    private static final class SingleInvocation implements TfiTaskDeepTrackingDelegate.Invocation {
+
+        /** 当前advice调用对应的原始连接点。 */
+        private final ProceedingJoinPoint joinPoint;
+        /** 线程封闭的消费状态；它表达调用基数，不承担跨线程同步。 */
+        private boolean proceeded;
+
+        private SingleInvocation(ProceedingJoinPoint joinPoint) {
+            this.joinPoint = joinPoint;
+        }
+
+        /**
+         * 消费当前advice唯一的业务调用权；先置位再执行，异常路径同样不能重试。
+         *
+         * @return 业务方法返回的原始引用
+         * @throws Throwable 业务方法抛出的原始异常
+         */
+        @Override
+        public Object proceed() throws Throwable {
+            if (proceeded) {
+                throw new IllegalStateException("deep tracking invocation already proceeded");
+            }
+            proceeded = true;
+            return joinPoint.proceed();
         }
     }
 

@@ -6,6 +6,7 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -20,6 +21,8 @@ public class InstrumentedCaffeineStore<K, V> implements Store<K, V> {
     
     private final LoadingCache<K, V> cache;
     private final StoreConfig config;
+    /** 同时承接 Caffeine 脱敏和显式 refresh 原始结果桥接的唯一 loader。 */
+    private final ConfidentialCacheLoader<K, V> loader;
     
     /**
      * 构造函数
@@ -36,7 +39,8 @@ public class InstrumentedCaffeineStore<K, V> implements Store<K, V> {
      */
     public InstrumentedCaffeineStore(StoreConfig config, CacheLoader<K, V> loader) {
         this.config = config;
-        this.cache = buildLoadingCache(config, loader);
+        this.loader = new ConfidentialCacheLoader<>(Objects.requireNonNull(loader, "loader"));
+        this.cache = buildLoadingCache(config, this.loader);
         log.info("InstrumentedCaffeineStore initialized with loader, maxSize={}", config.getMaxSize());
     }
     
@@ -73,8 +77,8 @@ public class InstrumentedCaffeineStore<K, V> implements Store<K, V> {
         
         // 配置驱逐监听
         if (config.isLogEvictions()) {
-            builder.removalListener((key, value, cause) -> 
-                log.debug("Cache eviction: key={}, cause={}", key, cause));
+            builder.removalListener((key, value, cause) ->
+                log.debug("Cache eviction: cause={}", cause));
         }
         
         return builder.build(loader);
@@ -97,8 +101,8 @@ public class InstrumentedCaffeineStore<K, V> implements Store<K, V> {
             // 使用加载器获取值
             V value = cache.get(key);
             return Optional.ofNullable(value);
-        } catch (Exception e) {
-            log.error("Failed to load value for key: {}", key, e);
+        } catch (Exception exception) {
+            log.error("Failed to load value: exceptionType={}", exception.getClass().getName());
             return Optional.empty();
         }
     }
@@ -162,7 +166,7 @@ public class InstrumentedCaffeineStore<K, V> implements Store<K, V> {
      * @param key 键
      */
     public void refresh(K key) {
-        cache.refresh(key);
+        refreshAsync(key);
     }
     
     /**
@@ -171,7 +175,7 @@ public class InstrumentedCaffeineStore<K, V> implements Store<K, V> {
      * @return 异步结果
      */
     public CompletableFuture<V> refreshAsync(K key) {
-        return cache.refresh(key);
+        return loader.refresh(cache, key);
     }
     
     /**

@@ -5,7 +5,6 @@
 [![Java](https://img.shields.io/badge/Java-21+-orange.svg)](https://www.oracle.com/java/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.5-green.svg)](https://spring.io/projects/spring-boot)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-85%25-brightgreen.svg)](.)
 [![tfi-all CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml)
 [![tfi-compare CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-compare-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-compare-ci.yml)
 [![tfi-flow-core CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-flow-core-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-flow-core-ci.yml)
@@ -47,13 +46,15 @@ public void processOrder(Order order) {
 
 ## 📦 模块结构
 
-TFI 采用 Maven 多模块架构，按职责拆分为 6 个模块：
+TFI 采用 Maven 多模块架构，按职责拆分为 8 个 reactor 模块：
 
 ```
 TaskFlowInsight (parent)
+├── tfi-kernel              最小纯 Java 流程记录内核（RC）
 ├── tfi-flow-core           核心流程引擎（Session/Task/Stage/Message）
 ├── tfi-flow-spring-starter Spring Boot 自动配置 + AOP 注解支持
 ├── tfi-compare             智能比较引擎（深度对象比较 + 变更追踪）
+├── tfi-compare-spring-starter 比较能力的 Spring Boot 集成
 ├── tfi-ops-spring          运维监控（Actuator/Metrics/Store/Performance）
 ├── tfi-examples            示例与演示（Demo/Benchmark）
 └── tfi-all                 全功能聚合模块（一站式引入）
@@ -61,6 +62,8 @@ TaskFlowInsight (parent)
 
 **模块依赖关系：**
 ```
+tfi-kernel（独立模块，不依赖现有 TFI 模块）
+
 tfi-flow-core  ←─  tfi-flow-spring-starter  ←─┐
       ↑                                        │
 tfi-compare  ←──  tfi-ops-spring  ←────────────┤
@@ -68,6 +71,17 @@ tfi-compare  ←──  tfi-ops-spring  ←────────────�
                   tfi-all (聚合全部模块)  ──────┘
                   tfi-examples (依赖全部模块)
 ```
+
+**按需求选型：**
+
+| 需求 | 模块 |
+|------|------|
+| 纯 Java 最小显式流程记录、typed action 和确定性 JSON | `tfi-kernel` |
+| Spring AOP、自动比较、Actuator、指标或存储 | 现有 TFI 模块 / `tfi-all` |
+| 只需要对象比较，不需要流程记录 | `tfi-compare` |
+
+`tfi-kernel` 随 TaskFlowInsight 4.0 版本列车进入 RC，但模块自身的首个稳定 API 基线是 1.0。真实服务试用和
+发布决策完成前，该基线不冻结，并继续与 `tfi-flow-core` 保持独立。
 
 ---
 
@@ -93,7 +107,7 @@ TFI 在一个轻量级包中提供**双核心能力**：
 | **🔍 变更追踪** | 智能深度对象比较与差异检测 |
 | **📊 实时监控** | Spring Boot Actuator 集成 + Prometheus 指标 |
 | **🚀 零配置** | 添加 `@TfiTask` 即可使用 |
-| **⚡ 生产就绪** | <5MB 内存，<1% CPU，66K+ TPS |
+| **⚡ 可验证交付** | 模块 CI 门禁、静态分析基线和可复现 JMH 工作流 |
 
 ---
 
@@ -104,15 +118,13 @@ TFI 在一个轻量级包中提供**双核心能力**：
 | **配置时间** | < 2 分钟 | ~1 小时 | 数小时/天 | N/A |
 | **流程可视化** | ✅ 树形可视化 | ❌ | ⚠️ 仅追踪 | ❌ 分散 |
 | **变更追踪** | ✅ 深度比较 | ✅ 基础审计 | ❌ | ❌ |
-| **内存占用** | **<5 MB** | ~20 MB | 50-100 MB | ~0 |
-| **性能影响** | **<1% CPU** | ~3% | 5-15% | ~0 |
-| **吞吐量** | **66,000+ TPS** | ~20,000 | N/A | N/A |
 | **配置复杂度** | **零配置** | 中等 | 复杂 | 无需配置 |
 | **Spring 集成** | ✅ 深度集成 | ⚠️ 基础集成 | ✅ | N/A |
 | **业务上下文** | ✅ 内置支持 | ⚠️ 有限 | ❌ 需要自定义 | ❌ |
 | **成本** | **免费开源** | 免费开源 | $$$$ | 免费 |
 
-**TFI 的独特定位**：业界**唯一**结合流程可视化 + 变更追踪的企业级性能库。
+**TFI 的定位**：在一个库内组合流程可视化与变更追踪；性能必须使用仓库提供的 JMH workload，
+在目标 JDK 与硬件上实测。
 
 ---
 
@@ -125,44 +137,28 @@ TFI 在一个轻量级包中提供**双核心能力**：
 
 ### 1. 添加依赖
 
-**全功能引入（推荐）：**
+**纯 Java 比较：**
 ```xml
-<dependency>
-    <groupId>com.syy</groupId>
-    <artifactId>tfi-all</artifactId>
-    <version>3.0.0</version>
-</dependency>
-```
-
-**按需引入：**
-```xml
-<!-- 仅流程追踪 -->
-<dependency>
-    <groupId>com.syy</groupId>
-    <artifactId>tfi-flow-spring-starter</artifactId>
-    <version>3.0.0</version>
-</dependency>
-
-<!-- 仅比较引擎 -->
 <dependency>
     <groupId>com.syy</groupId>
     <artifactId>tfi-compare</artifactId>
-    <version>3.0.0</version>
-</dependency>
-
-<!-- 运维监控（Actuator + Metrics） -->
-<dependency>
-    <groupId>com.syy</groupId>
-    <artifactId>tfi-ops-spring</artifactId>
-    <version>3.0.0</version>
+    <version>4.0.0</version>
 </dependency>
 ```
 
-### 2. 启用 TFI（Spring Boot）
+**Spring Boot 比较：**
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-compare-spring-starter</artifactId>
+    <version>4.0.0</version>
+</dependency>
+```
+
+### 2. 使用 Spring Boot 自动配置
 
 ```java
 @SpringBootApplication
-@EnableTfi
 public class YourApplication {
     public static void main(String[] args) {
         SpringApplication.run(YourApplication.class, args);
@@ -263,7 +259,7 @@ public OrderResult createOrder(CreateOrderRequest request) {
 
 ### 2. 智能变更追踪
 深度对象比较与智能差异检测：
-- **快照策略**：浅层（标量）+ 深层（嵌套对象）
+- **单一执行图**：CompareEngine 内部 request-local 捕获，不发布 standalone snapshot API
 - **类型感知**：基本类型、集合、日期、BigDecimal、自定义对象
 - **实体 vs 值对象**：基于类型系统的智能列表比较
 - **路径去重**：消除冗余变更路径
@@ -348,19 +344,19 @@ curl http://localhost:19090/actuator/taskflow
 curl http://localhost:19090/actuator/prometheus | grep tfi
 ```
 
-### 6. 线程安全 & 零泄漏
+### 6. 线程安全与生命周期清理
 为并发生产环境而构建：
 - **ThreadLocal 隔离**：每个线程独立上下文
 - **AutoCloseable 模式**：`try-with-resources` 自动清理
 - **弱引用**：防止内存保留
-- **泄漏检测**：`ZeroLeakThreadLocalManager` 监控
-- **异步传播**：`TFIAwareExecutor` 用于线程池
+- **泄漏观测**：`SafeContextManager.metrics()` 发布类型化 `ContextMetrics`
+- **异步传播**：`ContextSnapshot` 与 `ContextPropagatingExecutor`
 
 ---
 
-## 🔬 业界最智能的比较引擎
+## 🔬 变更比较引擎
 
-TFI 的**变更追踪能力**由深度比较引擎驱动。这不仅仅是简单的对象比较 — 它是业界**唯一**结合类型系统、路径去重和算法优化的智能差异检测系统。
+TFI 的**变更追踪能力**组合了类型系统、路径去重与多种差异算法。
 
 ### 三大用户痛点 → TFI 解决方案
 
@@ -515,8 +511,6 @@ public class Money {
 |------|-------------------|--------|
 | **核心定位** | 🐛 调试工具（实时） | 📋 审计系统（持久化） |
 | **配置复杂度** | ⚡ 零配置（`@TfiTask`） | ⚙️ 中等（Repository + Entity 映射） |
-| **性能（TPS）** | **66,000+** ⚡ | ~20,000 (3.3x 差距) |
-| **内存占用** | **<5 MB** 🪶 | ~20 MB |
 | **流程可视化** | ✅ 内置树形结构 | ❌ 无 |
 | **类型系统** | `@Entity`/`@ValueObject`/`@Key` | `@Entity`（仅 JPA） |
 | **路径去重** | ✅ PathDeduplicator | ❌ 原始路径 |
@@ -649,18 +643,18 @@ public SyncResult syncData(DataSource source, DataTarget target) {
 │                           │  • 性能监控/降级          │
 ├───────────────────────────┼──────────────────────────┤
 │  tfi-flow-core            │  tfi-compare             │
-│  • Session/Task/Stage     │  • CompareService        │
-│  • SafeContextManager     │  • DiffDetector/Facade   │
-│  • ZeroLeakThreadLocal    │  • SnapshotProvider      │
-│  • TFI API 门面           │  • PathDeduplicator      │
-│  • 导出器(Console/JSON)   │  • LCS/类型系统/缓存     │
+│  • Session/Task/Stage     │  • CompareRuntime/Engine │
+│  • SafeContextManager     │  • Request-local 内核    │
+│  • ContextMetrics         │  • Typed ComparePath     │
+│  • TFI API 门面           │  • Entity/List/Set/Map   │
+│  • 导出器(Console/JSON)   │  • 类型化结果证据        │
 └───────────────────────────┴──────────────────────────┘
 ```
 
 ### 设计理念
-1. **零泄漏保证**：所有上下文使用 try-with-resources 或显式清理
-2. **优雅降级**：禁用 TFI 后成为完全无操作（零开销）
-3. **异常安全**：TFI 永不向用户代码传播异常
+1. **显式生命周期**：上下文使用 try-with-resources 或显式清理，并发布类型化泄漏指标
+2. **优雅降级**：禁用 TFI 时使用有明确合同的 no-op 路径和快速 guard
+3. **异常边界**：框架失败按 API 合同降级，业务异常与 JVM fatal error 保持传播
 4. **性能优先**：快速路径检查、延迟初始化、激进缓存
 5. **线程安全**：所有公共 API 并发安全
 
@@ -675,19 +669,15 @@ public SyncResult syncData(DataSource source, DataTarget target) {
 
 ## 🚀 性能
 
-| 指标 | 数值 | 说明 |
-|------|------|------|
-| **内存占用** | < 5 MB | 比竞品轻 10 倍 |
-| **CPU 开销** | < 1% | 对吞吐量影响可忽略 |
-| **延迟增加** | < 15 μs | 每次操作亚毫秒级 |
-| **吞吐量** | **66,000+ TPS** | 基准测试验证 |
-| **缓存命中率** | 95%+ | Caffeine 优化 |
-| **测试覆盖** | 85%+ | 350+ 测试类 |
+性能结果依赖运行环境与 workload。请在目标 JDK 和硬件上运行 forked JMH；只有 JVM 参数和采样方案
+一致的报告才可以直接比较。
 
 ```bash
-# 运行 JMH 基准测试
-./mvnw -pl tfi-examples -P bench exec:java \
-  -Dexec.mainClass=com.syy.taskflowinsight.benchmark.BenchmarkRunner
+# 在 tfi-examples/target/perf/ 生成 routing 与 legacy 报告
+./mvnw -pl tfi-examples -Pbench -DskipTests compile \
+  org.codehaus.mojo:exec-maven-plugin:3.5.0:exec \
+  -Dexec.executable=java -Dexec.classpathScope=runtime \
+  '-Dexec.args=-cp %classpath com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner'
 ```
 
 ---
@@ -698,43 +688,18 @@ TFI **开箱即用**，具有合理的默认值。通过 `application.yml` 自�
 
 ```yaml
 tfi:
-  enabled: true  # 主开关
-
   annotation:
     enabled: true  # @TfiTask/@TfiTrack 支持
-
-  change-tracking:
-    enabled: true
-    snapshot:
-      enable-deep: true  # 深度对象遍历
-      max-depth: 10      # 防止无限递归
-
   compare:
-    auto-route:
-      entity:
-        enabled: true  # 自动检测 @Entity 用于列表比较
-      lcs:
-        enabled: true  # LCS 算法用于移动检测
-    numeric:
-      float-tolerance: 1e-12
-      relative-tolerance: 1e-9
-    datetime:
-      default-format: "yyyy-MM-dd HH:mm:ss"
-      tolerance-ms: 0
-
-  api:
-    routing:
-      enabled: false        # v4.0.0 Provider 路由（实验性）
-      provider-mode: auto
-
-  render:
+    enabled: true
+    max-depth: 10
+    max-elements: 1000
+    max-result-value-chars: 4096
+    tracking:
+      enabled: true
     masking:
-      enabled: true  # PII 保护
-    mask-fields:
-      - password
-      - secret
-      - token
-      - internal*  # 支持通配符
+      additional-rules:
+        - "PROPERTY:customerSecret"
 ```
 
 应用默认端口：**19090**
@@ -747,6 +712,8 @@ tfi:
 
 | Workflow | 覆盖模块 | 内容 |
 |----------|----------|------|
+| tfi-kernel CI | tfi-kernel | Verify + JaCoCo + 静态分析 + 样例编译 |
+| tfi-kernel Strict Perf Gate | tfi-kernel | 固定 runner JMH + Failsafe 精确执行检查 |
 | tfi-flow-core CI | tfi-flow-core | 测试 + JaCoCo + 静态分析 |
 | tfi-flow-spring-starter CI | tfi-flow-spring-starter | 测试 + JaCoCo + 静态分析 |
 | tfi-compare CI | tfi-compare | 测试 + JaCoCo + 静态分析 + OWASP 依赖扫描 |
@@ -767,6 +734,8 @@ tfi:
 ### 参考文档
 - [🔧 v3→v4 迁移指南](docs/MIGRATION_GUIDE_v3_to_v4.md)
 - [🏛️ 架构概览](CLAUDE.md) - 系统设计与原则
+- [tfi-kernel 设计](tfi-kernel/docs/design-doc.md) - RC 边界、生命周期、输出与发布门禁
+- [tfi-flow/1 Schema](tfi-kernel/docs/schema.md) - canonical JSON 字段语义
 
 ### 支持
 - [❓ FAQ](FAQ.md) - 常见问题解答
@@ -783,9 +752,11 @@ tfi:
 - **高级比较**：EntityListStrategy（移动检测）、LCS 算法、精度控制
 - **路径系统**：PathDeduplicator 生成清晰的差异输出
 - **监控**：DegradationManager（自适应负载）、Prometheus 指标
-- **测试**：350+ 测试类，85%+ 覆盖率
+- **测试**：JUnit 5 suites、JaCoCo 与模块级 CI 门禁
 
 ### 🔨 v4.0.0（开发中）
+- 单一 canonical Compare 执行图，不再提供 public standalone snapshot 或反射路径导航 API
+- `tfi-kernel` RC 试用与证据门控的 1.0 API 决策
 - Provider 路由机制（`tfi.api.routing`）
 - 多模块 Maven 架构拆分
 - 独立模块 CI/CD

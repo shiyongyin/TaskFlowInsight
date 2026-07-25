@@ -4,6 +4,10 @@ import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.demo.core.DemoChapter;
 import com.syy.taskflowinsight.demo.util.DemoUI;
 import com.syy.taskflowinsight.demo.util.DemoUtils;
+import com.syy.taskflowinsight.spi.DefaultTrackingProvider;
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
+import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.tracking.compare.CompareResult;
 
 import java.util.Arrays;
 import java.util.Date;
@@ -14,9 +18,9 @@ import java.util.List;
  *
  * <p>演示内容：
  * <ul>
- *   <li>显式 API 方式：TFI.start() → track() → mutate → stop()</li>
- *   <li>便捷 API 方式：TFI.withTracked()</li>
- *   <li>展示 Console 和 JSON 格式的 CHANGE 输出</li>
+ *   <li>显式TrackingExecutor词法作用域</li>
+ *   <li>与Flow stage组合但不建立全局history</li>
+ *   <li>直接消费typed CompareResult</li>
  * </ul>
  *
  * @author TaskFlow Insight Team
@@ -24,6 +28,10 @@ import java.util.List;
  * @since 2.0.0
  */
 public class ChangeTrackingChapter implements DemoChapter {
+
+    /** executor可复用，但每次调用的baseline与结果都局限在execute词法作用域。 */
+    private static final TrackingExecutor TRACKING_EXECUTOR =
+            new TrackingExecutor(new DefaultTrackingProvider());
     
     /**
      * 演示用订单模型（内联最小化版本）。
@@ -32,10 +40,15 @@ public class ChangeTrackingChapter implements DemoChapter {
      * 和 {@code customerName} 等共享模型未包含的字段来演示多字段追踪。</p>
      */
     static class DemoOrder {
+        /** 演示对象的业务主键。 */
         private String orderId;
+        /** 当前订单状态。 */
         private String status;
+        /** 当前订单金额。 */
         private Double amount;
+        /** 当前客户名称。 */
         private String customerName;
+        /** 订单创建时间。 */
         private Date createdAt;
         
         public DemoOrder(String orderId, String status, Double amount, String customerName) {
@@ -81,9 +94,9 @@ public class ChangeTrackingChapter implements DemoChapter {
     @Override
     public List<String> getSummaryPoints() {
         return Arrays.asList(
-            "显式API方式：手动调用track()和stop()管理生命周期",
-            "便捷API方式：使用withTracked()自动管理生命周期",
-            "变更记录格式：Object.field: OLD → NEW",
+            "显式TrackingExecutor同时拥有baseline、action和typed result",
+            "Flow只拥有stage生命周期，不保存Compare history",
+            "变更记录直接来自CompareResult",
             "支持多种数据类型：String、Number、Boolean、Date",
             "自动转义和截断超长值（最大8192字符）"
         );
@@ -93,39 +106,31 @@ public class ChangeTrackingChapter implements DemoChapter {
     public void run() {
         DemoUI.printChapterHeader(getChapterNumber(), getTitle(), getDescription());
         
-        // 场景1：显式API方式
+        // 场景1：显式executor与Flow组合
         System.out.println("\n" + "=".repeat(60));
-        System.out.println("场景1：显式API方式（手动管理追踪生命周期）");
+        System.out.println("场景1：显式TrackingExecutor词法作用域");
         System.out.println("=".repeat(60));
         demoExplicitAPI();
         
         DemoUtils.sleep(1000);
         
-        // 场景2：便捷API方式
+        // 场景2：不同action使用独立scope
         System.out.println("\n" + "=".repeat(60));
-        System.out.println("场景2：便捷API方式（自动管理追踪生命周期）");
+        System.out.println("场景2：独立tracking scope");
         System.out.println("=".repeat(60));
         demoConvenientAPI();
         
         System.out.println("\n" + "=".repeat(60));
-        System.out.println("说明：withTracked在finally块中已即时刷写并清理变更，");
-        System.out.println("      因此stop阶段不会重复输出这些变更。");
+        System.out.println("说明：结果由每次TrackingExecutor调用直接返回，不存在跨调用查询或清理。");
         System.out.println("=".repeat(60));
     }
     
     /**
-     * 场景1：显式API演示
-     * 流程：TFI.start() → TFI.track() → 修改字段 → TFI.stop()
+     * 场景1：显式executor与Flow stage组合。
      */
     private void demoExplicitAPI() {
         System.out.println("\n代码示例：");
-        System.out.println("  TFI.startSession(\"OrderProcessing\");");
-        System.out.println("  TFI.start(\"order-payment\");");
-        System.out.println("  TFI.track(\"order\", order, \"status\", \"amount\");");
-        System.out.println("  // 执行业务逻辑：修改订单状态和金额");
-        System.out.println("  order.setStatus(\"PAID\");");
-        System.out.println("  order.setAmount(1299.00);");
-        System.out.println("  TFI.stop();");
+        System.out.println("  CompareResult result = executor.withTracked(\"order\", order, action, options);");
         System.out.println();
         
         // 实际执行
@@ -140,14 +145,17 @@ public class ChangeTrackingChapter implements DemoChapter {
         System.out.println("  金额: " + order.getAmount());
         System.out.println("  客户: " + order.getCustomerName());
         
-        // 开始追踪
-        TFI.track("order", order, "status", "amount", "customerName");
-        
-        // 模拟业务处理：支付成功，更新状态和金额
-        System.out.println("\n执行支付处理...");
-        DemoUtils.sleep(500);
-        order.setStatus("PAID");
-        order.setAmount(1299.00);  // 包含税费
+        CompareResult result = TRACKING_EXECUTOR.withTracked(
+                "order",
+                order,
+                () -> {
+                    System.out.println("\n执行支付处理...");
+                    DemoUtils.sleep(500);
+                    order.setStatus("PAID");
+                    order.setAmount(1299.00);
+                },
+                CompareOptions.builder().build());
+        System.out.println("  捕获变更: " + result.getChanges().size());
         
         // 停止任务，触发变更记录
         TFI.stop();
@@ -156,43 +164,18 @@ public class ChangeTrackingChapter implements DemoChapter {
         System.out.println("  状态: " + order.getStatus());
         System.out.println("  金额: " + order.getAmount());
         
-        // 导出Console格式
-        System.out.println("\n--- Console输出 ---");
-        TFI.exportToConsole();
-        
-        // 导出JSON格式
-        System.out.println("\n--- JSON输出片段 ---");
-        String json = TFI.exportToJson();
-        if (json != null && json.length() > 0) {
-            // 只显示包含CHANGE的部分
-            String[] lines = json.split("\n");
-            boolean inMessages = false;
-            int messageCount = 0;
-            for (String line : lines) {
-                if (line.contains("\"messages\"")) {
-                    inMessages = true;
-                }
-                if (inMessages && (line.contains("CHANGE") || line.contains("order."))) {
-                    System.out.println(line);
-                    messageCount++;
-                    if (messageCount > 5) break; // 限制输出行数
-                }
-            }
-        }
-        
         TFI.endSession();
     }
     
     /**
-     * 场景2：便捷API演示
-     * 流程：TFI.withTracked() 自动管理生命周期
+     * 场景2：第二个action拥有独立的显式scope。
      */
     private void demoConvenientAPI() {
         System.out.println("\n代码示例：");
         System.out.println("  TFI.startSession(\"OrderProcessing\");");
         System.out.println("  TFI.start(\"order-shipping\");");
         System.out.println("  ");
-        System.out.println("  TFI.withTracked(\"order\", order, () -> {");
+        System.out.println("  executor.withTracked(\"order\", order, () -> {");
         System.out.println("      // 业务逻辑在lambda中执行");
         System.out.println("      order.setStatus(\"SHIPPED\");");
         System.out.println("      order.setCustomerName(\"Alice Smith\");");
@@ -215,47 +198,24 @@ public class ChangeTrackingChapter implements DemoChapter {
         
         System.out.println("\n执行发货处理...");
         
-        // 使用便捷API：自动管理追踪生命周期
-        TFI.withTracked("order", order, () -> {
-            DemoUtils.sleep(500);
-            // 在lambda中执行业务逻辑
-            order.setStatus("SHIPPED");
-            order.setCustomerName("Bob Johnson"); // 补充完整姓名
-            System.out.println("  [Lambda内] 订单状态更新为: " + order.getStatus());
-            System.out.println("  [Lambda内] 客户名称更新为: " + order.getCustomerName());
-        }, "status", "customerName", "amount");
+        CompareResult result = TRACKING_EXECUTOR.withTracked(
+                "order",
+                order,
+                () -> {
+                    DemoUtils.sleep(500);
+                    order.setStatus("SHIPPED");
+                    order.setCustomerName("Bob Johnson");
+                    System.out.println("  [Lambda内] 订单状态更新为: " + order.getStatus());
+                    System.out.println("  [Lambda内] 客户名称更新为: " + order.getCustomerName());
+                },
+                CompareOptions.builder().build());
+        System.out.println("  捕获变更: " + result.getChanges().size());
         
         System.out.println("\n更新后订单状态：");
         System.out.println("  状态: " + order.getStatus());
         System.out.println("  客户: " + order.getCustomerName());
         
-        // 注意：此时stop不会重复输出withTracked中的变更
         TFI.stop();
-        
-        // 导出Console格式
-        System.out.println("\n--- Console输出 ---");
-        TFI.exportToConsole();
-        
-        // 导出JSON格式
-        System.out.println("\n--- JSON输出片段 ---");
-        String json = TFI.exportToJson();
-        if (json != null && json.length() > 0) {
-            // 只显示包含CHANGE的部分
-            String[] lines = json.split("\n");
-            boolean inMessages = false;
-            int messageCount = 0;
-            for (String line : lines) {
-                if (line.contains("\"messages\"")) {
-                    inMessages = true;
-                }
-                if (inMessages && (line.contains("CHANGE") || line.contains("order."))) {
-                    System.out.println(line);
-                    messageCount++;
-                    if (messageCount > 5) break; // 限制输出行数
-                }
-            }
-        }
-        
         TFI.endSession();
     }
 }

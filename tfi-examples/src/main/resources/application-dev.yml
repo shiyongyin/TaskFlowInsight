@@ -1,13 +1,13 @@
 # Dev profile — 最小可运行配置（便于本地与 IT 验证）
 
 tfi:
-  enabled: true
-  change-tracking:
+  annotation:
     enabled: true
-    value-repr-max-length: 8192
-    cleanup-interval-minutes: 0
-    max-cached-classes: 1024
-    debug-logging: true
+  compare:
+    enabled: true
+    max-result-value-chars: 8192
+    tracking:
+      enabled: true
 
 # 可选：提升可观测性（开发环境）
 logging:
@@ -19,4 +19,3 @@ management:
     web:
       exposure:
         include: ["health","info"]
-

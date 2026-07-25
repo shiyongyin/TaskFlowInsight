@@ -239,7 +239,8 @@ gantt
 | 大对象 OOM | 低 | max-depth + 自动降级 |
 | 社区采用不及预期 | 高 | 完善文档 + 布道 |
 
-**缓解补充**：版本不同步可通过 BOM 或父 POM 统一管理；大对象 OOM 通过 `tfi.change-tracking.snapshot.max-depth` 限制深度；社区采用依赖 tfi-examples 10 章教程与持续布道。
+**缓解补充**：版本不同步可通过 BOM 或父 POM 统一管理；大对象容量由 `tfi.compare.max-depth`、
+`tfi.compare.max-compared-nodes` 与 `tfi.compare.max-elements` 共同限制；社区采用依赖 tfi-examples 10 章教程与持续布道。
 
 ---
 

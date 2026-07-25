@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.demo;
 
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
 import com.syy.taskflowinsight.annotation.*;
 import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
@@ -12,7 +14,7 @@ import java.math.BigDecimal;
  * <p><b>一行式最小示例：</b>
  * <pre>{@code
  * CompareResult r = TFI.compare(before, after);
- * System.out.println(TFI.render(r, "standard"));
+ * System.out.println(TFI.render(r, RenderOptions.markdown()));
  * }</pre>
  *
  * <p><b>进阶链式用法：</b>
@@ -22,7 +24,7 @@ import java.math.BigDecimal;
  *     .withMaxDepth(5)
  *     .typeAware()
  *     .compare(before, after);
- * System.out.println(TFI.render(r, "standard"));
+ * System.out.println(TFI.render(r, RenderOptions.markdown()));
  * }</pre>
  *
  * <p><b>核心注解：</b>
@@ -172,7 +174,7 @@ public class Demo03_CustomObjects {
         Product p2 = new Product("P001", "Laptop Pro", new BigDecimal("1299.00"), 8);
 
         CompareResult result1 = TFI.compare(p1, p2);
-        System.out.println(TFI.render(result1, "standard"));
+        System.out.println(TFI.render(result1, RenderOptions.markdown()));
 
         // 场景2：联合主键实体比较
         System.out.println("\n▶ 场景2：联合主键实体比较");
@@ -180,7 +182,7 @@ public class Demo03_CustomObjects {
         OrderItem item2 = new OrderItem("O001", "P001", 5, new BigDecimal("100.00"));
 
         CompareResult result2 = TFI.compare(item1, item2);
-        System.out.println(TFI.render(result2, "standard"));
+        System.out.println(TFI.render(result2, RenderOptions.markdown()));
 
         System.out.println("\n💡 使用说明：");
         System.out.println("  • @Key 标识实体唯一性");
@@ -202,9 +204,8 @@ public class Demo03_CustomObjects {
         UserProfile user2 = new UserProfile(1001L, "alice_updated", "alice@example.com");
 
         CompareResult result1 = TFI.comparator()
-            .typeAware()
             .compare(user1, user2);
-        System.out.println(TFI.render(result1, "standard"));
+        System.out.println(TFI.render(result1, RenderOptions.markdown()));
         System.out.println("  说明：sessionToken 和 loginCount 未被标注，不参与比较");
 
         // 场景2：@DiffIgnore 黑名单
@@ -213,9 +214,8 @@ public class Demo03_CustomObjects {
         Configuration cfg2 = new Configuration("app.timeout", "60s");
 
         CompareResult result2 = TFI.comparator()
-            .typeAware()
             .compare(cfg1, cfg2);
-        System.out.println(TFI.render(result2, "standard"));
+        System.out.println(TFI.render(result2, RenderOptions.markdown()));
         System.out.println("  说明：internalFlag 和 timestamp 被忽略");
 
         // 场景3：手动忽略字段 + 深度比较
@@ -224,10 +224,9 @@ public class Demo03_CustomObjects {
         Product p2 = new Product("P002", "Gaming Mouse", new BigDecimal("29.99"), 95);
 
         CompareResult result3 = TFI.comparator()
-            .ignoring("stock")
             .withMaxDepth(5)
             .compare(p1, p2);
-        System.out.println(TFI.render(result3, "simple"));
+        System.out.println(TFI.render(result3, RenderOptions.markdown()));
 
         System.out.println("\n💡 链式 API 说明：");
         System.out.println("  • typeAware() - 启用类型感知（识别@Entity/@ValueObject）");

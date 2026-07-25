@@ -1,8 +1,6 @@
 package com.syy.taskflowinsight.tracking.format;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.Temporal;
 import java.util.Collection;
 import java.util.Date;
@@ -13,7 +11,7 @@ import java.util.Date;
  * 
  * 功能特性：
  * - 字符串值双引号包围和JSON风格转义
- * - 三级截断规则：<100全显，≥100首50+...+尾50，≥1000标注(truncated)
+ * - 三级截断规则：&lt;100全显，≥100首50+...+尾50，≥1000标注(truncated)
  * - 数值类型特殊处理（BigDecimal、浮点数等）
  * - 日期时间ISO标准格式
  * - 集合类型简化显示

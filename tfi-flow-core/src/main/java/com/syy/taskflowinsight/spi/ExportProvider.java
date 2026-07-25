@@ -18,7 +18,7 @@ import java.util.Map;
  * @author TaskFlow Insight Team
  * @since 4.0.0
  */
-public interface ExportProvider {
+public interface ExportProvider extends PrioritizedProvider {
 
     /**
      * 导出当前会话到控制台
@@ -32,9 +32,11 @@ public interface ExportProvider {
     }
 
     /**
-     * 导出当前会话到控制台（可选时间戳）
+     * 导出当前会话为 TREE 控制台诊断文本（可选消息时间戳）
      *
-     * @param showTimestamp 是否显示时间戳
+     * <p>该参数只控制消息时间戳，不选择 TREE/SIMPLE 样式。
+     *
+     * @param showTimestamp 是否显示消息时间戳
      * @return 是否导出成功（无会话返回 false）
      * @since 4.0.0
      */
@@ -90,12 +92,4 @@ public interface ExportProvider {
      */
     Map<String, Object> exportToMap();
 
-    /**
-     * Provider优先级（数值越大优先级越高）
-     *
-     * @return 优先级值，默认0
-     */
-    default int priority() {
-        return 0;
-    }
 }

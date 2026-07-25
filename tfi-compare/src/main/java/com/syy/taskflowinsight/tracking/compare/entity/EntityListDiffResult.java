@@ -1,11 +1,16 @@
 package com.syy.taskflowinsight.tracking.compare.entity;
 
-import com.syy.taskflowinsight.tracking.ChangeType;
+import com.syy.taskflowinsight.tracking.compare.ChangeKind;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.FieldChange;
-
+import com.syy.taskflowinsight.tracking.compare.SimilarityScore;
+import com.syy.taskflowinsight.tracking.compare.internal.ValueSnapshotFormatter;
+import com.syy.taskflowinsight.tracking.path.ComparePath;
+import com.syy.taskflowinsight.tracking.path.EntityKeySegment;
+import com.syy.taskflowinsight.tracking.path.IndexSegment;
 import com.syy.taskflowinsight.tracking.ssot.key.EntityKeyUtils;
 import com.syy.taskflowinsight.tracking.ssot.path.PathUtils;
+import com.syy.taskflowinsight.util.DiagnosticLogger;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -17,7 +22,7 @@ import java.util.stream.Collectors;
  * 按实体键分组，并提供丰富的查询、过滤和统计功能。
  * </p>
  *
- * <h3>使用示例</h3>
+ * <h2>使用示例</h2>
  * <pre>{@code
  * // 从 CompareResult 转换
  * CompareResult result = listCompareExecutor.compare(oldList, newList, options);
@@ -42,9 +47,13 @@ import java.util.stream.Collectors;
  */
 public class EntityListDiffResult {
 
+    /** 按首次canonical变更顺序冻结的实体级兼容投影。 */
     private final List<EntityChangeGroup> groups;
+    /** 原始typed结果，保留completion、problem与limitation等不可丢失事实。 */
     private final CompareResult originalResult;
+    /** 为查询效率建立的不可变操作索引，不是第二份变更真值。 */
     private final Map<EntityOperation, List<EntityChangeGroup>> operationGroups;
+    /** 从groups一次计算出的只读计数投影。 */
     private final Statistics statistics;
 
     private EntityListDiffResult(Builder builder) {
@@ -146,7 +155,9 @@ public class EntityListDiffResult {
      * @return 相似度（0-1），不存在时返回 null
      */
     public Double getSimilarity() {
-        return originalResult != null ? originalResult.getSimilarity() : null;
+        return originalResult == null
+                ? null
+                : originalResult.similarity().map(SimilarityScore::value).orElse(null);
     }
 
     /**
@@ -197,8 +208,8 @@ public class EntityListDiffResult {
     /**
      * 从 CompareResult 创建 EntityListDiffResult（可选提供旧/新列表增强推断）
      * <p>
-     * 当提供 oldList 和 newList 时，会自动填充索引元数据（oldIndex/newIndex 或 oldIndexes/newIndexes）。
-     * 对于重复 @Key 场景（同一 key 在某侧出现多次），使用 oldIndexes/newIndexes 记录所有索引。
+     * 当提供oldList和newList时，会填充oldIndex/newIndex或oldIndexes/newIndexes。
+     * 对于重复@Key场景（同一key在某侧出现多次），使用复数属性记录所有索引。
      * </p>
      *
      * @param result  原始比较结果
@@ -211,10 +222,10 @@ public class EntityListDiffResult {
             return empty();
         }
 
-        // 按实体键分组变更（保持插入顺序）
-        Map<String, List<FieldChange>> byEntity = result.getChanges().stream()
+        // 展示文本可能折叠类型事实，内部必须按完整typed identity分组并保持首次出现顺序。
+        Map<EntityGroupKey, List<FieldChange>> byEntity = result.getChanges().stream()
                 .collect(Collectors.groupingBy(
-                        EntityListDiffResult::resolveEntityKey,
+                        EntityListDiffResult::resolveEntityGroupKey,
                         LinkedHashMap::new,
                         Collectors.toList()
                 ));
@@ -232,7 +243,7 @@ public class EntityListDiffResult {
             newKeyIndexesTemp = KeyIndexMapper.buildKeyIndexesMap(newList);
         } catch (Exception e) {
             // 索引映射构建失败，记录诊断并继续（所有索引将为 null）
-            com.syy.taskflowinsight.util.DiagnosticLogger.once(
+            DiagnosticLogger.once(
                 "LIST-001",
                 "IndexMapBuildFailed",
                 e.getMessage(),
@@ -253,12 +264,24 @@ public class EntityListDiffResult {
         // 构建结果
         Builder builder = new Builder().originalResult(result);
 
-        byEntity.forEach((entityKey, changeList) -> {
+        byEntity.forEach((groupKey, changeList) -> {
+            String entityKey = groupKey.displayKey();
             // 以首条变更的容器事件或 ChangeType 为主导（决定实体级操作）
             FieldChange firstChange = changeList.get(0);
             EntityOperation inferredOp = inferOperation(firstChange);
-            List<String> parts = parseKeyParts(entityKey);
-            String rawKey = extractRawKey(entityKey);
+            Optional<EntityKeySegment> typedKey = Optional.ofNullable(groupKey.segment());
+
+            List<String> parts;
+            String rawKey;
+            if (typedKey.isPresent()) {
+                // typed组件才是identity真值；字符串投影含转义分隔符，反向解析会丢失组件边界。
+                parts = diagnosticKeyParts(typedKey.orElseThrow());
+                rawKey = renderRawEntityKey(parts);
+            } else {
+                // 兼容旧调用方直接构造的display path，不把该解析结果提升为canonical identity。
+                parts = parseKeyParts(entityKey);
+                rawKey = extractRawKey(entityKey);
+            }
 
             // 提取索引信息（封装复杂逻辑）
             IndexInfo indexInfo = IndexInfo.extract(
@@ -296,105 +319,57 @@ public class EntityListDiffResult {
     }
 
     /**
-     * 从路径提取实体键
-     * <p>
-     * 路径格式示例：
-     * <ul>
-     *   <li>"entity[1001].name" → "entity[1001]"</li>
-     *   <li>"entity[1001:US].price" → "entity[1001:US]"</li>
-     *   <li>"entity[1001]" → "entity[1001]"（整体删除/新增）</li>
-     *   <li>"product.name" → "product"（降级处理）</li>
-     * </ul>
-     * </p>
+     * 从canonical side path读取Entity分组键；无typed identity时只保留安全路径投影。
      *
-     * @param path 字段路径或字段名
-     * @return 实体键字符串
+     * <p>该方法刻意不解析{@link FieldChange#getFieldPath()}：display path会隐藏动态key，
+     * 反向解析既无法恢复类型，也会重新引入{@code entity[index]}伪身份。</p>
+     *
+     * @param fc 字段变更对象
+     * @return typed identity与兼容展示文本组成的内部聚合键
      */
-    private static String extractEntityKeyFromPath(String path) {
-        if (path == null || path.isEmpty()) {
-            return "unknown";
+    private static EntityGroupKey resolveEntityGroupKey(FieldChange fc) {
+        if (fc == null) {
+            return new EntityGroupKey(null, "unknown");
         }
-        // 优先使用 PathUtils.parse 统一解析（支持转义与多前缀）
-        PathUtils.KeyFieldPair pair = PathUtils.parse(path);
-        if (pair != null && pair.key() != null && !"-".equals(pair.key())) {
-            return pair.key();
-        }
-        // 降级处理：非 entity/map 路径，使用第一个点之前的部分
-        int dotIndex = path.indexOf('.');
-        if (dotIndex > 0) {
-            return path.substring(0, dotIndex);
-        }
-        // 最后回退：返回原路径
-        return path;
+        EntityKeySegment segment = entityKeySegment(fc).orElse(null);
+        String displayKey = segment == null ? fc.getFieldPath() : renderEntityKey(segment);
+        return new EntityGroupKey(segment, displayKey == null ? "unknown" : displayKey);
     }
 
     /**
-     * 解析用于分组的实体键，支持多层降级策略。
-     * <p>
-     * <b>降级路径</b>（按优先级）:
-     * <ol>
-     *   <li>✅ <b>P0 优先</b>：容器事件提供的 {@code entityKey}（来自 P1-T1 迁移策略）
-     *       <ul>
-     *         <li>{@link com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy}</li>
-     *         <li>{@link com.syy.taskflowinsight.tracking.compare.SetCompareStrategy}</li>
-     *         <li>{@link com.syy.taskflowinsight.tracking.compare.MapCompareStrategy}</li>
-     *       </ul>
-     *   </li>
-     *   <li>⚠️ <b>P1 降级</b>：容器事件提供的 {@code index}（无 entityKey 时）
-     *       <ul>
-     *         <li>生成通用键 {@code "entity[<index>]"}</li>
-     *       </ul>
-     *   </li>
-     *   <li>⚠️ <b>P2 降级</b>：路径解析（用于未迁移策略）
-     *       <ul>
-     *         <li>{@link com.syy.taskflowinsight.tracking.compare.CollectionCompareStrategy}
-     *             - 通用 Collection 比较，生成 {@code fieldName="collection"}</li>
-     *         <li>提取标准格式 {@code entity[key]} 中的 key，或返回原 fieldName</li>
-     *       </ul>
-     *   </li>
-     * </ol>
-     * </p>
+     * 内部聚合键同时保留typed identity和兼容展示文本，防止同文本的不同类型事实被覆盖。
      *
-     * <p><b>示例</b>:
-     * <pre>
-     * // 案例1: P1-T1 已迁移策略（优先级最高）
-     * FieldChange fc1 = FieldChange.builder()
-     *     .elementEvent(ContainerEvents.listAdd(0, "order[O123]"))
-     *     .build();
-     * resolveEntityKey(fc1); // → "order[O123]"
-     *
-     * // 案例2: 未迁移策略（降级到路径解析）
-     * FieldChange fc2 = FieldChange.builder()
-     *     .fieldName("collection")
-     *     .collectionChange(true)
-     *     .build();
-     * resolveEntityKey(fc2); // → "collection"（修复后）
-     * </pre>
-     * </p>
-     *
-     * @param fc 字段变更对象
-     * @return 实体键字符串（用于分组）
+     * @param segment canonical Entity identity；兼容字符串输入时为null
+     * @param displayKey 对外保留的字符串键投影
      */
-    private static String resolveEntityKey(FieldChange fc) {
-        // 1) P0 优先：容器事件直接提供实体键
-        if (fc != null && fc.isContainerElementChange()) {
-            FieldChange.ContainerElementEvent ev = fc.getElementEvent();
-            if (ev != null && ev.getEntityKey() != null) {
-                return ev.getEntityKey();
-            }
-            // P1 降级：若无实体键但有索引，则拼接通用实体键表达
-            if (ev != null && ev.getIndex() != null) {
-                return "entity[" + ev.getIndex() + "]";
-            }
-        }
-        // 2) P2 降级：路径解析（兼容未迁移策略，如 CollectionCompareStrategy）
-        String path = fc != null ? fc.getFieldPath() : null;
-        if (path == null || path.isEmpty()) {
-            path = fc != null ? fc.getFieldName() : null;
-        }
-        return extractEntityKeyFromPath(path);
+    private record EntityGroupKey(EntityKeySegment segment, String displayKey) {
     }
 
+    private static Optional<EntityKeySegment> entityKeySegment(FieldChange change) {
+        return change.after()
+                .or(() -> change.before())
+                .stream()
+                .flatMap(side -> side.path().segments().stream())
+                .filter(EntityKeySegment.class::isInstance)
+                .map(EntityKeySegment.class::cast)
+                .findFirst();
+    }
+
+    private static String renderEntityKey(EntityKeySegment segment) {
+        return PathUtils.buildEntityPath(renderRawEntityKey(diagnosticKeyParts(segment)));
+    }
+
+    private static List<String> diagnosticKeyParts(EntityKeySegment segment) {
+        return segment.components().stream()
+                .map(ValueSnapshotFormatter::diagnosticText)
+                .toList();
+    }
+
+    private static String renderRawEntityKey(List<String> parts) {
+        return parts.stream()
+                .map(PathUtils::escape)
+                .collect(Collectors.joining(":"));
+    }
 
     /**
      * 解析实体键的分片（从 entity[part1:part2] 中提取并按未转义冒号拆分）
@@ -425,69 +400,34 @@ public class EntityListDiffResult {
     }
 
     /**
-     * 提取 entity[...] 中括号内的原始键（兼容重复key的#idx后缀）
-     * 返回纯净的key，移除#idx后缀（用于索引推断）
+     * 提取{@code entity[...]}中的完整键投影，不解释或删除任何伪后缀。
      *
-     * @param entityKey 实体键，如 "entity[1]" 或 "entity[1#0]"
-     * @return 纯净key，如 "1"；对于非标准格式（如 "collection"）返回原值
+     * <p>重复key已由内核发布W2201，投影层不能再通过{@code #idx}猜测一对一身份。</p>
+     *
+     * @param entityKey 实体键，如{@code entity[1]}
+     * @return 完整键内容；非标准格式保持原值
      */
     static String extractRawKey(String entityKey) {
         if (entityKey == null) return "";
         int lb = entityKey.indexOf('[');
         int rb = entityKey.indexOf(']');
         if (lb >= 0 && rb > lb) {
-            String key = entityKey.substring(lb + 1, rb);
-
-            // ✅ 移除 #idx 后缀（用于重复key场景的索引推断）
-            if (key.contains("#")) {
-                key = key.substring(0, key.indexOf('#'));
-            }
-
-            return key;
+            return entityKey.substring(lb + 1, rb);
         }
-        // ✅ 修复：对于非标准路径（如 "collection"），返回原值而非空字符串
-        // 用于支持未迁移策略（如 CollectionCompareStrategy）的降级场景
+        // 非Entity兼容分组仍以原投影为键，但不会进入Entity candidate pairing。
         return entityKey;
     }
 
-    /**
-     * 转换 ChangeType 到 EntityOperation
-     * <p>
-     * 映射规则：
-     * <ul>
-     *   <li>CREATE → ADD</li>
-     *   <li>DELETE → DELETE</li>
-     *   <li>UPDATE → MODIFY</li>
-     *   <li>MOVE → MODIFY</li>
-     * </ul>
-     * </p>
-     *
-     * @param changeType 变更类型
-     * @return 实体操作类型
-     */
-    private static EntityOperation toOperation(ChangeType changeType) {
-        return switch (changeType) {
-            case CREATE -> EntityOperation.ADD;
-            case DELETE -> EntityOperation.DELETE;
-            case UPDATE, MOVE -> EntityOperation.MODIFY;
-        };
-    }
-
-    /**
-     * 从 FieldChange 推断实体操作类型：优先容器事件的 ElementOperation，其次基于 ChangeType。
-     */
+    /** 从canonical ChangeKind收窄为实体级操作，避免读取已删除的容器事件旁路。 */
     private static EntityOperation inferOperation(FieldChange firstChange) {
-        if (firstChange != null && firstChange.isContainerElementChange()) {
-            FieldChange.ElementOperation op = firstChange.getContainerOperation();
-            if (op != null) {
-                return switch (op) {
-                    case ADD -> EntityOperation.ADD;
-                    case REMOVE -> EntityOperation.DELETE;
-                    case MODIFY, MOVE -> EntityOperation.MODIFY;
-                };
-            }
+        if (firstChange == null) {
+            return EntityOperation.MODIFY;
         }
-        return toOperation(firstChange != null ? firstChange.getChangeType() : ChangeType.UPDATE);
+        return switch (firstChange.kind()) {
+            case ADD -> EntityOperation.ADD;
+            case REMOVE -> EntityOperation.DELETE;
+            case MODIFY, MOVE, NULLNESS, TYPE_MISMATCH -> EntityOperation.MODIFY;
+        };
     }
 
     /**
@@ -500,27 +440,54 @@ public class EntityListDiffResult {
     }
 
     /**
-     * EntityListDiffResult 建造者
+     * 兼容实体聚合结果的建造者；仅负责冻结投影，不参与canonical变更归并。
+     *
+     * @since v3.0.0
      */
     public static class Builder {
+        /** 构造完成后会防御复制的实体分组。 */
         private List<EntityChangeGroup> groups = new ArrayList<>();
+        /** 与分组一同保留的原始typed结果。 */
         private CompareResult originalResult;
 
+        /**
+         * 替换实体分组并立即防御复制，避免调用方后续修改输入集合。
+         *
+         * @param groups 待冻结的实体分组；null按空列表处理
+         * @return 当前建造者
+         */
         public Builder groups(List<EntityChangeGroup> groups) {
             this.groups = groups != null ? new ArrayList<>(groups) : new ArrayList<>();
             return this;
         }
 
+        /**
+         * 追加一个已经归纳完成的实体分组。
+         *
+         * @param group 实体分组；非null
+         * @return 当前建造者
+         */
         public Builder addGroup(EntityChangeGroup group) {
             this.groups.add(group);
             return this;
         }
 
+        /**
+         * 保留canonical原始结果，使completion、problem和limitation不会在兼容投影中丢失。
+         *
+         * @param originalResult 原始比较结果；手工构造兼容视图时允许为null
+         * @return 当前建造者
+         */
         public Builder originalResult(CompareResult originalResult) {
             this.originalResult = originalResult;
             return this;
         }
 
+        /**
+         * 冻结当前兼容投影及其索引。
+         *
+         * @return 不可变的实体列表差异结果
+         */
         public EntityListDiffResult build() {
             return new EntityListDiffResult(this);
         }
@@ -529,14 +496,21 @@ public class EntityListDiffResult {
     /**
      * 统计信息
      * <p>
-     * 提供实体级别和字段级别的变更统计。
+     * 统计值只从已冻结分组派生，避免与canonical变更事实形成可变的第二数据源。
      * </p>
+     *
+     * @since v3.0.0
      */
     public static class Statistics {
+        /** 参与实体级聚合的唯一实体总数。 */
         private final int totalEntities;
+        /** 仅出现在新侧的实体数量。 */
         private final int addedCount;
+        /** 两侧均存在且包含确定变更的实体数量。 */
         private final int modifiedCount;
+        /** 仅出现在旧侧的实体数量。 */
         private final int deletedCount;
+        /** 所有实体分组内保留的字段变更总数。 */
         private final int totalChanges;
 
         Statistics(List<EntityChangeGroup> groups) {
@@ -557,6 +531,8 @@ public class EntityListDiffResult {
 
         /**
          * 获取总实体数（发生变更的实体数量）
+         *
+         * @return 参与聚合的实体分组数量
          */
         public int getTotalEntities() {
             return totalEntities;
@@ -564,6 +540,8 @@ public class EntityListDiffResult {
 
         /**
          * 获取新增实体数量
+         *
+         * @return 操作为ADD的实体分组数量
          */
         public int getAddedCount() {
             return addedCount;
@@ -571,6 +549,8 @@ public class EntityListDiffResult {
 
         /**
          * 获取修改实体数量
+         *
+         * @return 操作为MODIFY的实体分组数量
          */
         public int getModifiedCount() {
             return modifiedCount;
@@ -578,6 +558,8 @@ public class EntityListDiffResult {
 
         /**
          * 获取删除实体数量
+         *
+         * @return 操作为DELETE的实体分组数量
          */
         public int getDeletedCount() {
             return deletedCount;
@@ -585,6 +567,8 @@ public class EntityListDiffResult {
 
         /**
          * 获取总字段变更数量
+         *
+         * @return 所有实体分组保留的字段变更数之和
          */
         public int getTotalChanges() {
             return totalChanges;
@@ -592,7 +576,7 @@ public class EntityListDiffResult {
     }
 
     /**
-     * 实体键到索引的映射构建���（内部使用）
+     * 实体键到索引的映射构建器（内部使用）
      */
     private static class KeyIndexMapper {
 
@@ -641,6 +625,15 @@ public class EntityListDiffResult {
     /**
      * 索引信息封装（内部使用）
      */
+    private static Integer pathIndex(ComparePath path) {
+        return path.segments().stream()
+                .filter(IndexSegment.class::isInstance)
+                .map(IndexSegment.class::cast)
+                .map(IndexSegment::index)
+                .reduce((first, second) -> second)
+                .orElse(null);
+    }
+
     private record IndexInfo(
             Integer oldIndex,
             Integer newIndex,
@@ -667,10 +660,11 @@ public class EntityListDiffResult {
             boolean multipleOld = oldIdxList.size() > 1;
             boolean multipleNew = newIdxList.size() > 1;
 
-            // 事件能力探测
-            boolean hasEntityKeyEvent = changeList.stream().anyMatch(fc ->
-                    fc != null && fc.isContainerElementChange() &&
-                            fc.getElementEvent() != null && fc.getElementEvent().getEntityKey() != null);
+            boolean hasEntityKeyEvent = changeList.stream()
+                    .filter(Objects::nonNull)
+                    .flatMap(fc -> fc.before().or(() -> fc.after()).stream())
+                    .flatMap(side -> side.path().segments().stream())
+                    .anyMatch(EntityKeySegment.class::isInstance);
 
             // 扫描事件索引/移动信息
             Integer evOldIdx = null;
@@ -678,29 +672,20 @@ public class EntityListDiffResult {
             boolean movedByEvent = false;
 
             for (FieldChange fc : changeList) {
-                if (fc == null || !fc.isContainerElementChange()) continue;
-                FieldChange.ContainerElementEvent ev = fc.getElementEvent();
-                if (ev == null) continue;
-
-                if (ev.getOperation() == FieldChange.ElementOperation.MOVE) {
-                    // 优先使用 MOVE 的 old/new index
-                    if (ev.getOldIndex() != null || ev.getNewIndex() != null) {
-                        evOldIdx = ev.getOldIndex();
-                        evNewIdx = ev.getNewIndex();
-                        movedByEvent = evOldIdx != null && evNewIdx != null && !evOldIdx.equals(evNewIdx);
-                        break; // MOVE 信息足够，提前结束
-                    }
+                if (fc == null) continue;
+                Integer beforeIndex = fc.before().map(side -> pathIndex(side.path())).orElse(null);
+                Integer afterIndex = fc.after().map(side -> pathIndex(side.path())).orElse(null);
+                if (fc.kind() == ChangeKind.MOVE) {
+                    evOldIdx = beforeIndex;
+                    evNewIdx = afterIndex;
+                    movedByEvent = evOldIdx != null && evNewIdx != null && !evOldIdx.equals(evNewIdx);
+                    break;
                 }
-
-                // 非 MOVE：尝试读取 index
-                if (evOldIdx == null && evNewIdx == null) {
-                    if (ev.getOldIndex() != null || ev.getNewIndex() != null) {
-                        evOldIdx = ev.getOldIndex();
-                        evNewIdx = ev.getNewIndex();
-                    } else if (ev.getIndex() != null) {
-                        evOldIdx = ev.getIndex();
-                        evNewIdx = ev.getIndex();
-                    }
+                if (evOldIdx == null && beforeIndex != null) {
+                    evOldIdx = beforeIndex;
+                }
+                if (evNewIdx == null && afterIndex != null) {
+                    evNewIdx = afterIndex;
                 }
             }
 
@@ -742,7 +727,7 @@ public class EntityListDiffResult {
          * 记录重复键警告（仅记录一次）
          */
         private static void logDuplicateKeyWarning(String rawKey) {
-            com.syy.taskflowinsight.util.DiagnosticLogger.once(
+            DiagnosticLogger.once(
                     "LIST-002",
                     "DuplicateKeyInList",
                     "Duplicate @Key detected for " + rawKey,

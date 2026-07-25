@@ -1,0 +1,2 @@
+com.syy.taskflowinsight.ops.compare.LegacyCompareVersionGuardAutoConfiguration
+com.syy.taskflowinsight.ops.compare.CompareObservationAutoConfiguration

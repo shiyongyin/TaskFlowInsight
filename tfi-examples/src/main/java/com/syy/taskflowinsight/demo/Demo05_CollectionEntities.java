@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.demo;
 
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
+
 import com.syy.taskflowinsight.annotation.Entity;
 import com.syy.taskflowinsight.annotation.Key;
 import com.syy.taskflowinsight.api.TFI;
@@ -16,7 +18,7 @@ import java.util.List;
  * <p><b>一行式最小示例：</b>
  * <pre>{@code
  * CompareResult r = TFI.compare(entityList1, entityList2);
- * System.out.println(TFI.render(r, "standard"));
+ * System.out.println(TFI.render(r, RenderOptions.markdown()));
  * }</pre>
  *
  * <p><b>进阶链式用法：</b>
@@ -26,7 +28,7 @@ import java.util.List;
  *     .withMaxDepth(5)
  *     .typeAware()
  *     .compare(entityList1, entityList2);
- * System.out.println(TFI.render(r, "standard"));
+ * System.out.println(TFI.render(r, RenderOptions.markdown()));
  * }</pre>
  *
  * <p><b>核心特性：</b>
@@ -145,7 +147,7 @@ public class Demo05_CollectionEntities {
         );
 
         CompareResult result1 = TFI.compare(orders1, orders2);
-        System.out.println(TFI.render(result1, "standard"));
+        System.out.println(TFI.render(result1, RenderOptions.markdown()));
 
         // 场景2：商品列表比较
         System.out.println("\n▶ 场景2：商品列表比较");
@@ -160,7 +162,7 @@ public class Demo05_CollectionEntities {
         );
 
         CompareResult result2 = TFI.compare(products1, products2);
-        System.out.println(TFI.render(result2, "standard"));
+        System.out.println(TFI.render(result2, RenderOptions.markdown()));
 
         System.out.println("\n💡 使用说明：");
         System.out.println("  • 一行式比较：TFI.compare(entityList1, entityList2)");
@@ -189,9 +191,8 @@ public class Demo05_CollectionEntities {
         );
 
         CompareResult result1 = TFI.comparator()
-            .typeAware()
             .compare(items1, items2);
-        System.out.println(TFI.render(result1, "standard"));
+        System.out.println(TFI.render(result1, RenderOptions.markdown()));
 
         // 场景2：忽略特定字段
         System.out.println("\n▶ 场景2：忽略特定字段（如库存）");
@@ -206,20 +207,19 @@ public class Demo05_CollectionEntities {
         );
 
         CompareResult result2 = TFI.comparator()
-            .ignoring("stock")
             .withMaxDepth(5)
             .compare(products1, products2);
-        System.out.println(TFI.render(result2, "simple"));
+        System.out.println(TFI.render(result2, RenderOptions.markdown()));
         System.out.println("  说明：忽略 stock 字段后，检测到无变更");
 
         // 场景3：带相似度计算
         System.out.println("\n▶ 场景3：带相似度计算");
         CompareResult result3 = TFI.comparator()
             .withSimilarity()
-            .typeAware()
             .compare(items1, items2);
-        System.out.println(TFI.render(result3, "standard"));
-        System.out.printf("  列表相似度: %.2f%%%n", result3.getSimilarity() * 100);
+        System.out.println(TFI.render(result3, RenderOptions.markdown()));
+        result3.similarity().ifPresent(score ->
+                System.out.printf("  列表相似度: %.2f%%%n", score.value() * 100));
 
         System.out.println("\n💡 链式 API 说明：");
         System.out.println("  • typeAware() - 启用类型感知（自动使用ENTITY策略）");

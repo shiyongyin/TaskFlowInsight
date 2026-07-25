@@ -94,7 +94,6 @@ tfi-flow-core (外部)
 |------|------|
 | `ManagedThreadContext` | ThreadLocal 流上下文管理 |
 | `SafeContextManager` | 单例模式，异步传播，泄漏检测 |
-| `ZeroLeakThreadLocalManager` | ThreadLocal 诊断与清理 |
 | `TfiFlow` | 流操作核心（stage/message） |
 | `FlowProvider` | SPI 流提供者接口 |
 
@@ -363,15 +362,16 @@ ListCompareStrategy 族（列表比对，内部路由）:
 
 ```yaml
 tfi:
-  enabled: true                              # 主开关
-  annotation.enabled: true                   # @TfiTask 注解支持
-  api.routing.enabled: false                 # Provider 路由 (v4.0.0)
-  change-tracking:
-    snapshot.max-depth: 10                   # 最大遍历深度
-    snapshot.exclude-patterns: ["*.password"] # 敏感字段排除
+  annotation:
+    enabled: true                            # @TfiTask 注解支持
   compare:
-    auto-route.lcs.enabled: true             # LCS 移动检测
-    degradation.enabled: true                # 自动降级
+    enabled: true                            # 当前上下文比较入口
+    max-depth: 10                            # 逻辑深度上限
+    max-compared-nodes: 10000                # 单次请求节点预算
+    tracking:
+      enabled: true                          # 接入当前 Flow advice
+    masking:
+      additional-rules: ["PROPERTY:customerSecret"]
 ```
 
 ---
@@ -382,7 +382,7 @@ tfi:
 
 **决策**: 采用 `ThreadLocal` 管理流上下文，而非 Java 21 的 `ScopedValue`。
 
-**理由**: TFI 需支持异步上下文传播（`TFIAwareExecutor`、`ContextPropagatingExecutor`），`ThreadLocal` 与 `InheritableThreadLocal` 组合已在生产验证；`ScopedValue` 为不可继承设计，需额外适配层。当前 `SafeContextManager` + `ZeroLeakThreadLocalManager` 已实现零泄漏保证，迁移收益有限。
+**理由**: TFI 需支持异步上下文传播，`ContextPropagatingExecutor` 统一包装调用方选择的线程池，`SafeContextManager` 统一拥有当前绑定、registry、泄漏检测和传播作用域。`ScopedValue` 为不可继承设计，仍需额外适配层；当前单 owner 模型的迁移收益不足以覆盖复杂度。
 
 **权衡**: 未来若 JDK 提供 `ScopedValue` 的继承/传播能力，可评估迁移。
 

@@ -102,7 +102,7 @@ graph TB
 ```bash
 ./mvnw spring-boot:run -pl tfi-examples
 # 或
-java -jar tfi-examples/target/tfi-examples-3.0.0.jar
+java -jar tfi-examples/target/tfi-examples-4.0.0.jar
 ```
 
 访问: `http://localhost:19090`  
@@ -139,8 +139,10 @@ Actuator: `http://localhost:19090/actuator/health`
 #### 方式 5: JMH 基准测试
 
 ```bash
-./mvnw -P bench exec:java -pl tfi-examples \
-  -Dexec.mainClass="com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner"
+./mvnw -pl tfi-examples -Pbench -DskipTests compile \
+  org.codehaus.mojo:exec-maven-plugin:3.5.0:exec \
+  -Dexec.executable=java -Dexec.classpathScope=runtime \
+  '-Dexec.args=-cp %classpath com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner'
 ```
 
 ### 3.3 pom.xml 入口配置
@@ -170,48 +172,41 @@ management:
   metrics.export.prometheus.enabled: true
 
 tfi:
-  enabled: true
-  annotation.enabled: true
-  api.routing.enabled: false          # v4.0.0 Provider 路由
-  change-tracking:
+  annotation:
     enabled: true
-    snapshot:
-      mode: deep
-      max-depth: 10
-      exclude-patterns:               # 敏感字段排除
-        - "*.password"
-        - "*.secret"
-        - "*.token"
-        - "*.creditCard"
-        - "*.ssn"
   compare:
-    degradation:
+    enabled: true
+    max-depth: 10
+    max-compared-nodes: 10000
+    tracking:
       enabled: true
-      field-count-threshold: 100      # 字段数超此值触发降级
-      collection-size-threshold: 10000 # 集合大小超此值触发降级
-  diff:
-    perf.timeout-ms: 5000             # 比对超时
-    cache.enabled: true
+    masking:
+      additional-rules:
+        - "PROPERTY:customerSecret"
+        - "PROPERTY:token"
+        - "PROPERTY:creditCard"
+        - "PROPERTY:ssn"
 ```
 
 ### 4.2 Profile 对比
 
 | 配置项 | 默认 | dev | prod |
 |--------|------|-----|------|
-| tfi.enabled | true | true | **false** |
-| change-tracking | true | true | **false** |
+| tfi.annotation.enabled | true | true | **false** |
+| tfi.compare.enabled | true | true | **false** |
+| tfi.compare.tracking.enabled | true | true | **false** |
+| tfi.compare.max-result-value-chars | 4096 | 8192 | 8192 |
 | 日志级别 | INFO | **DEBUG** | INFO |
 | Actuator 端点 | 全量 | health/info | health/info |
-| debug-logging | — | **true** | — |
 
 ### 4.3 启动时指定 Profile
 
 ```bash
 # 开发模式
-java -jar tfi-examples-3.0.0.jar --spring.profiles.active=dev
+java -jar tfi-examples-4.0.0.jar --spring.profiles.active=dev
 
 # 生产模式（TFI 禁用）
-java -jar tfi-examples-3.0.0.jar --spring.profiles.active=prod
+java -jar tfi-examples-4.0.0.jar --spring.profiles.active=prod
 
 # 环境变量方式
 SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run -pl tfi-examples
@@ -307,8 +302,10 @@ curl -s localhost:19090/actuator/health | python3 -m json.tool
 
 ```bash
 # 路由基准
-./mvnw -P bench exec:java -pl tfi-examples \
-  -Dexec.mainClass="com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner"
+./mvnw -pl tfi-examples -Pbench -DskipTests compile \
+  org.codehaus.mojo:exec-maven-plugin:3.5.0:exec \
+  -Dexec.executable=java -Dexec.classpathScope=runtime \
+  '-Dexec.args=-cp %classpath com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner'
 
 # SPI 基准
 ./mvnw -P bench exec:java -pl tfi-examples \
@@ -352,7 +349,7 @@ LABEL maintainer="TFI Team"
 
 RUN addgroup -S tfi && adduser -S tfi -G tfi
 WORKDIR /app
-COPY tfi-examples/target/tfi-examples-3.0.0.jar app.jar
+COPY tfi-examples/target/tfi-examples-4.0.0.jar app.jar
 USER tfi
 EXPOSE 19090
 
@@ -369,12 +366,12 @@ ENTRYPOINT ["java", \
 
 ```bash
 # 构建
-docker build -t tfi-examples:3.0.0 .
+docker build -t tfi-examples:4.0.0 .
 
 # 运行
 docker run -p 19090:19090 \
   -e SPRING_PROFILES_ACTIVE=dev \
-  tfi-examples:3.0.0
+  tfi-examples:4.0.0
 ```
 
 ---
@@ -470,8 +467,8 @@ curl -X POST localhost:19090/actuator/loggers/com.syy.taskflowinsight \
 
 | 操作 | 方式 |
 |------|------|
-| 禁用 TFI | `--tfi.enabled=false` 重启 |
-| 降低追踪深度 | `--tfi.change-tracking.snapshot.max-depth=3` |
+| 禁用注入式 Compare | `--tfi.compare.enabled=false --tfi.compare.tracking.enabled=false` 重启 |
+| 降低比较深度 | `--tfi.compare.max-depth=3` |
 | 查看线程 | `jstack $(pgrep -f tfi-examples)` |
 | 查看堆 | `jmap -dump:format=b,file=heap.hprof $(pgrep -f tfi-examples)` |
 

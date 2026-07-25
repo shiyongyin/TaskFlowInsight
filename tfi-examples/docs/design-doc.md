@@ -329,31 +329,28 @@ public class DemoRegistry {
 server.port: 19090
 management.endpoints.web.exposure.include: [health, info, taskflow, metrics, prometheus]
 tfi:
-  enabled: true
-  annotation.enabled: true
-  api.routing.enabled: false       # v4.0.0
-  change-tracking:
-    snapshot.max-depth: 10
-    exclude-patterns: ["*.password", "*.secret", "*.token", "*.creditCard", "*.ssn"]
+  annotation:
+    enabled: true
   compare:
-    auto-route.lcs.enabled: true
-    degradation.enabled: true
-    degradation.field-count-threshold: 100
-    degradation.collection-size-threshold: 10000
-  diff:
-    output-mode: compat
-    perf.timeout-ms: 5000
-    cache.enabled: true
+    enabled: true
+    max-depth: 10
+    max-compared-nodes: 10000
+    tracking:
+      enabled: true
+    masking:
+      additional-rules: ["PROPERTY:customerSecret"]
 ```
 
-**评价**: 9/10 — 配置项覆盖全面，降级阈值、敏感字段、缓存策略均有配置。
+配置只展示当前有 reader 的 annotation 与 Compare typed properties。
 
 ### 8.2 Profile 对比
 
 | 配置项 | 默认 | dev | prod |
 |--------|------|-----|------|
-| tfi.enabled | true | true | **false** |
-| change-tracking | true | true | **false** |
+| tfi.annotation.enabled | true | true | **false** |
+| tfi.compare.enabled | true | true | **false** |
+| tfi.compare.tracking.enabled | true | true | **false** |
+| tfi.compare.max-result-value-chars | 4096 | 8192 | 8192 |
 | 日志级别 | INFO | **DEBUG** | INFO |
 | Actuator | 全量 | health/info | health/info |
 

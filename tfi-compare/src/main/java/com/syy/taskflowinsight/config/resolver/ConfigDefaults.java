@@ -23,19 +23,10 @@ public final class ConfigDefaults {
     /** 时间预算（毫秒） - 统一为1000ms */
     public static final long TIME_BUDGET_MS = 1000L;
     
-    /** 慢操作阈值（毫秒） - 保持200ms */
-    public static final long SLOW_OPERATION_MS = 200L;
-    
     /** 最大栈深度 - 防止栈溢出 */
     public static final int MAX_STACK_DEPTH = 1000;
     
     // ==================== 集合与降级 ====================
-    
-    /** 列表大小阈值 - 触发降级 */
-    public static final int LIST_SIZE_THRESHOLD = 500;
-    
-    /** K对数阈值 - 触发降级 */
-    public static final int K_PAIRS_THRESHOLD = 10000;
     
     /** 集合摘要阈值 - 触发摘要模式 */
     public static final int COLLECTION_SUMMARY_THRESHOLD = 100;
@@ -57,29 +48,6 @@ public final class ConfigDefaults {
     /** 上下文最大存活时间（毫秒） */
     public static final long MAX_CONTEXT_AGE_MILLIS = 3600000L; // 1小时
     
-    // ==================== 降级阈值 ====================
-    
-    /** 内存阈值 - 跳过深度分析 */
-    public static final double MEMORY_THRESHOLD_SKIP_DEEP = 60.0;
-    
-    /** 内存阈值 - 简单比较 */
-    public static final double MEMORY_THRESHOLD_SIMPLE = 70.0;
-    
-    /** 内存阈值 - 仅摘要 */
-    public static final double MEMORY_THRESHOLD_SUMMARY = 80.0;
-    
-    /** 内存阈值 - 禁用 */
-    public static final double MEMORY_THRESHOLD_DISABLED = 90.0;
-    
-    /** CPU使用率阈值 */
-    public static final double CPU_USAGE_THRESHOLD = 80.0;
-    
-    /** 慢操作比率阈值 */
-    public static final double SLOW_OPERATION_RATE = 0.05; // 5%
-    
-    /** 临界操作时间（毫秒） */
-    public static final long CRITICAL_OPERATION_TIME_MS = 1000L;
-    
     // ==================== 功能开关 ====================
     
     /** 主功能开关 */
@@ -94,14 +62,8 @@ public final class ConfigDefaults {
     /** 深度快照开关 */
     public static final boolean DEEP_SNAPSHOT_ENABLED = false;
     
-    /** 降级机制开关 */
-    public static final boolean DEGRADATION_ENABLED = false;
-    
     /** 环境变量参与开关 */
     public static final boolean ENV_VARIABLES_ENABLED = false;
-    
-    /** 指标收集开关 */
-    public static final boolean METRICS_ENABLED = true;
     
     /** 缓存开关 */
     public static final boolean CACHE_ENABLED = true;
@@ -145,20 +107,8 @@ public final class ConfigDefaults {
     /** 并发重试基础延迟（毫秒） */
     public static final long CONCURRENT_RETRY_BASE_DELAY_MS = 10L;
     
-    /** 嵌套stage最大深度 */
-    public static final int NESTED_STAGE_MAX_DEPTH = 20;
-    
-    /** 嵌套清理批次大小 */
-    public static final int NESTED_CLEANUP_BATCH_SIZE = 100;
-    
     /** FIFO缓存默认大小 */
     public static final int FIFO_CACHE_DEFAULT_SIZE = 1000;
-    
-    /** 指标收集缓冲区大小 */
-    public static final int METRICS_BUFFER_SIZE = 1000;
-    
-    /** 指标刷新间隔（秒） */
-    public static final int METRICS_FLUSH_INTERVAL_SECONDS = 10;
     
     // ==================== 差异检测 ====================
     
@@ -194,11 +144,6 @@ public final class ConfigDefaults {
         // 深度与性能
         public static final String MAX_DEPTH = "tfi.change-tracking.snapshot.max-depth";
         public static final String TIME_BUDGET_MS = "tfi.change-tracking.snapshot.time-budget-ms";
-        public static final String SLOW_OPERATION_MS = "tfi.change-tracking.degradation.slow-operation-threshold-ms";
-        
-        // 监控配置（任务卡要求的新键名）
-        public static final String MONITORING_SLOW_OPERATION_MS = "tfi.change-tracking.monitoring.slow-operation-ms";
-        
         // 数值精度（任务卡要求的新配置）
         public static final String NUMERIC_FLOAT_TOLERANCE = "tfi.change-tracking.numeric.float-tolerance";
         public static final String NUMERIC_RELATIVE_TOLERANCE = "tfi.change-tracking.numeric.relative-tolerance";
@@ -213,8 +158,6 @@ public final class ConfigDefaults {
         public static final String DATETIME_DURATION_FORMAT = "tfi.change-tracking.datetime.duration-format";
         
         // 集合与降级
-        public static final String LIST_SIZE_THRESHOLD = "tfi.change-tracking.degradation.list-size-threshold";
-        public static final String K_PAIRS_THRESHOLD = "tfi.change-tracking.degradation.k-pairs-threshold";
         public static final String COLLECTION_SUMMARY_THRESHOLD = "tfi.change-tracking.snapshot.collection-summary-threshold";
         
         // 功能开关
@@ -226,12 +169,7 @@ public final class ConfigDefaults {
         // CT-006: 并发与内存优化
         public static final String CONCURRENT_RETRY_MAX_ATTEMPTS = "tfi.concurrent.retry.max-attempts";
         public static final String CONCURRENT_RETRY_BASE_DELAY_MS = "tfi.concurrent.retry.base-delay-ms";
-        public static final String NESTED_STAGE_MAX_DEPTH = "tfi.context.nested-stage.max-depth";
-        public static final String NESTED_CLEANUP_BATCH_SIZE = "tfi.context.nested-cleanup.batch-size";
         public static final String FIFO_CACHE_DEFAULT_SIZE = "tfi.cache.fifo.default-size";
-        public static final String METRICS_BUFFER_SIZE = "tfi.metrics.buffer.size";
-        public static final String METRICS_FLUSH_INTERVAL_SECONDS = "tfi.metrics.flush.interval-seconds";
-        
         private Keys() {}
     }
 }

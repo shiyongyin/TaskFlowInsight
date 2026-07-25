@@ -1,20 +1,75 @@
 # TaskFlowInsight v3.0.0 → v4.0.0 Migration Guide
 
-**Version**: v4.0.0 Phase 3 Complete (Provider Routing 100% Done)
-**Release Date**: 2025-10-16
-**Migration Effort**: 0-2 hours (depending on usage)
-**Breaking Changes**: ZERO ✅
-**Rollback Time**: < 1 minute
-**Quality Score**: 9.49/10 ✅
+**Version**: v4.0.0 release hardening
+**Release Date**: Not yet released
+**Migration Effort**: Depends on use of removed 3.x APIs
+**Breaking Changes**: Yes; governed by `breaking-changes-v4.json`
 
 ---
 
 ## 📋 Quick Start TL;DR
 
-**For Most Users**: 🟢 **No action required**
-- v4.0.0 is 100% backward compatible by default
-- All existing code works without modification
-- Provider routing is **opt-in** via feature flag
+**Required before upgrade**:
+- Check `tfi-compare/src/test/resources/compatibility/breaking-changes-v4.json` for every API and behavior removal.
+- Replace direct snapshot or reflection-navigation calls as described below.
+- Run application-owned comparison and tracking regressions against the 4.0 candidate.
+
+## Spring configuration ownership migration
+
+The 3.x key `tfi.enabled` is retired. It has no Spring owner in 4.0 and is not a Compare alias. Replace it with the
+specific owner you intend to control: `tfi.annotation.enabled` for Flow advice, `tfi.compare.enabled` for the
+injected Compare runtime, and `tfi.compare.tracking.enabled` for the optional deep-tracking bridge. The pure Java
+Flow switch remains programmatic through `TfiFlow.enable()` and `TfiFlow.disable()`.
+
+The 3.x key `tfi.change-tracking.enabled` remains a startup-only migration alias for `tfi.compare.enabled` during
+the 4.0 transition. New configuration must use the canonical key. Snapshot limits move to the canonical typed
+Compare policy, for example `tfi.change-tracking.snapshot.max-depth` becomes `tfi.compare.max-depth`.
+
+Before (3.x):
+
+```yaml
+tfi:
+  enabled: true
+  change-tracking:
+    enabled: true
+    snapshot:
+      max-depth: 10
+```
+
+After (4.0):
+
+```yaml
+tfi:
+  annotation:
+    enabled: true
+  compare:
+    enabled: true
+    max-depth: 10
+    tracking:
+      enabled: true
+```
+
+The retired `@EnableTfi` annotation has no replacement annotation. Add `tfi-flow-spring-starter` and/or
+`tfi-compare-spring-starter` 4.0 dependencies and let Spring Boot discover their auto-configuration.
+
+## Standalone snapshot and path navigation removal
+
+4.0 has one comparison execution graph. It no longer publishes `ObjectSnapshot`, `ObjectSnapshotDeep`,
+`SnapshotConfig`, `SnapshotFacade`, `SnapshotProvider`, `SnapshotProviders`, or `PathNavigator`. The legacy filter
+types owned only by that graph are also removed. These removals are registered as `CMP-BRK-API-0539..0550`.
+
+Use the canonical runtime for comparison:
+
+```java
+CompareResult result = CompareRuntime.defaults().engine().compare(before, after);
+List<String> paths = result.getChanges().stream()
+        .map(FieldChange::getFieldPath)
+        .toList();
+```
+
+Use immutable `ComparePolicy`/`CompareOptions` for traversal and resource limits. Consume typed paths from
+`FieldChange.before()`/`after()` when path segments are required. 4.0 intentionally provides no public replacement
+that captures an independent `Map<String, Object>` snapshot or reflectively navigates a business object.
 
 **To Enable New Features**:
 ```yaml
@@ -1438,15 +1493,20 @@ v4.0.0 Phase 1 + Phase 2 + Phase 3 delivers:
 
 1) Generate JSON reports (routing enabled vs legacy):
 ```
-./mvnw -q -P bench exec:java -Dexec.mainClass=com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner
+./mvnw -q -pl tfi-examples -Pbench -DskipTests compile \
+  org.codehaus.mojo:exec-maven-plugin:3.5.0:exec \
+  -Dexec.executable=java -Dexec.classpathScope=runtime \
+  '-Dexec.args=-cp %classpath com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner'
 ```
 Outputs:
-- `docs/task/v4.0.0/baseline/tfi_routing_enabled.json`
-- `docs/task/v4.0.0/baseline/tfi_routing_legacy.json`
+- `tfi-examples/target/perf/tfi-routing-enabled.json`
+- `tfi-examples/target/perf/tfi-routing-legacy.json`
 
 2) Enforce strict perf gate (< 5% regression):
 ```
-./mvnw -q -Dtest=*PerfGateIT verify -Dtfi.perf.enabled=true -Dtfi.perf.strict=true
+./mvnw -q -pl tfi-all -Dtest=TfiRoutingPerfGateTests \
+  -Dit.test=TfiRoutingPerfGateIT verify \
+  -Dtfi.perf.enabled=true -Dtfi.perf.strict=true
 ```
 
 ---

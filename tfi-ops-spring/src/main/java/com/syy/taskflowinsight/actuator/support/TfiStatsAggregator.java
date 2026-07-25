@@ -1,119 +1,50 @@
 package com.syy.taskflowinsight.actuator.support;
 
-import com.syy.taskflowinsight.context.ThreadContext;
-import com.syy.taskflowinsight.tracking.SessionAwareChangeTracker;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.context.ContextMetrics;
+import com.syy.taskflowinsight.context.SafeContextManager;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
- * TFI 统计信息聚合器。
+ * 聚合Core真实发布的Context诊断快照。
  *
- * <p>集中管理所有端点共用的统计计算逻辑，避免多个端点重复实现
- * 相同的聚合操作。</p>
+ * <p>Compare不再维护session history，因此这里不能用零值伪装changes/session统计；
+ * 所有字段都来自调用入口捕获的同一个{@link ContextMetrics}。</p>
  *
- * <p>主要聚合维度：</p>
- * <ul>
- *   <li>会话统计：总数、平均变更数、平均存活时长</li>
- *   <li>变更统计：按对象名分组、按变更类型分组</li>
- *   <li>上下文统计：活跃数、总创建数、总传播数</li>
- * </ul>
- *
- * @author TaskFlow Insight Team
  * @since 3.0.0
+ * @see SafeContextManager#metrics()
  */
 @Component
 public class TfiStatsAggregator {
 
     /**
-     * 聚合全量统计信息。
+     * 捕获一次Context指标并生成诊断响应。
      *
-     * @return 包含会话、变更、上下文等维度统计的 Map
+     * @return 只包含Core真实计数的不可变Map
      */
     public Map<String, Object> aggregateStats() {
-        Map<String, Object> stats = new HashMap<>();
-
-        // 会话统计
-        Map<String, SessionAwareChangeTracker.SessionMetadata> sessions =
-                SessionAwareChangeTracker.getAllSessionMetadata();
-
-        stats.put("sessionCount", sessions.size());
-
-        List<ChangeRecord> allChanges = SessionAwareChangeTracker.getAllChanges();
-        stats.put("totalChanges", allChanges.size());
-
-        // 计算平均值
-        if (!sessions.isEmpty()) {
-            double avgChangesPerSession = sessions.values().stream()
-                    .mapToInt(SessionAwareChangeTracker.SessionMetadata::getChangeCount)
-                    .average()
-                    .orElse(0);
-
-            double avgSessionAge = sessions.values().stream()
-                    .mapToLong(SessionAwareChangeTracker.SessionMetadata::getAge)
-                    .average()
-                    .orElse(0);
-
-            stats.put("avgChangesPerSession", avgChangesPerSession);
-            stats.put("avgSessionAgeMs", (long) avgSessionAge);
-        }
-
-        // 按对象名分组
-        Map<String, Long> changesByObject = allChanges.stream()
-                .collect(Collectors.groupingBy(
-                        ChangeRecord::getObjectName,
-                        Collectors.counting()
-                ));
-        stats.put("changesByObject", changesByObject);
-
-        // 按变更类型分组
-        Map<String, Long> changesByType = allChanges.stream()
-                .collect(Collectors.groupingBy(
-                        c -> c.getChangeType().name(),
-                        Collectors.counting()
-                ));
-        stats.put("changesByType", changesByType);
-
-        // 上下文统计
-        Map<String, Object> contextStats = new HashMap<>();
-        contextStats.put("activeContexts", ThreadContext.getActiveContextCount());
-        contextStats.put("totalCreated", ThreadContext.getTotalContextsCreated());
-        contextStats.put("totalPropagations", ThreadContext.getTotalPropagations());
-        stats.put("threadContext", contextStats);
-
-        stats.put("timestamp", Instant.now().toString());
-
-        return stats;
+        return aggregateStats(SafeContextManager.getInstance().metrics());
     }
 
     /**
-     * 获取安全的总变更数量。
+     * 使用调用方共享的快照生成诊断，避免同一响应拼接不同时间点。
      *
-     * @return 总变更数，出错时返回 0
+     * @param contextMetrics 本次响应唯一的Context观测
+     * @return 只包含真实Context计数和捕获时间的不可变Map
      */
-    public int getTotalChangesCount() {
-        try {
-            return SessionAwareChangeTracker.getAllChanges().size();
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    /**
-     * 获取安全的活跃会话数量。
-     *
-     * @return 活跃会话数，出错时返回 0
-     */
-    public int getActiveSessionCount() {
-        try {
-            return SessionAwareChangeTracker.getAllSessionMetadata().size();
-        } catch (Exception e) {
-            return 0;
-        }
+    public Map<String, Object> aggregateStats(ContextMetrics contextMetrics) {
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("activeContexts", contextMetrics.activeContexts());
+        stats.put("createdContexts", contextMetrics.createdContexts());
+        stats.put("closedContexts", contextMetrics.closedContexts());
+        stats.put("detectedLeaks", contextMetrics.detectedLeaks());
+        stats.put("asyncTasks", contextMetrics.asyncTasks());
+        stats.put("executorPoolSize", contextMetrics.executorPoolSize());
+        stats.put("executorQueueSize", contextMetrics.executorQueueSize());
+        stats.put("propagations", contextMetrics.propagations());
+        stats.put("capturedAt", contextMetrics.capturedAt().toString());
+        return Map.copyOf(stats);
     }
 }

@@ -1,0 +1,5 @@
+com.syy.tfi.kernel.compare.spring.TfiKernelCompareArtifactGuardAutoConfiguration
+com.syy.tfi.kernel.compare.spring.TfiKernelRuntimeAutoConfiguration
+com.syy.tfi.kernel.compare.spring.TfiCompareCoreAutoConfiguration
+com.syy.tfi.kernel.compare.spring.TfiKernelCompareAutoConfiguration
+com.syy.tfi.kernel.compare.spring.TfiKernelCompareAopAutoConfiguration

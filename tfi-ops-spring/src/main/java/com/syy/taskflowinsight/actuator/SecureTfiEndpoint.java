@@ -1,24 +1,21 @@
 package com.syy.taskflowinsight.actuator;
 
 import com.syy.taskflowinsight.actuator.support.CachedResponse;
-import com.syy.taskflowinsight.actuator.support.EndpointAccessLog;
 import com.syy.taskflowinsight.actuator.support.TfiHealthCalculator;
 import com.syy.taskflowinsight.actuator.support.TfiStatsAggregator;
 import com.syy.taskflowinsight.api.TfiFlow;
-import com.syy.taskflowinsight.context.ThreadContext;
-import com.syy.taskflowinsight.config.TfiConfig;
-import com.syy.taskflowinsight.tracking.path.PathMatcherCacheInterface;
-import io.micrometer.core.instrument.MeterRegistry;
+import com.syy.taskflowinsight.context.ContextMetrics;
+import com.syy.taskflowinsight.context.SafeContextManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.endpoint.annotation.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * TaskFlowInsight 安全只读 Actuator 端点。
@@ -34,16 +31,17 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>最小权限暴露原则</li>
  * </ul>
  *
+ * <p>缓存 miss 时只捕获一次 {@link ContextMetrics}，同一响应的 stats 与 health score 复用该快照，
+ * 防止指标在组装过程中发生漂移。</p>
+ *
  * @since 3.0.0
+ * @see SafeContextManager#metrics()
  */
 @Component
 @Endpoint(id = "taskflow")
 @ConditionalOnProperty(name = "tfi.actuator.enabled", havingValue = "true", matchIfMissing = true)
 public class SecureTfiEndpoint {
-    
-    private final TfiConfig tfiConfig;
-    private final MeterRegistry meterRegistry;
-    private final PathMatcherCacheInterface pathMatcherCache;
+
     private final TfiHealthCalculator healthCalculator;
     private final TfiStatsAggregator statsAggregator;
     private final Instant startupTime = Instant.now();
@@ -51,28 +49,19 @@ public class SecureTfiEndpoint {
     // 缓存机制
     private final Map<String, CachedResponse> responseCache = new ConcurrentHashMap<>();
     
+    /** 端点响应缓存寿命；只降低指标读取频率，不延长任何业务状态生命周期。 */
     @Value("${tfi.actuator.cache.ttl-ms:5000}")
     private long cacheTtlMs;
-    
-    @Value("${tfi.actuator.access-log.max-size:1000}")
-    private int accessLogMaxSize;
-    
-    @Value("${tfi.actuator.access-log.retention-minutes:10}")
-    private int accessLogRetentionMinutes;
-    
-    // 访问统计
-    private final Map<String, EndpointAccessLog> accessLogs = new ConcurrentHashMap<>();
-    
+
+    /**
+     * 创建安全只读端点。
+     *
+     * @param healthCalculator 健康评分计算器
+     * @param statsAggregator 统计聚合器
+     */
     public SecureTfiEndpoint(
-            @Nullable TfiConfig tfiConfig,
-            MeterRegistry meterRegistry,
-            @Nullable PathMatcherCacheInterface pathMatcherCache,
             TfiHealthCalculator healthCalculator,
             TfiStatsAggregator statsAggregator) {
-        
-        this.tfiConfig = tfiConfig;
-        this.meterRegistry = meterRegistry;
-        this.pathMatcherCache = pathMatcherCache;
         this.healthCalculator = healthCalculator;
         this.statsAggregator = statsAggregator;
     }
@@ -80,45 +69,30 @@ public class SecureTfiEndpoint {
     /**
      * TaskFlow 监控数据汇总。
      *
-     * @return 包含 version、enabled、uptime、components、stats、healthScore、config 的 Map
+     * @return 只包含版本、Flow开关、Context统计与健康结果的Map
      */
     @ReadOperation
     public Map<String, Object> taskflow() {
-        recordAccess("taskflow");
-
         return getCachedResponse("taskflow", () -> {
+            ContextMetrics contextMetrics = SafeContextManager.getInstance().metrics();
             Map<String, Object> response = new HashMap<>();
 
             // 基础信息
-            response.put("version", "3.0.0-MVP");
-            response.put("enabled", getGlobalEnabled());
+            response.put("version", "4.0.0");
+            response.put("enabled", TfiFlow.isEnabled());
             response.put("uptime", Duration.between(startupTime, Instant.now()).toString());
             response.put("timestamp", Instant.now().toString());
 
             // 组件状态
-            response.put("components", getComponentStatus());
+            response.put("components", getComponentStatus(contextMetrics));
 
-            // 基础统计（脱敏）
-            Map<String, Object> basicStats = new HashMap<>();
-            basicStats.put("activeContexts", ThreadContext.getActiveContextCount());
-            basicStats.put("totalChanges", statsAggregator.getTotalChangesCount());
-            basicStats.put("activeSessions", statsAggregator.getActiveSessionCount());
-            basicStats.put("errorRate", calculateErrorRate());
-            response.put("stats", basicStats);
+            // 只发布Core真实指标；Compare没有history owner，不能补零changes/session统计。
+            response.put("stats", statsAggregator.aggregateStats(contextMetrics));
 
             // 健康评分
-            int healthScore = healthCalculator.calculateScore();
+            int healthScore = healthCalculator.calculateScore(contextMetrics);
             response.put("healthScore", healthScore);
             response.put("healthLevel", healthCalculator.getHealthLevel(healthScore));
-
-            // 配置摘要
-            if (tfiConfig != null) {
-                Map<String, Object> configSummary = new HashMap<>();
-                configSummary.put("changeTrackingEnabled", tfiConfig.changeTracking().enabled());
-                configSummary.put("leakDetectionEnabled", tfiConfig.context().leakDetectionEnabled());
-                configSummary.put("dataMaskingEnabled", tfiConfig.security().enableDataMasking());
-                response.put("config", configSummary);
-            }
 
             return response;
         });
@@ -126,7 +100,7 @@ public class SecureTfiEndpoint {
     
     // ===== 辅助方法 =====
     
-    private Map<String, Object> getCachedResponse(String key, java.util.function.Supplier<Map<String, Object>> generator) {
+    private Map<String, Object> getCachedResponse(String key, Supplier<Map<String, Object>> generator) {
         CachedResponse cached = responseCache.get(key);
         long now = System.currentTimeMillis();
         
@@ -146,71 +120,11 @@ public class SecureTfiEndpoint {
         return cached.getResponse();
     }
     
-    private void recordAccess(String operation) {
-        String key = operation + "_" + System.currentTimeMillis();
-        accessLogs.put(key, new EndpointAccessLog(operation, Instant.now()));
-        
-        // 控制访问日志大小
-        if (accessLogs.size() > accessLogMaxSize) {
-            accessLogs.entrySet().removeIf(entry -> 
-                Duration.between(entry.getValue().getTimestamp(), Instant.now()).toMinutes() > accessLogRetentionMinutes);
-        }
-    }
-    
-    private boolean getGlobalEnabled() {
-        // 运行态开关优先：Flow 被禁用时，端点也应报告为禁用
-        if (!TfiFlow.isEnabled()) {
-            return false;
-        }
-        if (tfiConfig == null) {
-            // 未注入配置时：保持可用（只读端点不做“硬禁用”）
-            return true;
-        }
-        try {
-            return Boolean.TRUE.equals(tfiConfig.enabled());
-        } catch (Throwable t) {
-            return true;
-        }
-    }
-
-    private boolean isChangeTrackingEnabled() {
-        if (!getGlobalEnabled()) {
-            return false;
-        }
-        if (tfiConfig == null) {
-            return true;
-        }
-        try {
-            return tfiConfig.changeTracking().enabled();
-        } catch (Throwable t) {
-            return true;
-        }
-    }
-    
-    private Map<String, Object> getComponentStatus() {
-        Map<String, Object> components = new HashMap<>();
-        
-        components.put("changeTracking", isChangeTrackingEnabled() ? "ENABLED" : "DISABLED");
-        components.put("pathCache", (pathMatcherCache != null) ? "AVAILABLE" : "UNAVAILABLE");
-        components.put("dataMasking",
-            (tfiConfig != null && tfiConfig.security() != null && tfiConfig.security().enableDataMasking())
-                ? "ENABLED"
-                : "DISABLED");
-        components.put("threadContext", "AVAILABLE");
-        
-        return components;
-    }
-    
-    private double calculateErrorRate() {
-        // 简化实现，返回模拟错误率
-        return 0.0;
-    }
-    
-    private int getRecentAccessCount() {
-        Instant oneHourAgo = Instant.now().minus(Duration.ofHours(1));
-        return (int) accessLogs.values().stream()
-            .filter(log -> log.getTimestamp().isAfter(oneHourAgo))
-            .count();
+    private Map<String, Object> getComponentStatus(ContextMetrics metrics) {
+        Map<String, Object> components = new LinkedHashMap<>();
+        components.put("flow", TfiFlow.isEnabled() ? "ENABLED" : "DISABLED");
+        components.put("context", metrics.detectedLeaks() == 0 ? "HEALTHY" : "LEAKS_DETECTED");
+        return Map.copyOf(components);
     }
     
 }

@@ -1,11 +1,9 @@
 package com.syy.taskflowinsight.tracking.ssot.key;
 
 import com.syy.taskflowinsight.annotation.Key;
-import com.syy.taskflowinsight.tracking.cache.ReflectionMetaCache;
 
 import java.lang.reflect.Field;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 单一事实源：稳定键生成
@@ -13,19 +11,37 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class EntityKeyUtils {
 
-    private static final Map<Class<?>, List<Field>> KEY_FIELDS_CACHE = new ConcurrentHashMap<>();
+    /**
+     * 按实体 Class 生命周期持有键字段元数据，避免进程级强键 Map 阻止 ClassLoader 卸载。
+     */
+    private static final ClassValue<List<Field>> KEY_FIELDS = new ClassValue<>() {
+        @Override
+        protected List<Field> computeValue(final Class<?> type) {
+            List<Field> result = new ArrayList<>();
+            Deque<Class<?>> hierarchy = new ArrayDeque<>();
+            for (Class<?> current = type;
+                    current != null && current != Object.class;
+                    current = current.getSuperclass()) {
+                hierarchy.push(current);
+            }
+            while (!hierarchy.isEmpty()) {
+                Class<?> current = hierarchy.pop();
+                for (Field field : current.getDeclaredFields()) {
+                    if (field.isAnnotationPresent(Key.class)) {
+                        field.setAccessible(true);
+                        result.add(field);
+                    }
+                }
+            }
+            return Collections.unmodifiableList(result);
+        }
+    };
     // 轻量缓存：引用标识字符串（弱键，避免内存泄漏）。注意：键通常稳定（@Key），如模型允许变更需谨慎使用。
     private static final java.util.Map<Object, String> REFERENCE_ID_CACHE =
         java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
     /** 受控未解析标记（用于降级或标注） */
     public static final String UNRESOLVED = "__UNRESOLVED__";
-
-    /**
-     * 可选的反射元数据缓存（由 Spring 配置注入）。
-     * 存在时用于获取类字段，减少反射开销。
-     */
-    private static volatile ReflectionMetaCache reflectionCache;
 
     private EntityKeyUtils() {}
 
@@ -75,7 +91,7 @@ public final class EntityKeyUtils {
     }
 
     /**
-     * 计算“紧凑键”（仅值，冒号连接），用于 entity[<compactKey>] 路径与索引映射。
+     * 计算“紧凑键”（仅值，冒号连接），用于 {@code entity[compactKey]} 路径与索引映射。
      * 单字段示例："1001"；复合："1001:US"。
      */
     public static Optional<String> tryComputeCompactKey(Object entity) {
@@ -107,40 +123,8 @@ public final class EntityKeyUtils {
      * @return @Key 字段列表（从父类到子类顺序，带缓存）
      */
     public static List<Field> collectKeyFields(Class<?> type) {
-        return KEY_FIELDS_CACHE.computeIfAbsent(type, t -> {
-            List<Field> res = new ArrayList<>();
-            Deque<Class<?>> stack = new ArrayDeque<>();
-            for (Class<?> c = t; c != null && c != Object.class; c = c.getSuperclass()) stack.push(c);
-            while (!stack.isEmpty()) {
-                Class<?> current = stack.pop();
-                List<Field> fields = getDeclaredFields(current);
-                for (Field f : fields) {
-                    if (f.isAnnotationPresent(Key.class)) {
-                        f.setAccessible(true);
-                        res.add(f);
-                    }
-                }
-            }
-            return Collections.unmodifiableList(res);
-        });
-    }
-
-    /**
-     * 从 ReflectionMetaCache 获取字段，若未配置则回退到 Class#getDeclaredFields。
-     */
-    private static List<Field> getDeclaredFields(Class<?> clazz) {
-        ReflectionMetaCache cache = reflectionCache;
-        if (cache != null) {
-            return cache.getFieldsOrResolve(clazz, ReflectionMetaCache::defaultFieldResolver);
-        }
-        return Arrays.asList(clazz.getDeclaredFields());
-    }
-
-    /**
-     * 注入 ReflectionMetaCache（由配置类在 Bean 创建后调用）。
-     */
-    public static void setReflectionMetaCache(ReflectionMetaCache cache) {
-        reflectionCache = cache;
+        Objects.requireNonNull(type, "type");
+        return KEY_FIELDS.get(type);
     }
 
     private static Optional<String> normalizeKeyComponent(Object v) {

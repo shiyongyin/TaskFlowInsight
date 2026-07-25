@@ -2,19 +2,22 @@ package com.syy.taskflowinsight.api;
 
 import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.core.TfiCore;
-import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
 import com.syy.taskflowinsight.exporter.json.JsonExporter;
+import com.syy.taskflowinsight.exporter.text.ConsoleExportOptions;
 import com.syy.taskflowinsight.exporter.text.ConsoleExporter;
 import com.syy.taskflowinsight.exporter.map.MapExporter;
-import com.syy.taskflowinsight.exporter.change.ChangeConsoleExporter;
-import com.syy.taskflowinsight.exporter.change.ChangeExporter;
-import com.syy.taskflowinsight.tracking.ChangeTracker;
-import com.syy.taskflowinsight.tracking.ChangeType;
-import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshot;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
+import com.syy.taskflowinsight.spi.ComparisonProvider;
+import com.syy.taskflowinsight.spi.ExportProvider;
+import com.syy.taskflowinsight.spi.FlowProvider;
+import com.syy.taskflowinsight.spi.RenderProvider;
+import com.syy.taskflowinsight.spi.TrackingProvider;
+import com.syy.taskflowinsight.tracking.compare.CompareResult;
+import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
@@ -46,19 +49,8 @@ public final class TFI {
     // 懒加载标记，确保兜底初始化只执行一次
     static volatile boolean fallbackInitialized = false;
 
-    // 比较服务（用于 compare API，优先使用 Spring Bean，否则兜底初始化）
-    static volatile com.syy.taskflowinsight.tracking.compare.CompareService compareService;
-
-    // Markdown渲染器（用于 render API，否则兜底初始化）
-    static volatile com.syy.taskflowinsight.tracking.render.MarkdownRenderer markdownRenderer;
-
     // ==================== Provider 缓存（v4.0.0 路由机制）====================
     // 缓存 Provider 实例，避免每次调用都查找（P95 < 100ns）
-    static volatile com.syy.taskflowinsight.spi.ComparisonProvider cachedComparisonProvider;
-    static volatile com.syy.taskflowinsight.spi.TrackingProvider cachedTrackingProvider;
-    static volatile com.syy.taskflowinsight.spi.FlowProvider cachedFlowProvider;
-    static volatile com.syy.taskflowinsight.spi.RenderProvider cachedRenderProvider;
-    static volatile com.syy.taskflowinsight.spi.ExportProvider cachedExportProvider;
 
     /**
      * 私有构造函数，防止实例化
@@ -109,15 +101,14 @@ public final class TFI {
     
     /**
      * 清理当前线程的所有上下文
+     *
+     * <p>禁用只停止新数据采集，不改变在途资源的释放责任；因此清理不能受 enabled 门控，
+     * 否则线程池中的 Context 会在运行期 disable 后永久驻留。
      */
     public static void clear() {
-        if (!isEnabled()) {
-            return;
-        }
-
         try {
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     provider.clear();
                 }
@@ -152,8 +143,8 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     return provider.startSession(sessionName.trim());
                 }
@@ -163,15 +154,16 @@ public final class TFI {
             ManagedThreadContext context = ManagedThreadContext.current();
             if (context == null) {
                 context = ManagedThreadContext.create(sessionName.trim());
-                Session session = context.getCurrentSession();
-                return session != null ? session.getSessionId() : null;
             } else {
-                if (context.getCurrentSession() != null && context.getCurrentSession().isActive()) {
-                    context.endSession();
-                }
-                Session session = context.startSession(sessionName.trim());
-                return session != null ? session.getSessionId() : null;
+                /*
+                 * G2 规定一 Session 一 Context。旧会话结束后旧 Context 已终止，
+                 * 下一会话必须创建新 owner，不能复用已注销实例。
+                 */
+                context.endSession();
+                context = ManagedThreadContext.create(sessionName.trim());
             }
+            Session session = context.getCurrentSession();
+            return session != null ? session.getSessionId() : null;
         } catch (Throwable t) {
             handleInternalError("Failed to start session: " + sessionName, t);
             return null;
@@ -181,22 +173,16 @@ public final class TFI {
     /**
      * 结束当前会话
      * 会清理所有变更追踪数据
+     *
+     * <p>与 {@link #clear()} 一致，禁用只停止采集，不能跳过在途 Context 的终止与注销。
      */
     public static void endSession() {
-        if (!isEnabled()) {
-            return;
-        }
-
         try {
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     provider.endSession();
-                    // 清理变更追踪数据
-                    if (isChangeTrackingEnabled()) {
-                        clearAllTracking();
-                    }
                     return;
                 }
             }
@@ -208,15 +194,6 @@ public final class TFI {
             }
         } catch (Throwable t) {
             handleInternalError("Failed to end session", t);
-        } finally {
-            // 清理变更追踪数据（三处清理之一）
-            if (isChangeTrackingEnabled()) {
-                try {
-                    ChangeTracker.clearAllTracking();
-                } catch (Throwable t) {
-                    handleInternalError("Failed to clear tracking in endSession", t);
-                }
-            }
         }
     }
     
@@ -294,15 +271,16 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     // 确保有活动会话
                     if (provider.currentSession() == null) {
                         provider.startSession("auto-session");
                     }
                     TaskNode taskNode = provider.startTask(taskName.trim());
-                    return taskNode != null ? new TaskContextImpl(taskNode) : NullTaskContext.INSTANCE;
+                    // 任务作用域必须保留创建时的 owner；子任务/close 期间 Registry 可能已切换，不能重新解析。
+                    return taskNode != null ? new TaskContextImpl(taskNode, provider) : NullTaskContext.INSTANCE;
                 }
             }
 
@@ -332,14 +310,9 @@ public final class TFI {
         }
 
         try {
-            // 先刷新变更记录（如果启用了变更追踪）
-            if (isChangeTrackingEnabled()) {
-                flushChangesToCurrentTask();
-            }
-
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     provider.endTask();
                     return;
@@ -353,15 +326,6 @@ public final class TFI {
             }
         } catch (Throwable t) {
             handleInternalError("Failed to stop task", t);
-        } finally {
-            // 清理变更追踪数据
-            if (isChangeTrackingEnabled()) {
-                try {
-                    ChangeTracker.clearAllTracking();
-                } catch (Throwable t) {
-                    handleInternalError("Failed to clear tracking in stop", t);
-                }
-            }
         }
     }
     
@@ -426,11 +390,10 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
-                    // Convert MessageType to label string
-                    provider.message(content.trim(), messageType.getDisplayName());
+                    provider.messageWithType(content.trim(), messageType);
                     return;
                 }
             }
@@ -460,8 +423,8 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     provider.message(content.trim(), customLabel.trim());
                     return;
@@ -491,10 +454,10 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
-                    provider.message(content.trim(), MessageType.ALERT.getDisplayName());
+                    provider.messageWithType(content.trim(), MessageType.ALERT);
                     return;
                 }
             }
@@ -528,10 +491,10 @@ public final class TFI {
             }
 
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
-                    provider.message(errorMessage, MessageType.ALERT.getDisplayName());
+                    provider.messageWithType(errorMessage, MessageType.ALERT);
                     return;
                 }
             }
@@ -561,8 +524,8 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     return provider.currentSession();
                 }
@@ -589,8 +552,8 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     return provider.currentTask();
                 }
@@ -617,8 +580,8 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing with grayscale control
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.FlowProvider provider = getFlowProvider();
+            {
+                FlowProvider provider = getFlowProvider();
                 if (provider != null) {
                     return provider.getTaskStack();
                 }
@@ -645,205 +608,6 @@ public final class TFI {
     // ==================== 变更追踪方法 ====================
     
     /**
-     * 追踪对象的变更
-     * 捕获对象的当前状态作为基线，后续可通过getChanges获取变更
-     * 
-     * @param name 对象名称（用于标识）
-     * @param target 要追踪的对象
-     * @param fields 要追踪的字段名，如果为空则追踪所有标量字段
-     */
-    public static void track(String name, Object target, String... fields) {
-        // 快速状态检查
-        if (!checkEnabled(true)) {
-            return;
-        }
-        
-        // 参数验证
-        if (name == null || name.trim().isEmpty()) {
-            logger.debug("Invalid tracking name: null or empty");
-            return;
-        }
-        if (target == null) {
-            logger.debug("Invalid tracking target: null for name '{}'", name);
-            return;
-        }
-
-        try {
-            // 路由分支：Provider 路由 vs Legacy 路径
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                // 新路由：使用 TrackingProvider
-                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
-                if (provider != null) {
-                    provider.track(name.trim(), target, fields);
-                    logger.debug("Tracked object '{}' via Provider with {} fields", name.trim(),
-                        fields != null ? fields.length : "all");
-                    return;
-                }
-                // Provider 为 null 时降级到 legacy 路径
-            }
-
-            // Legacy 路径：保持 v3.0.0 行为
-            ChangeTracker.track(name.trim(), target, fields);
-            logger.debug("Started tracking object '{}' with {} fields", name.trim(), 
-                fields != null ? fields.length : "all");
-        } catch (ChangeTracker.TrackingException trackingError) {
-            handleInternalError("Tracking failed for object: " + name, trackingError, ErrorLevel.WARN);
-        } catch (OutOfMemoryError memError) {
-            handleInternalError("Out of memory while tracking object: " + name, memError, ErrorLevel.FATAL);
-        } catch (Throwable t) {
-            handleInternalError("Unexpected error tracking object: " + name, t, ErrorLevel.ERROR);
-        }
-    }
-    
-    /**
-     * 批量追踪多个对象（优化版）
-     * 支持分批处理大数据集，提升性能
-     * 
-     * @param targets 对象名称到对象的映射
-     */
-    public static void trackAll(Map<String, Object> targets) {
-        // 快速状态检查
-        if (!checkEnabled(true)) {
-            return;
-        }
-
-        if (targets == null || targets.isEmpty()) {
-            logger.debug("Invalid targets for batch tracking: null or empty");
-            return;
-        }
-
-        try {
-            // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
-                if (provider != null) {
-                    provider.trackAll(targets);
-                    logger.debug("Tracked {} objects via Provider", targets.size());
-                    return;
-                }
-            }
-
-            // Legacy path with batch processing (v3.0.0 behavior)
-            int batchSize = 50; // 优化的批次大小
-            int totalSize = targets.size();
-
-            // 大批量警告
-            if (totalSize > 100) {
-                logger.warn("Large batch tracking request: {} objects (will process in batches)", totalSize);
-            }
-
-            // 分批处理优化
-            if (totalSize > batchSize) {
-                long startTime = System.nanoTime();
-                int processed = 0;
-                Map<String, Object> batch = new java.util.HashMap<>(batchSize);
-
-                for (Map.Entry<String, Object> entry : targets.entrySet()) {
-                    batch.put(entry.getKey(), entry.getValue());
-
-                    if (batch.size() >= batchSize) {
-                        // 处理当前批次
-                        ChangeTracker.trackAll(batch);
-                        processed += batch.size();
-                        batch.clear();
-
-                        // 防止长时间占用CPU
-                        if (processed % 200 == 0) {
-                            Thread.yield();
-                        }
-                    }
-                }
-
-                // 处理剩余的对象
-                if (!batch.isEmpty()) {
-                    ChangeTracker.trackAll(batch);
-                    processed += batch.size();
-                }
-
-                long durationMs = (System.nanoTime() - startTime) / 1_000_000;
-                logger.info("Batch tracking completed: {} objects in {}ms ({} obj/ms)",
-                    processed, durationMs,
-                    durationMs > 0 ? processed / durationMs : processed);
-            } else {
-                // 小批量直接处理
-                ChangeTracker.trackAll(targets);
-                logger.debug("Started batch tracking for {} objects", totalSize);
-            }
-
-        } catch (ChangeTracker.TrackingException trackingError) {
-            handleInternalError("Batch tracking failed for " + targets.size() + " objects",
-                trackingError, ErrorLevel.WARN);
-        } catch (OutOfMemoryError memError) {
-            handleInternalError("Out of memory during batch tracking", memError, ErrorLevel.FATAL);
-        } catch (Throwable t) {
-            handleInternalError("Unexpected error in batch tracking", t, ErrorLevel.ERROR);
-        }
-    }
-    
-    /**
-     * 深度追踪对象（包括嵌套对象和集合）
-     * 使用默认的深度追踪配置
-     * 
-     * @param name 对象名称（用于标识）
-     * @param target 要追踪的对象
-     */
-    public static void trackDeep(String name, Object target) {
-        trackDeep(name, target, TrackingOptions.deep());
-    }
-    
-    /**
-     * 使用自定义配置深度追踪对象
-     * 
-     * @param name 对象名称（用于标识）
-     * @param target 要追踪的对象
-     * @param options 追踪配置选项
-     */
-    public static void trackDeep(String name, Object target, TrackingOptions options) {
-        // 快速状态检查
-        if (!checkEnabled(true)) {
-            return;
-        }
-
-        // 参数验证
-        if (name == null || name.trim().isEmpty()) {
-            logger.debug("Invalid tracking name: null or empty");
-            return;
-        }
-        if (target == null) {
-            logger.debug("Invalid tracking target: null for name '{}'", name);
-            return;
-        }
-        if (options == null) {
-            logger.debug("Invalid tracking options: null for name '{}'", name);
-            return;
-        }
-
-        try {
-            // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
-                if (provider != null) {
-                    provider.trackDeep(name.trim(), target, options);
-                    logger.debug("Deep tracked object '{}' via Provider with depth={}, maxDepth={}",
-                        name.trim(), options.getDepth(), options.getMaxDepth());
-                    return;
-                }
-            }
-
-            // Legacy path (v3.0.0 behavior)
-            ChangeTracker.track(name.trim(), target, options);
-            logger.debug("Started deep tracking object '{}' with depth={}, maxDepth={}",
-                name.trim(), options.getDepth(), options.getMaxDepth());
-        } catch (ChangeTracker.TrackingException trackingError) {
-            handleInternalError("Deep tracking failed for object: " + name, trackingError, ErrorLevel.WARN);
-        } catch (OutOfMemoryError memError) {
-            handleInternalError("Out of memory while deep tracking object: " + name, memError, ErrorLevel.FATAL);
-        } catch (Throwable t) {
-            handleInternalError("Unexpected error deep tracking object: " + name, t, ErrorLevel.ERROR);
-        }
-    }
-    
-    /**
      * 创建自定义追踪配置的构建器
      * 
      * @return TrackingOptions构建器
@@ -853,304 +617,25 @@ public final class TFI {
     }
     
     /**
-     * 获取所有追踪对象的变更记录
-     * 捕获当前状态，与基线对比，返回增量变更，并更新基线
-     * 
-     * @return 变更记录列表，如果禁用或失败返回空列表
-     */
-    public static List<ChangeRecord> getChanges() {
-        // 快速状态检查
-        if (!checkEnabled(true)) {
-            return List.of();
-        }
-
-        try {
-            // 路由分支：Provider 路由 vs Legacy 路径
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                // 新路由：使用 TrackingProvider
-                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
-                if (provider != null) {
-                    List<ChangeRecord> changes = provider.changes();
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Retrieved {} change records via Provider", changes.size());
-                    }
-                    return changes;
-                }
-                // Provider 为 null 时降级到 legacy 路径
-            }
-
-            // Legacy 路径：保持 v3.0.0 行为
-            List<ChangeRecord> changes = ChangeTracker.getChanges();
-            if (logger.isDebugEnabled()) {
-                logger.debug("Retrieved {} change records from {} tracked objects", 
-                    changes.size(), ChangeTracker.getTrackedCount());
-            }
-            return changes;
-        } catch (ChangeTracker.TrackingException trackingError) {
-            handleInternalError("Change detection failed", trackingError, ErrorLevel.WARN);
-            return List.of();
-        } catch (OutOfMemoryError memError) {
-            handleInternalError("Out of memory during change detection", memError, ErrorLevel.FATAL);
-            return List.of();
-        } catch (Throwable t) {
-            handleInternalError("Unexpected error getting changes", t, ErrorLevel.ERROR);
-            return List.of();
-        }
-    }
-    
-    /**
-     * 获取所有变更记录
-     * 
-     * @return 所有变更记录列表
-     */
-    public static List<ChangeRecord> getAllChanges() {
-        return getChanges();
-    }
-    
-    /**
-     * 开始追踪对象
-     * 
-     * @param name 对象名称
-     */
-    public static void startTracking(String name) {
-        // 简化版本，创建一个空对象来追踪
-        track(name, new Object());
-    }
-    
-    /**
-     * 手动记录变更
-     * 
-     * @param objectName 对象名称
-     * @param fieldName 字段名称
-     * @param oldValue 旧值
-     * @param newValue 新值
-     * @param changeType 变更类型
-     */
-    public static void recordChange(String objectName, String fieldName, Object oldValue, Object newValue, ChangeType changeType) {
-        if (!isChangeTrackingEnabled()) {
-            return;
-        }
-
-        try {
-            // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
-                if (provider != null) {
-                    provider.recordChange(objectName, fieldName, oldValue, newValue, changeType);
-                    logger.debug("Recorded change via Provider: {}.{}", objectName, fieldName);
-                    return;
-                }
-            }
-
-            // Legacy path (v3.0.0 behavior) - manual ChangeRecord construction
-            ChangeRecord change = ChangeRecord.builder()
-                .objectName(objectName)
-                .fieldName(fieldName)
-                .oldValue(oldValue)
-                .newValue(newValue)
-                .changeType(changeType)
-                .timestamp(System.currentTimeMillis())
-                .build();
-
-            // 记录到当前任务
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context != null) {
-                TaskNode currentTask = context.getCurrentTask();
-                if (currentTask != null) {
-                    String changeMessage = String.format("%s.%s: %s → %s",
-                        objectName, fieldName,
-                        formatValueSafe(oldValue),
-                        formatValueSafe(newValue));
-                    currentTask.addMessage(changeMessage, MessageType.CHANGE);
-                }
-            }
-        } catch (Exception e) {
-            handleInternalError("Failed to record manual change", e, ErrorLevel.WARN);
-        }
-    }
-    
-    /**
-     * 清理特定会话的追踪数据
+     * 在业务action两侧建立词法化tracking scope。
      *
-     * @param sessionId 会话ID
-     */
-    public static void clearTracking(String sessionId) {
-        // 参数验证
-        if (sessionId == null || sessionId.isEmpty()) {
-            logger.debug("Invalid sessionId for clearTracking: null or empty");
-            return;
-        }
-
-        try {
-            // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
-                if (provider != null) {
-                    provider.clearTracking(sessionId);
-                    logger.debug("Cleared tracking for session via Provider: {}", sessionId);
-                    return;
-                }
-            }
-
-            // Legacy path (v3.0.0 behavior)
-            ChangeTracker.clearBySessionId(sessionId);
-            logger.debug("Cleared tracking for session: {}", sessionId);
-        } catch (ChangeTracker.TrackingException trackingError) {
-            handleInternalError("Failed to clear tracking for session " + sessionId, trackingError, ErrorLevel.WARN);
-        } catch (Exception e) {
-            handleInternalError("Unexpected error clearing tracking for session " + sessionId, e, ErrorLevel.ERROR);
-        }
-    }
-    
-    /**
-     * 清理当前线程的所有追踪数据
-     */
-    public static void clearAllTracking() {
-        // 状态检查（即使禁用也应该能清理）
-        if (!isEnabled()) {
-            return;
-        }
-
-        try {
-            // 路由分支：Provider 路由 vs Legacy 路径
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                // 新路由：使用 TrackingProvider
-                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
-                if (provider != null) {
-                    provider.clear();
-                    logger.debug("Cleared tracking via Provider");
-                    return;
-                }
-                // Provider 为 null 时降级到 legacy 路径
-            }
-
-            // Legacy 路径：保持 v3.0.0 行为
-            int trackedCount = ChangeTracker.getTrackedCount();
-            ChangeTracker.clearAllTracking();
-            logger.debug("Cleared tracking for {} objects", trackedCount);
-        } catch (ChangeTracker.TrackingException trackingError) {
-            handleInternalError("Failed to clear tracking data", trackingError, ErrorLevel.WARN);
-        } catch (Throwable t) {
-            handleInternalError("Unexpected error clearing tracking", t, ErrorLevel.ERROR);
-        }
-    }
-    
-    /**
-     * 便捷API：自动管理变更追踪的生命周期
-     * 在lambda执行前开始追踪，执行后自动获取变更并清理
+     * <p>该兼容入口保留void签名，不发布全局changes；需要结构化结果时应直接使用
+     * {@link TrackingExecutor#withTracked(String, Object, Runnable, CompareOptions)}。字段域属runtime policy，
+     * facade不会用legacy参数临时构造第二份比较语义。</p>
      *
-     * @param name 对象名称
-     * @param target 追踪目标对象
-     * @param action 要执行的业务逻辑
-     * @param fields 要追踪的字段名列表
+     * @param name process-local目标名，trim后必须非空
+     * @param target action期间被观察的业务对象
+     * @param action 只能由final executor调用一次的业务逻辑
+     * @param ignoredFields 仅保留的3.x兼容参数；不改变当前runtime equality domain
      */
-    public static void withTracked(String name, Object target, Runnable action, String... fields) {
-        // 参数验证（即使禁用追踪，也要执行业务逻辑）
-        if (!isChangeTrackingEnabled()) {
-            if (action != null) {
-                try {
-                    action.run();
-                } catch (Throwable t) {
-                    handleInternalError("Failed to execute action in withTracked (tracking disabled)", t, ErrorLevel.WARN);
-                }
-            }
-            return;
-        }
-
-        if (name == null || name.trim().isEmpty()) {
-            logger.debug("Invalid name for withTracked: null or empty");
-            if (action != null) {
-                try {
-                    action.run();
-                } catch (Throwable t) {
-                    handleInternalError("Failed to execute action in withTracked (invalid name)", t, ErrorLevel.WARN);
-                }
-            }
-            return;
-        }
-
-        if (target == null) {
-            logger.debug("Invalid target for withTracked: null for name '{}'", name);
-            if (action != null) {
-                try {
-                    action.run();
-                } catch (Throwable t) {
-                    handleInternalError("Failed to execute action in withTracked (null target)", t, ErrorLevel.WARN);
-                }
-            }
-            return;
-        }
-
-        try {
-            // v4.0.0 Provider routing
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.TrackingProvider provider = getTrackingProvider();
-                if (provider != null) {
-                    // 使用Provider的withTracked实现
-                    provider.withTracked(name.trim(), target, action, fields);
-
-                    // 获取变更并记录到当前任务
-                    List<ChangeRecord> changes = provider.changes();
-                    if (!changes.isEmpty()) {
-                        for (ChangeRecord change : changes) {
-                            String changeMessage = String.format("%s.%s: %s → %s",
-                                change.getObjectName(),
-                                change.getFieldName(),
-                                formatValueSafe(change.getOldValue()),
-                                formatValueSafe(change.getNewValue()));
-                            message(changeMessage, MessageType.CHANGE);
-                        }
-                    }
-
-                    logger.debug("Tracked {} changes via Provider for '{}'", changes.size(), name.trim());
-                    return;
-                }
-            }
-
-            // Legacy path (v3.0.0 behavior)
-            // 开始追踪
-            track(name, target, fields);
-
-            // 执行业务逻辑
-            if (action != null) {
-                action.run();
-            }
-
-            // 获取变更并记录
-            List<ChangeRecord> changes = getChanges();
-            if (!changes.isEmpty()) {
-                // 将变更记录到当前任务
-                for (ChangeRecord change : changes) {
-                    String changeMessage = String.format("%s.%s: %s → %s",
-                        change.getObjectName(),
-                        change.getFieldName(),
-                        formatValueSafe(change.getOldValue()),
-                        formatValueSafe(change.getNewValue()));
-                    message(changeMessage, MessageType.CHANGE);
-                }
-            }
-        } catch (ChangeTracker.TrackingException trackingError) {
-            handleInternalError("Tracking failed in withTracked for: " + name, trackingError, ErrorLevel.WARN);
-            // 即使追踪失败，也尝试执行业务逻辑（如果还没执行）
-            if (action != null) {
-                try {
-                    action.run();
-                } catch (Throwable actionError) {
-                    handleInternalError("Action execution failed after tracking error", actionError, ErrorLevel.ERROR);
-                }
-            }
-        } catch (OutOfMemoryError memError) {
-            handleInternalError("Out of memory in withTracked for: " + name, memError, ErrorLevel.FATAL);
-        } catch (Throwable t) {
-            handleInternalError("Unexpected error in withTracked for: " + name, t, ErrorLevel.ERROR);
-        } finally {
-            // 清理追踪数据
-            try {
-                clearAllTracking();
-            } catch (Throwable cleanupError) {
-                handleInternalError("Failed to clear tracking in withTracked", cleanupError, ErrorLevel.WARN);
-            }
-        }
+    public static void withTracked(String name, Object target, Runnable action, String... ignoredFields) {
+        TrackingProvider provider = getTrackingProvider();
+        // 只有provider runtime能定义字段域；facade不根据单次参数分叉出第二套policy。
+        new TrackingExecutor(provider).withTracked(
+                name,
+                target,
+                action,
+                CompareOptions.builder().build());
     }
     
     /**
@@ -1175,19 +660,21 @@ public final class TFI {
     }
     
     // ==================== 导出方法 ====================
-    
+
     /**
-     * 导出当前会话到控制台（默认简化输出，无时间戳）
+     * 导出当前会话为 TREE 控制台诊断文本，不显示消息时间戳。
      */
     public static void exportToConsole() {
         exportToConsole(false);
     }
 
     /**
-     * 导出当前会话的任务树到控制台
+     * 导出当前会话为 TREE 控制台诊断文本。
      *
-     * @param showTimestamp 是否显示时间戳
-     * @return
+     * <p>{@code showTimestamp} 只控制消息时间戳；routing 开关只选择会话解析路径，不改变输出样式。
+     *
+     * @param showTimestamp 是否显示消息时间戳
+     * @return 有当前会话且完成导出时返回 true，否则返回 false
      */
     public static boolean exportToConsole(boolean showTimestamp) {
         if (!isEnabled()) {
@@ -1196,22 +683,19 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing with grayscale control
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+            {
+                ExportProvider provider = getExportProvider();
                 if (provider != null) {
                     return provider.exportToConsole(showTimestamp);
                 }
             }
 
-            // Legacy path (v3.0.0 behavior)
+            // Legacy 只负责解析当前 Session；Console style/timestamp 契约不随 routing 开关变化。
             Session session = getCurrentSession();
             if (session != null) {
-                ConsoleExporter exporter = new ConsoleExporter();
-                if (showTimestamp) {
-                    exporter.print(session);
-                } else {
-                    exporter.printSimple(session);
-                }
+                ConsoleExportOptions options = new ConsoleExportOptions(
+                        ConsoleExportOptions.ConsoleStyle.TREE, showTimestamp);
+                new ConsoleExporter().print(session, System.out, options);
                 return true;
             }
             return false;
@@ -1233,8 +717,8 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing with grayscale control
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+            {
+                ExportProvider provider = getExportProvider();
                 if (provider != null) {
                     return provider.exportToJson();
                 }
@@ -1265,8 +749,8 @@ public final class TFI {
 
         try {
             // v4.0.0 Provider routing with grayscale control
-            if (com.syy.taskflowinsight.config.TfiFeatureFlags.isRoutingEnabled()) {
-                com.syy.taskflowinsight.spi.ExportProvider provider = getExportProvider();
+            {
+                ExportProvider provider = getExportProvider();
                 if (provider != null) {
                     return provider.exportToMap();
                 }
@@ -1300,17 +784,7 @@ public final class TFI {
         synchronized (TFI.class) {
             if (core == null && !fallbackInitialized) {
                 try {
-                    // 创建默认配置（与TaskFlowInsightDemo中的保持一致）
-                    TfiConfig defaultConfig = new TfiConfig(
-                        true, // 启用TFI
-                        new TfiConfig.ChangeTracking(true, null, null, null, null, null, null, null), // 启用变更追踪
-                        new TfiConfig.Context(null, null, null, null, null),
-                        new TfiConfig.Metrics(null, null, null),
-                        new TfiConfig.Security(null, null)
-                    );
-                    
-                    // 创建TfiCore实例
-                    core = new TfiCore(defaultConfig);
+                    core = new TfiCore();
                     fallbackInitialized = true;
                     
                     logger.info("TFI fallback initialization completed - running in non-Spring mode with default configuration");
@@ -1326,166 +800,16 @@ public final class TFI {
         }
     }
 
-    
-    
-    /**
-     * 刷新变更记录到当前任务（增强版）
-     * 获取所有变更，使用统一导出器格式化，批量写入当前任务节点
-     * 支持敏感信息处理和性能监控
-     */
-    private static void flushChangesToCurrentTask() {
-        long startTime = System.nanoTime();
-        int processedChanges = 0;
-        
-        try {
-            // 1. 获取变更记录
-            List<ChangeRecord> changes = ChangeTracker.getChanges();
-            
-            if (changes.isEmpty()) {
-                logger.debug("No changes to flush");
-                return;
-            }
-            
-            // 2. 验证上下文
-            ManagedThreadContext context = ManagedThreadContext.current();
-            if (context == null) {
-                logger.warn("No thread context available for flushing changes");
-                return;
-            }
-            
-            TaskNode currentTask = context.getCurrentTask();
-            if (currentTask == null) {
-                logger.warn("No current task to flush {} changes to", changes.size());
-                return;
-            }
-            
-            // 3. 批量处理变更记录
-            try {
-                // 使用ChangeConsoleExporter格式化（与Round 3一致）
-                ChangeConsoleExporter exporter = new ChangeConsoleExporter();
-                ChangeExporter.ExportConfig config = new ChangeExporter.ExportConfig();
-                config.setIncludeSensitiveInfo(false); // 默认脱敏敏感信息
-                config.setShowTimestamp(false); // 任务节点有自己的时间戳
-                
-                // 单独格式化每个变更以便逐条添加
-                for (ChangeRecord change : changes) {
-                    try {
-                        // 使用统一格式化器
-                        String formattedMessage = formatSingleChange(change, exporter, config);
-                        currentTask.addMessage(formattedMessage, MessageType.CHANGE);
-                        processedChanges++;
-                    } catch (Exception e) {
-                        logger.warn("Failed to format change record {}.{}: {}", 
-                            change.getObjectName(), change.getFieldName(), e.getMessage());
-                        // 降级处理：使用简单格式
-                        String fallbackMessage = formatChangeMessageFallback(change);
-                        currentTask.addMessage(fallbackMessage, MessageType.CHANGE);
-                        processedChanges++;
-                    }
-                }
-                
-                // 4. 记录统计信息
-                long durationNanos = System.nanoTime() - startTime;
-                logger.debug("Flushed {} change records to task '{}' in {}μs", 
-                    processedChanges, currentTask.getTaskName(), durationNanos / 1000);
-                
-            } catch (Exception batchError) {
-                logger.error("Batch processing failed for {} changes: {}", 
-                    changes.size(), batchError.getMessage());
-                
-                // 降级到最简单的处理方式
-                for (ChangeRecord change : changes) {
-                    try {
-                        String simpleMessage = formatChangeMessageFallback(change);
-                        currentTask.addMessage(simpleMessage, MessageType.CHANGE);
-                        processedChanges++;
-                    } catch (Exception individualError) {
-                        logger.error("Critical: Failed to record individual change {}.{}: {}", 
-                            change.getObjectName(), change.getFieldName(), individualError.getMessage());
-                    }
-                }
-            }
-            
-        } catch (ChangeTracker.TrackingException trackingError) {
-            // 变更追踪层面的异常
-            logger.error("ChangeTracker error during flush: {}", trackingError.getMessage());
-            if (logger.isDebugEnabled()) {
-                logger.debug("ChangeTracker error details", trackingError);
-            }
-        } catch (Exception criticalError) {
-            // 其他关键错误
-            logger.error("Critical error in flushChangesToCurrentTask: {}", criticalError.getMessage());
-            if (logger.isDebugEnabled() || Boolean.getBoolean("tfi.debug")) {
-                logger.error("Critical error details", criticalError);
-            }
-        } finally {
-            // 确保有处理过的变更数量记录
-            if (processedChanges > 0) {
-                long totalDurationNanos = System.nanoTime() - startTime;
-                logger.debug("Flush operation completed: {}/{} changes in {}μs", 
-                    processedChanges, ChangeTracker.getTrackedCount(), totalDurationNanos / 1000);
-            }
-        }
-    }
-    
-    /**
-     * 使用统一导出器格式化单个变更
-     */
-    private static String formatSingleChange(ChangeRecord change, ChangeConsoleExporter exporter, 
-                                           ChangeExporter.ExportConfig config) {
-        // 创建单个变更的列表用于格式化
-        List<ChangeRecord> singleChangeList = List.of(change);
-        String fullOutput = exporter.format(singleChangeList, config);
-        
-        // 提取单行变更信息（去除头部和统计信息）
-        String[] lines = fullOutput.split("\n");
-        for (String line : lines) {
-            line = line.trim();
-            if (!line.isEmpty() && 
-                !line.startsWith("===") && 
-                !line.startsWith("Total changes:") &&
-                !line.startsWith("Summary:")) {
-                return line;
-            }
-        }
-        
-        // 如果解析失败，使用备用格式
-        return formatChangeMessageFallback(change);
-    }
-    
-    /**
-     * 备用变更格式化方法（最简格式，确保稳定）
-     */
-    private static String formatChangeMessageFallback(ChangeRecord change) {
-        return String.format("%s.%s: %s → %s",
-            change.getObjectName() != null ? change.getObjectName() : "Unknown",
-            change.getFieldName() != null ? change.getFieldName() : "field",
-            formatValueSafe(change.getOldValue()),
-            formatValueSafe(change.getNewValue()));
-    }
-    
-    /**
-     * 安全值格式化（防止异常）
-     */
-    private static String formatValueSafe(Object value) {
-        if (value == null) {
-            return "null";
-        }
-        try {
-            return ObjectSnapshot.repr(value);
-        } catch (Exception e) {
-            return String.valueOf(value);
-        }
-    }
-    
-    
     /**
      * 错误级别枚举
      */
     enum ErrorLevel {
-        WARN,    // 非关键错误，不影响核心功能
-        ERROR,   // 重要错误，影响当前操作
-        FATAL    // 严重错误，可能影响系统稳定性
+        /** 非关键基础设施错误，只影响当前观测能力。 */
+        WARN,
+        /** 当前观测操作失败，但不能改变业务流程控制权。 */
+        ERROR,
+        /** 可能破坏进程稳定性的错误，需要保留完整诊断。 */
+        FATAL
     }
     
     /**
@@ -1577,7 +901,7 @@ public final class TFI {
      * @since v3.0.0
      * @see TfiCompareDelegate#compare(Object, Object)
      */
-    public static com.syy.taskflowinsight.tracking.compare.CompareResult compare(Object a, Object b) {
+    public static CompareResult compare(Object a, Object b) {
         return TfiCompareDelegate.compare(a, b);
     }
 
@@ -1593,16 +917,29 @@ public final class TFI {
     }
 
     /**
-     * 渲染比较结果为 Markdown
+     * 按不可变布局选项渲染比较结果。
+     *
+     * <p>门面只构造一次安全projection并委托typed provider，布局选择不会改变字段或脱敏语义。</p>
      *
      * @param result 比较结果
-     * @param style 渲染样式（支持 RenderStyle 对象或字符串别名）
-     * @return Markdown 格式的渲染结果；失败时返回简单文本
+     * @param options 只选择Markdown或Console布局的不可变选项
+     * @return 已脱敏projection的诊断文本
      * @since v3.0.0
      * @see TfiCompareDelegate#render
      */
-    public static String render(com.syy.taskflowinsight.tracking.compare.CompareResult result, Object style) {
-        return TfiCompareDelegate.render(result, style);
+    public static String render(CompareResult result, RenderOptions options) {
+        return TfiCompareDelegate.render(result, options);
+    }
+
+    /**
+     * 使用唯一默认Markdown布局渲染比较结果。
+     *
+     * @param result 比较结果，不允许为null
+     * @return 已脱敏projection的Markdown诊断文本
+     * @since 4.0.0
+     */
+    public static String render(CompareResult result) {
+        return render(result, RenderOptions.defaults());
     }
 
     // ==================== SPI Provider注册方法 (v4.0.0) ====================
@@ -1616,27 +953,49 @@ public final class TFI {
      * @param provider ComparisonProvider实例
      * @since 4.0.0
      */
-    public static void registerComparisonProvider(com.syy.taskflowinsight.spi.ComparisonProvider provider) {
+    public static void registerComparisonProvider(ComparisonProvider provider) {
         TfiProviderDelegate.registerComparisonProvider(provider);
     }
 
-    /** @see TfiProviderDelegate#registerTrackingProvider */
-    public static void registerTrackingProvider(com.syy.taskflowinsight.spi.TrackingProvider provider) {
+    /**
+     * 在Registry冻结前注册typed TrackingProvider。
+     *
+     * <p>facade不缓存provider，也不吞掉冻结异常，避免形成第二套选择状态。</p>
+     *
+     * @param provider 只负责创建batch scope、不得持有业务action的provider
+     * @see TfiProviderDelegate#registerTrackingProvider
+     */
+    public static void registerTrackingProvider(TrackingProvider provider) {
         TfiProviderDelegate.registerTrackingProvider(provider);
     }
 
-    /** @see TfiProviderDelegate#registerFlowProvider */
-    public static void registerFlowProvider(com.syy.taskflowinsight.spi.FlowProvider provider) {
+    /**
+     * 在Registry冻结前注册Flow provider。
+     *
+     * @param provider 交由Core Registry选择的无状态Flow实现
+     * @see TfiProviderDelegate#registerFlowProvider
+     */
+    public static void registerFlowProvider(FlowProvider provider) {
         TfiProviderDelegate.registerFlowProvider(provider);
     }
 
-    /** @see TfiProviderDelegate#registerRenderProvider */
-    public static void registerRenderProvider(com.syy.taskflowinsight.spi.RenderProvider provider) {
+    /**
+     * 在Registry冻结前注册typed渲染provider。
+     *
+     * @param provider 只接收canonical projection与不可变布局选项的实现
+     * @see TfiProviderDelegate#registerRenderProvider
+     */
+    public static void registerRenderProvider(RenderProvider provider) {
         TfiProviderDelegate.registerRenderProvider(provider);
     }
 
-    /** @see TfiProviderDelegate#registerExportProvider */
-    public static void registerExportProvider(com.syy.taskflowinsight.spi.ExportProvider provider) {
+    /**
+     * 在Registry冻结前注册Flow会话导出provider。
+     *
+     * @param provider 负责会话导出且不参与Compare projection格式选择的实现
+     * @see TfiProviderDelegate#registerExportProvider
+     */
+    public static void registerExportProvider(ExportProvider provider) {
         TfiProviderDelegate.registerExportProvider(provider);
     }
 
@@ -1652,23 +1011,23 @@ public final class TFI {
 
     // ==================== Provider 获取方法（委托给 TfiProviderDelegate）====================
 
-    private static com.syy.taskflowinsight.spi.ComparisonProvider getComparisonProvider() {
+    private static ComparisonProvider getComparisonProvider() {
         return TfiProviderDelegate.getComparisonProvider();
     }
 
-    private static com.syy.taskflowinsight.spi.TrackingProvider getTrackingProvider() {
+    private static TrackingProvider getTrackingProvider() {
         return TfiProviderDelegate.getTrackingProvider();
     }
 
-    private static com.syy.taskflowinsight.spi.FlowProvider getFlowProvider() {
+    private static FlowProvider getFlowProvider() {
         return TfiProviderDelegate.getFlowProvider();
     }
 
-    private static com.syy.taskflowinsight.spi.RenderProvider getRenderProvider() {
+    private static RenderProvider getRenderProvider() {
         return TfiProviderDelegate.getRenderProvider();
     }
 
-    private static com.syy.taskflowinsight.spi.ExportProvider getExportProvider() {
+    private static ExportProvider getExportProvider() {
         return TfiProviderDelegate.getExportProvider();
     }
 }

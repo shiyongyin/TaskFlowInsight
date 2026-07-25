@@ -1,0 +1,49 @@
+{
+  "properties": [
+    {
+      "name": "tfi.compare.enabled",
+      "type": "java.lang.Boolean",
+      "description": "当前上下文是否执行比较。旧 tfi.change-tracking.enabled 仅作为启动期迁移别名；tfi.enabled 不属于 Compare 配置。"
+    },
+    {
+      "name": "tfi.compare.max-depth",
+      "type": "java.lang.Integer",
+      "description": "对象比较的逻辑深度上限。旧 tfi.change-tracking.snapshot.max-depth 仅作为启动期迁移别名。"
+    },
+    {
+      "name": "tfi.compare.max-elements",
+      "type": "java.lang.Integer",
+      "description": "单次比较两侧容器成员的合计预算。旧 snapshot.max-elements key 仅作为启动期迁移别名。"
+    },
+    {
+      "name": "tfi.compare.deadline",
+      "type": "java.time.Duration",
+      "description": "不包含业务 action 时间的协作式时限。旧 snapshot.time-budget-ms key 仅作为启动期迁移别名。"
+    },
+    {
+      "name": "tfi.compare.max-change-details",
+      "type": "java.lang.Integer",
+      "description": "可发布的 canonical change 数量上限。旧 diff.max-changes-per-object key 仅作为启动期迁移别名。"
+    },
+    {
+      "name": "tfi.compare.max-result-value-chars",
+      "type": "java.lang.Integer",
+      "description": "单个 scalar 结果事实的字符预算。旧 value-repr-max-length key 仅作为启动期迁移别名。"
+    },
+    {
+      "name": "tfi.compare.numeric-absolute-tolerance",
+      "type": "java.math.BigDecimal",
+      "description": "numeric equality 的非负绝对容差。旧 numeric.float-tolerance key 仅作为启动期迁移别名。"
+    },
+    {
+      "name": "tfi.compare.numeric-relative-tolerance",
+      "type": "java.lang.Double",
+      "description": "numeric equality 的有限相对容差。旧 numeric.relative-tolerance key 仅作为启动期迁移别名。"
+    },
+    {
+      "name": "tfi.compare.temporal-tolerance",
+      "type": "java.time.Duration",
+      "description": "同类 temporal 值允许的最大时间差。旧 datetime.tolerance-ms key 仅作为启动期迁移别名。"
+    }
+  ]
+}

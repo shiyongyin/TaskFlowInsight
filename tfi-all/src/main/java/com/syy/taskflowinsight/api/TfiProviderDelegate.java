@@ -1,10 +1,17 @@
 package com.syy.taskflowinsight.api;
 
+import com.syy.taskflowinsight.spi.ComparisonProvider;
+import com.syy.taskflowinsight.spi.ExportProvider;
+import com.syy.taskflowinsight.spi.FlowProvider;
+import com.syy.taskflowinsight.spi.ProviderRegistry;
+import com.syy.taskflowinsight.spi.RenderProvider;
+import com.syy.taskflowinsight.spi.TrackingProvider;
+
 /**
  * TFI Provider 注册与查找委托（包级私有）。
  *
- * <p>处理 v4.0.0 SPI Provider 的注册、缓存查找和 ClassLoader 加载。
- * 所有 Provider 使用 DCL 缓存，缓存命中后 P95 &lt; 100ns。
+ * <p>处理 v4.0.0 SPI Provider 的注册、解析和 ClassLoader 加载。所有 Provider 的选择状态由
+ * {@link ProviderRegistry} 唯一持有，facade 只负责路由。
  *
  * @author TaskFlow Insight Team
  * @since 4.0.0
@@ -17,164 +24,61 @@ final class TfiProviderDelegate {
 
     // ==================== 注册方法 ====================
 
-    static void registerComparisonProvider(com.syy.taskflowinsight.spi.ComparisonProvider provider) {
-        try {
-            com.syy.taskflowinsight.spi.ProviderRegistry.register(
-                    com.syy.taskflowinsight.spi.ComparisonProvider.class, provider);
-            TFI.logger.info("Registered custom ComparisonProvider: {}",
-                    provider.getClass().getSimpleName());
-        } catch (Throwable t) {
-            TFI.handleInternalError("Failed to register ComparisonProvider", t);
-        }
+    static void registerComparisonProvider(ComparisonProvider provider) {
+        ProviderRegistry.register(ComparisonProvider.class, provider);
+        TFI.logger.info("Registered custom ComparisonProvider: {}", provider.getClass().getSimpleName());
     }
 
-    static void registerTrackingProvider(com.syy.taskflowinsight.spi.TrackingProvider provider) {
-        try {
-            com.syy.taskflowinsight.spi.ProviderRegistry.register(
-                    com.syy.taskflowinsight.spi.TrackingProvider.class, provider);
-            TFI.logger.info("Registered custom TrackingProvider: {}",
-                    provider.getClass().getSimpleName());
-        } catch (Throwable t) {
-            TFI.handleInternalError("Failed to register TrackingProvider", t);
-        }
+    static void registerTrackingProvider(TrackingProvider provider) {
+        ProviderRegistry.register(TrackingProvider.class, provider);
+        TFI.logger.info("Registered custom TrackingProvider: {}", provider.getClass().getSimpleName());
     }
 
-    static void registerFlowProvider(com.syy.taskflowinsight.spi.FlowProvider provider) {
-        try {
-            com.syy.taskflowinsight.spi.ProviderRegistry.register(
-                    com.syy.taskflowinsight.spi.FlowProvider.class, provider);
-            TFI.logger.info("Registered custom FlowProvider: {}",
-                    provider.getClass().getSimpleName());
-        } catch (Throwable t) {
-            TFI.handleInternalError("Failed to register FlowProvider", t);
-        }
+    static void registerFlowProvider(FlowProvider provider) {
+        ProviderRegistry.register(FlowProvider.class, provider);
+        TFI.logger.info("Registered custom FlowProvider: {}", provider.getClass().getSimpleName());
     }
 
-    static void registerRenderProvider(com.syy.taskflowinsight.spi.RenderProvider provider) {
-        try {
-            com.syy.taskflowinsight.spi.ProviderRegistry.register(
-                    com.syy.taskflowinsight.spi.RenderProvider.class, provider);
-            TFI.logger.info("Registered custom RenderProvider: {}",
-                    provider.getClass().getSimpleName());
-        } catch (Throwable t) {
-            TFI.handleInternalError("Failed to register RenderProvider", t);
-        }
+    static void registerRenderProvider(RenderProvider provider) {
+        ProviderRegistry.register(RenderProvider.class, provider);
+        TFI.logger.info("Registered custom RenderProvider: {}", provider.getClass().getSimpleName());
     }
 
-    static void registerExportProvider(com.syy.taskflowinsight.spi.ExportProvider provider) {
-        try {
-            com.syy.taskflowinsight.spi.ProviderRegistry.register(
-                    com.syy.taskflowinsight.spi.ExportProvider.class, provider);
-            TFI.logger.info("Registered custom ExportProvider: {}",
-                    provider.getClass().getSimpleName());
-        } catch (Throwable t) {
-            TFI.handleInternalError("Failed to register ExportProvider", t);
-        }
+    static void registerExportProvider(ExportProvider provider) {
+        ProviderRegistry.register(ExportProvider.class, provider);
+        TFI.logger.info("Registered custom ExportProvider: {}", provider.getClass().getSimpleName());
     }
 
     static void loadProviders(ClassLoader cl) {
-        try {
-            com.syy.taskflowinsight.spi.ProviderRegistry.loadProviders(cl);
-            TFI.logger.info("Loaded providers from custom ClassLoader: {}",
-                    cl.getClass().getName());
-        } catch (Throwable t) {
-            TFI.handleInternalError("Failed to load providers from ClassLoader", t);
-        }
+        ProviderRegistry.loadProviders(
+                cl,
+                FlowProvider.class,
+                ExportProvider.class,
+                ComparisonProvider.class,
+                TrackingProvider.class,
+                RenderProvider.class);
+        TFI.logger.info("Loaded providers from custom ClassLoader: {}", cl.getClass().getName());
     }
 
-    // ==================== 缓存查找方法 ====================
+    // ==================== Provider 解析方法 ====================
 
-    static com.syy.taskflowinsight.spi.ComparisonProvider getComparisonProvider() {
-        if (TFI.cachedComparisonProvider != null) {
-            return TFI.cachedComparisonProvider;
-        }
-        synchronized (TFI.class) {
-            if (TFI.cachedComparisonProvider == null) {
-                com.syy.taskflowinsight.spi.ComparisonProvider provider =
-                        com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
-                                com.syy.taskflowinsight.spi.ComparisonProvider.class);
-                if (provider == null) {
-                    provider = new com.syy.taskflowinsight.spi.DefaultComparisonProvider();
-                    TFI.logger.debug("Using default ComparisonProvider");
-                } else {
-                    TFI.logger.debug("Found ComparisonProvider: {} (priority={})",
-                            provider.getClass().getSimpleName(), provider.priority());
-                }
-                TFI.cachedComparisonProvider = provider;
-            }
-        }
-        return TFI.cachedComparisonProvider;
+    static ComparisonProvider getComparisonProvider() {
+        return ProviderRegistry.resolve(ComparisonProvider.class);
     }
 
-    static com.syy.taskflowinsight.spi.TrackingProvider getTrackingProvider() {
-        if (TFI.cachedTrackingProvider != null) {
-            return TFI.cachedTrackingProvider;
-        }
-        synchronized (TFI.class) {
-            if (TFI.cachedTrackingProvider == null) {
-                TFI.cachedTrackingProvider = com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
-                        com.syy.taskflowinsight.spi.TrackingProvider.class);
-                if (TFI.cachedTrackingProvider != null) {
-                    TFI.logger.debug("Found TrackingProvider: {} (priority={})",
-                            TFI.cachedTrackingProvider.getClass().getSimpleName(),
-                            TFI.cachedTrackingProvider.priority());
-                }
-            }
-        }
-        return TFI.cachedTrackingProvider;
+    static TrackingProvider getTrackingProvider() {
+        return ProviderRegistry.resolve(TrackingProvider.class);
     }
 
-    static com.syy.taskflowinsight.spi.FlowProvider getFlowProvider() {
-        if (TFI.cachedFlowProvider != null) {
-            return TFI.cachedFlowProvider;
-        }
-        synchronized (TFI.class) {
-            if (TFI.cachedFlowProvider == null) {
-                TFI.cachedFlowProvider = com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
-                        com.syy.taskflowinsight.spi.FlowProvider.class);
-                if (TFI.cachedFlowProvider != null) {
-                    TFI.logger.debug("Found FlowProvider: {} (priority={})",
-                            TFI.cachedFlowProvider.getClass().getSimpleName(),
-                            TFI.cachedFlowProvider.priority());
-                }
-            }
-        }
-        return TFI.cachedFlowProvider;
+    static FlowProvider getFlowProvider() {
+        return ProviderRegistry.resolve(FlowProvider.class);
     }
 
-    static com.syy.taskflowinsight.spi.RenderProvider getRenderProvider() {
-        if (TFI.cachedRenderProvider != null) {
-            return TFI.cachedRenderProvider;
-        }
-        synchronized (TFI.class) {
-            if (TFI.cachedRenderProvider == null) {
-                TFI.cachedRenderProvider = com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
-                        com.syy.taskflowinsight.spi.RenderProvider.class);
-                if (TFI.cachedRenderProvider != null) {
-                    TFI.logger.debug("Found RenderProvider: {} (priority={})",
-                            TFI.cachedRenderProvider.getClass().getSimpleName(),
-                            TFI.cachedRenderProvider.priority());
-                }
-            }
-        }
-        return TFI.cachedRenderProvider;
+    static RenderProvider getRenderProvider() {
+        return ProviderRegistry.resolve(RenderProvider.class);
     }
 
-    static com.syy.taskflowinsight.spi.ExportProvider getExportProvider() {
-        if (TFI.cachedExportProvider != null) {
-            return TFI.cachedExportProvider;
-        }
-        synchronized (TFI.class) {
-            if (TFI.cachedExportProvider == null) {
-                TFI.cachedExportProvider = com.syy.taskflowinsight.spi.ProviderRegistry.lookup(
-                        com.syy.taskflowinsight.spi.ExportProvider.class);
-                if (TFI.cachedExportProvider != null) {
-                    TFI.logger.debug("Found ExportProvider: {} (priority={})",
-                            TFI.cachedExportProvider.getClass().getSimpleName(),
-                            TFI.cachedExportProvider.priority());
-                }
-            }
-        }
-        return TFI.cachedExportProvider;
+    static ExportProvider getExportProvider() {
+        return ProviderRegistry.resolve(ExportProvider.class);
     }
 }

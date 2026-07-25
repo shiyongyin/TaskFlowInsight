@@ -4,6 +4,8 @@ import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.CompareService;
 
+import java.util.Objects;
+
 /**
  * 不可变上下文：持有 CompareService，并提供 compare 重载。
  * <p>
@@ -11,8 +13,7 @@ import com.syy.taskflowinsight.tracking.compare.CompareService;
  * 不暴露任何可变状态的 Setter。CompareService 在默认配置下为无状态或线程安全使用，
  * 可在多线程环境中复用同一个 {@code TfiContext} 实例进行 compare 调用。
  * </p>
- * <p>
- * 用法示例：
+ * <p>用法示例：</p>
  * <pre>{@code
  * TfiContext ctx = DiffBuilder.create()
  *     .withMaxDepth(5)
@@ -20,15 +21,14 @@ import com.syy.taskflowinsight.tracking.compare.CompareService;
  *     .build();
  * CompareResult r = ctx.compare(a, b);
  * }</pre>
- * </p>
  */
 public final class TfiContext {
     private final CompareService compareService;
     private final CompareOptions defaultOptions;
 
     TfiContext(CompareService svc, CompareOptions defaults) {
-        this.compareService = svc;
-        this.defaultOptions = (defaults != null ? defaults : CompareOptions.DEFAULT);
+        this.compareService = Objects.requireNonNull(svc, "svc");
+        this.defaultOptions = Objects.requireNonNull(defaults, "defaults");
     }
 
     /** 获取内部 CompareService（只读）。 */

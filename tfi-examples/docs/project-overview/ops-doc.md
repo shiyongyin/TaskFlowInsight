@@ -62,8 +62,8 @@ flowchart TB
 
     subgraph Artifacts["产出物"]
         AR1[JaCoCo 报告]
-        AR2[dependency-check-report.html]
-        AR3[tfi_routing_*.json]
+        AR2[target/dependency-check/<br/>HTML + JSON]
+        AR3[tfi-examples/target/perf/<br/>tfi-routing-*.json]
     end
 
     B --> AR1
@@ -79,8 +79,8 @@ flowchart TB
 | Job | 描述 | 产出物 |
 |-----|------|--------|
 | build-and-test | Java 21 编译、单元测试、JaCoCo 报告 | `tfi-compare/target/site/jacoco/`（保留 14 天） |
-| static-analysis | SpotBugs、Checkstyle、PMD（后两者 continue-on-error） | 无 |
-| dependency-check | OWASP Dependency-Check 漏洞扫描 | `dependency-check-report.html`（保留 14 天） |
+| static-analysis | SpotBugs 零缺陷门禁 + Checkstyle/PMD fingerprint non-regression | 三份 XML（保留 14 天） |
+| dependency-check | OWASP Dependency-Check，CVSS >= 7 阻断 | `target/dependency-check/` HTML + JSON（保留 14 天） |
 | api-compat | API 表面兼容性测试（ApiSurfaceCompatibilityTests） | 无 |
 
 ### perf-gate.yml
@@ -90,25 +90,26 @@ flowchart TB
 
 | Job | 描述 | 产出物 |
 |-----|------|--------|
-| perf-gate | 安装全模块、JMH 基准、PerfGateIT 验证 | `tfi_routing_enabled.json`, `tfi_routing_legacy.json` |
+| perf-gate | 真实 classpath forked JMH + parser contract + strict IT | `tfi-examples/target/perf/tfi-routing-*.json` |
 
 ### 其他 CI 工作流
 
 | 工作流 | 触发路径 | 主要 Job |
 |--------|----------|----------|
 | tfi-examples-ci | tfi-examples/** | build-and-test（单元测试） |
-| tfi-all-ci | tfi-all/** | build-and-test + JaCoCo |
-| tfi-flow-core-ci | tfi-flow-core/** | build-and-test |
-| tfi-flow-spring-starter-ci | tfi-flow-spring-starter/** | build-and-test |
-| tfi-ops-spring-ci | tfi-ops-spring/** | build-and-test |
+| tfi-all-ci | tfi-all/** | build-and-test + JaCoCo + static-analysis + API compatibility |
+| tfi-flow-core-ci | tfi-flow-core/** | build-and-test + static-analysis + API compatibility |
+| tfi-flow-spring-starter-ci | tfi-flow-spring-starter/** | build-and-test + static-analysis |
+| tfi-ops-spring-ci | tfi-ops-spring/** | build-and-test + static-analysis |
 
-### 流水线缺口
+### 流水线边界
 
-| 问题 | 风险 |
-|------|------|
-| 仅覆盖 tfi-compare | **高**: 其余模块无 CI |
-| SpotBugs/Checkstyle/PMD 不阻断构建 | **高**: 质量阀门失效 |
-| OWASP 仅 tfi-compare | 中 |
+| 边界 | 当前合同 |
+|------|----------|
+| 历史 Checkstyle/PMD 债务 | Starter/Compare/Ops/All 使用 repository-relative fingerprint ratchet；减少通过，新增或计数上升失败 |
+| SpotBugs | 各静态分析 job 保持零 finding 硬门禁 |
+| OWASP | 仅 Compare 依赖图执行；扫描/数据更新失败或 CVSS >= 7 均失败关闭 |
+| 性能 | 同一 job 新生成报告；缺失/无效 JSON 或 routing 比 legacy 劣化超过 5% 均失败 |
 
 ### 3.1 质量门禁详情
 
@@ -116,9 +117,10 @@ flowchart TB
 |------|-----------|:--------:|
 | **JaCoCo** | INSTRUCTION 覆盖率 ≥ 50%（排除 model/demo） | ✅ |
 | **SpotBugs** | effort=Max, threshold=High | ✅ |
-| **Checkstyle** | google_checks.xml, maxAllowedViolations=30000 | ❌ (continue-on-error) |
-| **PMD** | bestpractices/codestyle/design/errorprone/performance/security | ❌ (continue-on-error) |
-| **perf-gate** | < 5% 性能退化 | ❌ (continue-on-error) |
+| **Checkstyle** | google_checks.xml + 四模块 fingerprint/count ratchet | ✅ |
+| **PMD** | repository ruleset + 四模块 fingerprint/count ratchet | ✅ |
+| **OWASP** | Compare CVSS < 7，扫描必须成功 | ✅ |
+| **perf-gate** | routing 平均时延相对 legacy 劣化 ≤ 5% | ✅ |
 
 ---
 
@@ -215,11 +217,11 @@ flowchart TB
 
 | 现象 | 可能原因 | 解决方案 |
 |------|----------|----------|
-| **内存持续增长** | ThreadLocal 未清理、track 对象未释放 | 使用 `TFI.clear()` / try-with-resources；定期 `TFI.clearAllTracking()`；检查线程池是否调用 `TFIAwareExecutor` |
-| **Compare 耗时过长** | 大对象图、max-depth 过深 | 调低 `tfi.change-tracking.snapshot.max-depth`；对重字段使用 `@DiffIgnore`；考虑 shallow 策略 |
-| **上下文未传播到异步任务** | 未使用 TFIAwareExecutor | 线程池包装为 `TFIAwareExecutor`；或手动 `TFI.attach(sessionId)` |
+| **内存持续增长** | ThreadLocal 未清理、track 对象未释放 | 使用 `TFI.clear()` / try-with-resources；定期 `TFI.clearAllTracking()`；检查线程池是否通过 `ContextPropagatingExecutor.wrap(...)` 包装 |
+| **Compare 耗时过长** | 大对象图、max-depth 过深 | 调低 `tfi.compare.max-depth` 或 `tfi.compare.max-elements`；按结果 limitation 排查预算 |
+| **上下文未传播到异步任务** | 任务提交到未包装的线程池 | 使用 `ContextPropagatingExecutor.wrap(ExecutorService)`；或显式传播 Context 快照 |
 | **健康检查 DOWN** | 内存/CPU/缓存/错误率超阈值 | 查看 `/actuator/health` 详情；按 TfiHealthIndicator 维度逐项排查 |
-| **Actuator 404** | tfi-ops-spring 未引入或未启用 | 确认依赖、`tfi.enabled=true`、Actuator 暴露配置 |
+| **Actuator 404** | tfi-ops-spring 未引入或端点未暴露 | 确认依赖和 Actuator exposure 配置 |
 
 ---
 
@@ -235,8 +237,8 @@ flowchart TB
 
 **配置调优建议**：
 
-- `tfi.change-tracking.snapshot.max-depth`：默认 10，重度场景可降至 5–7
-- `tfi.change-tracking.max-tracked-objects`：默认 1000，按业务 QPS 调整
+- `tfi.compare.max-depth`：按对象图结构设置逻辑深度上限
+- `tfi.compare.max-compared-nodes`：按单次请求容量预算设置节点上限
 - `tfi.diff.heavy.field-threshold`：超过 50 字段时启用优化路径
 
 ---
@@ -248,10 +250,11 @@ TFI 为**无状态库**，不持久化数据，恢复流程简单：
 | 场景 | 影响 | 恢复步骤 |
 |------|------|----------|
 | 宿主应用重启 | 当前 Session/Task 丢失 | 无操作，重启后自动重建 |
-| 线程池线程死亡 | 该线程上下文丢失 | 使用 TFIAwareExecutor 可减少传播失败 |
+| 线程池线程死亡 | 该线程上下文丢失 | 使用 `ContextPropagatingExecutor` 统一任务传播与清理边界 |
 | 配置错误导致 TFI 不可用 | 功能降级为 no-op | 修正配置、重启应用 |
 
-**建议**：生产环境 `tfi.enabled=false` 可完全禁用，零影响；启用时依赖宿主应用的备份与恢复策略。
+**建议**：生产环境可分别关闭 `tfi.compare.enabled`、`tfi.compare.tracking.enabled` 与
+`tfi.annotation.enabled`；纯 Java Flow 静态状态只通过程序化 API 调整。
 
 **恢复检查清单**：
 

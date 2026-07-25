@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         child.project.url.inherit.append.path="false"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
@@ -11,26 +12,42 @@
 
     <groupId>com.syy</groupId>
     <artifactId>taskflowinsight-parent</artifactId>
-    <version>3.0.0</version>
+    <version>${revision}</version>
     <packaging>pom</packaging>
 
     <name>TaskFlowInsight Parent</name>
     <description>Business process visualization and change tracking library - Parent POM</description>
-    <url/>
+    <url>https://github.com/shiyongyin/TaskFlowInsight</url>
     <licenses>
-        <license/>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
     </licenses>
     <developers>
-        <developer/>
+        <developer>
+            <id>shiyongyin</id>
+            <name>shiyongyin</name>
+            <url>https://github.com/shiyongyin</url>
+        </developer>
     </developers>
-    <scm>
-        <connection/>
-        <developerConnection/>
-        <tag/>
-        <url/>
+    <scm child.scm.connection.inherit.append.path="false"
+         child.scm.developerConnection.inherit.append.path="false"
+         child.scm.url.inherit.append.path="false">
+        <connection>scm:git:https://github.com/shiyongyin/TaskFlowInsight.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/shiyongyin/TaskFlowInsight.git</developerConnection>
+        <tag>HEAD</tag>
+        <url>https://github.com/shiyongyin/TaskFlowInsight</url>
     </scm>
 
     <properties>
+        <revision>4.0.0-SNAPSHOT</revision>
+        <!-- Kernel RC 与 Examples 不属于 Compare final publish closure；两者在自身 POM 显式覆盖。 -->
+        <tfi.release.final-version.skip>false</tfi.release.final-version.skip>
+        <tfi.release.javadoc.fail-on-warnings>true</tfi.release.javadoc.fail-on-warnings>
+        <tfi.api.baseline.version>3.0.0</tfi.api.baseline.version>
+        <tfi.perf.strict>false</tfi.perf.strict>
         <java.version>21</java.version>
         <caffeine.version>3.1.8</caffeine.version>
         <archunit.version>1.3.0</archunit.version>
@@ -43,9 +60,14 @@
     </properties>
 
     <modules>
+        <module>tfi-kernel</module>
         <module>tfi-flow-core</module>
-        <module>tfi-flow-spring-starter</module>
+        <module>tfi-compare-core</module>
+        <module>tfi-kernel-compare</module>
+        <module>tfi-kernel-compare-spring-starter</module>
         <module>tfi-compare</module>
+        <module>tfi-flow-spring-starter</module>
+        <module>tfi-compare-spring-starter</module>
         <module>tfi-ops-spring</module>
         <module>tfi-examples</module>
         <module>tfi-all</module>
@@ -56,8 +78,28 @@
             <!-- Internal modules -->
             <dependency>
                 <groupId>com.syy</groupId>
+                <artifactId>tfi-kernel</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.syy</groupId>
                 <artifactId>tfi-flow-core</artifactId>
                 <version>${tfi-flow-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.syy</groupId>
+                <artifactId>tfi-compare-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.syy</groupId>
+                <artifactId>tfi-kernel-compare</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.syy</groupId>
+                <artifactId>tfi-kernel-compare-spring-starter</artifactId>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.syy</groupId>
@@ -67,6 +109,11 @@
             <dependency>
                 <groupId>com.syy</groupId>
                 <artifactId>tfi-compare</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.syy</groupId>
+                <artifactId>tfi-compare-spring-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -136,6 +183,11 @@
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>3.4.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.3</version>
                     <configuration>
@@ -161,6 +213,7 @@
                     </configuration>
                     <executions>
                         <execution>
+                            <id>prepare-agent</id>
                             <goals>
                                 <goal>prepare-agent</goal>
                             </goals>
@@ -215,7 +268,7 @@
                 <plugin>
                     <groupId>com.github.spotbugs</groupId>
                     <artifactId>spotbugs-maven-plugin</artifactId>
-                    <version>4.8.6.2</version>
+                    <version>4.8.6.6</version>
                     <configuration>
                         <effort>Max</effort>
                         <threshold>High</threshold>
@@ -240,7 +293,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-checkstyle-plugin</artifactId>
-                    <version>3.4.0</version>
+                    <version>3.6.0</version>
                     <configuration>
                         <configLocation>google_checks.xml</configLocation>
                         <consoleOutput>true</consoleOutput>
@@ -271,12 +324,7 @@
                         <failOnViolation>false</failOnViolation>
                         <printFailingErrors>true</printFailingErrors>
                         <rulesets>
-                            <ruleset>/category/java/bestpractices.xml</ruleset>
-                            <ruleset>/category/java/codestyle.xml</ruleset>
-                            <ruleset>/category/java/design.xml</ruleset>
-                            <ruleset>/category/java/errorprone.xml</ruleset>
-                            <ruleset>/category/java/performance.xml</ruleset>
-                            <ruleset>/category/java/security.xml</ruleset>
+                            <ruleset>${maven.multiModuleProjectDirectory}/config/pmd/ruleset.xml</ruleset>
                         </rulesets>
                         <excludeRoots>
                             <excludeRoot>target/generated-sources/annotations</excludeRoot>
@@ -307,7 +355,7 @@
                         </includes>
                         <systemPropertyVariables>
                             <!-- Hard gate off by default; enable via -Dtfi.perf.strict=true -->
-                            <tfi.perf.strict>false</tfi.perf.strict>
+                            <tfi.perf.strict>${tfi.perf.strict}</tfi.perf.strict>
                             <!-- Default target: 1000 ns/op (1 µs) -->
                             <tfi.perf.target.ns>1000</tfi.perf.target.ns>
                         </systemPropertyVariables>
@@ -325,6 +373,52 @@
         </pluginManagement>
         <!-- Activate managed plugins across child modules -->
         <plugins>
+            <!-- execution 级禁止继承，避免 release profile 合并插件时把聚合根规则带入子模块。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <inherited>false</inherited>
+                <executions>
+                    <execution>
+                        <id>enforce-reactor-module-convergence</id>
+                        <inherited>false</inherited>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <reactorModuleConvergence/>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 根 Reactor 才执行的窄共享源码合同；两个 Compare 制品仍保持运行时和 Maven 独立。 -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <inherited>false</inherited>
+                <executions>
+                    <execution>
+                        <id>enforce-compare-shared-source-contract</id>
+                        <inherited>false</inherited>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>python3</executable>
+                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                            <arguments>
+                                <argument>scripts/check_compare_shared_sources.py</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -353,10 +447,159 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-pmd-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.6.0</version>
+                <configuration>
+                    <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                    <updatePomFile>true</updatePomFile>
+                    <flattenedPomFilename>target/flattened-pom.xml</flattenedPomFilename>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>flatten</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>flatten.clean</id>
+                        <phase>clean</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
     <profiles>
+        <profile>
+            <id>release-artifacts</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-enforcer-plugin</artifactId>
+                        <inherited>true</inherited>
+                        <executions>
+                            <execution>
+                                <id>enforce-final-release-version</id>
+                                <phase>validate</phase>
+                                <goals>
+                                    <goal>enforce</goal>
+                                </goals>
+                                <configuration>
+                                    <skip>${tfi.release.final-version.skip}</skip>
+                                    <fail>true</fail>
+                                    <rules>
+                                        <requireProperty>
+                                            <property>revision</property>
+                                            <regex>(?i)^(?!.*SNAPSHOT)(?!LATEST$)(?!RELEASE$)(?!.*\$\{)(?!.*[\[\]\(\),])[A-Z0-9][A-Z0-9._-]*$</regex>
+                                            <regexMessage>revision must be a fixed non-SNAPSHOT Maven version</regexMessage>
+                                        </requireProperty>
+                                        <requireReleaseVersion/>
+                                        <requireReleaseDeps>
+                                            <onlyWhenRelease>true</onlyWhenRelease>
+                                            <failWhenParentIsSnapshot>true</failWhenParentIsSnapshot>
+                                            <searchTransitive>true</searchTransitive>
+                                        </requireReleaseDeps>
+                                    </rules>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>include-root-license</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}/META-INF</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${maven.multiModuleProjectDirectory}</directory>
+                                            <filtering>false</filtering>
+                                            <includes>
+                                                <include>LICENSE</include>
+                                            </includes>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.11.2</version>
+                        <configuration>
+                            <doclint>all,-missing</doclint>
+                            <failOnError>true</failOnError>
+                            <failOnWarnings>${tfi.release.javadoc.fail-on-warnings}</failOnWarnings>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>flatten-maven-plugin</artifactId>
+                        <configuration>
+                            <flattenMode>ossrh</flattenMode>
+                            <pomElements>
+                                <!-- 发布 POM 不携带只供本仓库构建使用的 api-compat file repository。 -->
+                                <profiles>remove</profiles>
+                            </pomElements>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>api-compat</id>
+            <repositories>
+                <repository>
+                    <id>tfi-api-baseline</id>
+                    <url>file://${maven.multiModuleProjectDirectory}/.mvn/api-baseline/repository</url>
+                    <releases>
+                        <enabled>true</enabled>
+                        <checksumPolicy>fail</checksumPolicy>
+                        <updatePolicy>never</updatePolicy>
+                    </releases>
+                    <snapshots>
+                        <enabled>false</enabled>
+                    </snapshots>
+                </repository>
+            </repositories>
+        </profile>
         <profile>
             <id>perf</id>
             <build>
