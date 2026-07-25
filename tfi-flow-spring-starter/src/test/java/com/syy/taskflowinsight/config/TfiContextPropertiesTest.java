@@ -1,5 +1,6 @@
 package com.syy.taskflowinsight.config;
 
+import com.syy.taskflowinsight.context.ContextManagerConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -20,11 +21,12 @@ class TfiContextPropertiesTest {
     @DisplayName("默认值正确")
     void defaultValues() {
         TfiContextProperties props = new TfiContextProperties();
-        assertThat(props.getMaxAgeMillis()).isEqualTo(3_600_000L);
-        assertThat(props.isLeakDetectionEnabled()).isFalse();
-        assertThat(props.getLeakDetectionIntervalMillis()).isEqualTo(60_000L);
-        assertThat(props.isCleanupEnabled()).isFalse();
-        assertThat(props.getCleanupIntervalMillis()).isEqualTo(60_000L);
+        ContextManagerConfig defaults = ContextManagerConfig.defaults();
+
+        assertThat(props.getMaxAgeMillis()).isEqualTo(defaults.timeoutMillis());
+        assertThat(props.isLeakDetectionEnabled()).isEqualTo(defaults.leakDetectionEnabled());
+        assertThat(props.getLeakDetectionIntervalMillis())
+                .isEqualTo(defaults.leakDetectionIntervalMillis());
     }
 
     @Test
@@ -41,10 +43,5 @@ class TfiContextPropertiesTest {
         props.setLeakDetectionIntervalMillis(30000L);
         assertThat(props.getLeakDetectionIntervalMillis()).isEqualTo(30000L);
 
-        props.setCleanupEnabled(true);
-        assertThat(props.isCleanupEnabled()).isTrue();
-
-        props.setCleanupIntervalMillis(15000L);
-        assertThat(props.getCleanupIntervalMillis()).isEqualTo(15000L);
     }
 }

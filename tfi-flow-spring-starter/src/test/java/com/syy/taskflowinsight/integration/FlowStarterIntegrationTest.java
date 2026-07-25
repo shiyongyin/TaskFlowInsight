@@ -39,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "tfi.annotation.enabled=true",
         "tfi.context.max-age-millis=3600000",
         "tfi.context.leak-detection-enabled=false",
-        "tfi.context.cleanup-enabled=false"
 })
 @DisplayName("FlowStarter 端到端集成测试")
 class FlowStarterIntegrationTest {

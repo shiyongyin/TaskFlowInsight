@@ -1,6 +1,7 @@
 package com.syy.taskflowinsight.api;
 
 import com.syy.taskflowinsight.enums.TaskStatus;
+import com.syy.taskflowinsight.model.Message;
 import com.syy.taskflowinsight.model.TaskNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -73,21 +74,25 @@ class TaskContextImplTest {
         }
         
         @Test
-        @DisplayName("debug方法应该添加DEBUG前缀")
-        void debugShouldAddDebugPrefix() {
+        @DisplayName("debug方法应该与直接工厂语义一致")
+        void debugShouldMatchDirectFactory() {
             taskContext.debug("Debug information");
             
-            assertThat(taskNode.getMessages()).hasSize(1);
-            assertThat(taskNode.getMessages().get(0).getContent()).isEqualTo("[DEBUG] Debug information");
+            assertThat(taskNode.getMessages()).singleElement()
+                    .usingRecursiveComparison()
+                    .ignoringFields("messageId", "timestampMillis", "timestampNanos")
+                    .isEqualTo(Message.debug("Debug information"));
         }
         
         @Test
-        @DisplayName("warn方法应该添加WARN前缀")
-        void warnShouldAddWarnPrefix() {
+        @DisplayName("warn方法应该与直接工厂语义一致")
+        void warnShouldMatchDirectFactory() {
             taskContext.warn("Warning message");
             
-            assertThat(taskNode.getMessages()).hasSize(1);
-            assertThat(taskNode.getMessages().get(0).getContent()).isEqualTo("[WARN] Warning message");
+            assertThat(taskNode.getMessages()).singleElement()
+                    .usingRecursiveComparison()
+                    .ignoringFields("messageId", "timestampMillis", "timestampNanos")
+                    .isEqualTo(Message.warn("Warning message"));
         }
         
         @Test
@@ -334,7 +339,7 @@ class TaskContextImplTest {
             
             assertThat(taskNode.getMessages()).hasSize(2);
             assertThat(taskNode.getMessages().get(0).getContent()).isEqualTo(specialMessage);
-            assertThat(taskNode.getMessages().get(1).getContent()).isEqualTo("[DEBUG] " + unicodeMessage);
+            assertThat(taskNode.getMessages().get(1).getContent()).isEqualTo(unicodeMessage);
         }
         
         @Test

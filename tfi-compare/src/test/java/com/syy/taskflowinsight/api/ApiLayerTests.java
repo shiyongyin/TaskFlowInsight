@@ -3,6 +3,7 @@ package com.syy.taskflowinsight.api;
 import com.syy.taskflowinsight.api.builder.DiffBuilder;
 import com.syy.taskflowinsight.api.builder.TfiContext;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.tracking.compare.ComparePolicy;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
 import com.syy.taskflowinsight.tracking.ChangeType;
@@ -45,8 +46,8 @@ class ApiLayerTests {
             ComparatorBuilder builder = ComparatorBuilder.disabled()
                     .withMaxDepth(5)
                     .withSimilarity()
-                    .includeNulls()
-                    .detectMoves();
+                    
+                    ;
             assertThat(builder).isNotNull();
         }
 
@@ -141,15 +142,6 @@ class ApiLayerTests {
             assertThat(result).isNotNull();
         }
 
-        @Test
-        @DisplayName("withPropertyComparator → 不抛异常")
-        void withPropertyComparator_shouldNotThrow() {
-            assertThatCode(() -> {
-                DiffBuilder.create()
-                        .withPropertyComparator("user.name",
-                                (left, right, field) -> String.valueOf(left).equalsIgnoreCase(String.valueOf(right)));
-            }).doesNotThrowAnyException();
-        }
     }
 
     // ── TrackingOptions ──
@@ -176,12 +168,13 @@ class ApiLayerTests {
         }
 
         @Test
-        @DisplayName("builder 设置时间预算 → 生效")
-        void builderTimeBudget_shouldWork() {
+        @DisplayName("builder 时间预算不能扩大canonical policy")
+        void builderTimeBudgetCannotExpandCanonicalPolicy() {
             TrackingOptions opts = TrackingOptions.builder()
                     .timeBudgetMs(5000)
                     .build();
-            assertThat(opts.getTimeBudgetMs()).isEqualTo(5000);
+            assertThat(opts.getTimeBudgetMs())
+                    .isEqualTo(ComparePolicy.defaults().deadline().toMillis());
         }
 
         @Test

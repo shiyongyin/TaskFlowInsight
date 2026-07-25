@@ -4,6 +4,7 @@ import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.CompareService;
+import com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
@@ -88,7 +89,7 @@ class TFIPerformanceBenchmarks {
 
         // CompareService.compare 基准
         System.out.println("\n▶ CompareService.compare 基准:");
-        BenchmarkResult svcResult = runBenchmark(() -> compareService.compare(list1, list2, CompareOptions.DEFAULT));
+        BenchmarkResult svcResult = runBenchmark(() -> compareService.compare(list1, list2, CompareOptions.builder().build()));
         printResult(svcResult);
 
         // 门面开销分析
@@ -122,7 +123,7 @@ class TFIPerformanceBenchmarks {
 
         // CompareService.compare 基准
         System.out.println("\n▶ CompareService.compare 基准:");
-        BenchmarkResult svcResult = runBenchmark(() -> compareService.compare(map1, map2, CompareOptions.DEFAULT));
+        BenchmarkResult svcResult = runBenchmark(() -> compareService.compare(map1, map2, CompareOptions.builder().build()));
         printResult(svcResult);
 
         // 门面开销分析
@@ -278,8 +279,7 @@ class TFIPerformanceBenchmarks {
             return (CompareService) method.invoke(null);
         } catch (Exception e) {
             // 降级：创建新实例
-            com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor executor =
-                new com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor(Collections.emptyList());
+            ListCompareExecutor executor = new ListCompareExecutor(Collections.emptyList());
             return new CompareService(executor);
         }
     }

@@ -1,0 +1,6 @@
+=== Compare Projection ===
+Schema: tfi.compare.change/1
+Outcome: DIFFERENT
+Completion: COMPLETE
+Changes: 1
+- {"kind":"MODIFY","before":{"path":[{"kind":"PROPERTY","name":"Account"},{"kind":"PROPERTY","name":"password"}],"value":{"representation":"EXACT","type":"masked","value":"[REDACTED]"}},"after":{"path":[{"kind":"PROPERTY","name":"Account"},{"kind":"PROPERTY","name":"password"}],"value":{"representation":"EXACT","type":"masked","value":"[REDACTED]"}}}

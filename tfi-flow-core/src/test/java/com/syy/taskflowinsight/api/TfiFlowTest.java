@@ -90,14 +90,34 @@ class TfiFlowTest {
     @Test
     @DisplayName("startSession + endSession - 基本生命周期")
     void sessionLifecycle() {
+        int baseline = SafeContextManager.getInstance().getActiveContextCount();
         String sessionId = TfiFlow.startSession("订单处理");
         assertThat(sessionId).isNotNull().isNotEmpty();
 
+        ManagedThreadContext context = ManagedThreadContext.current();
         Session session = TfiFlow.getCurrentSession();
         assertThat(session).isNotNull();
         assertThat(session.isActive()).isTrue();
 
         TfiFlow.endSession();
+
+        assertThat(session.isTerminated()).isTrue();
+        assertThat(context.isClosed()).isTrue();
+        assertThat(ManagedThreadContext.current()).isNull();
+        assertThat(SafeContextManager.getInstance().getActiveContextCount()).isEqualTo(baseline);
+    }
+
+    @Test
+    @DisplayName("endSession - 禁用后仍清理在途 Context")
+    void disabledEndSessionStillCleansContext() {
+        TfiFlow.startSession("in-flight");
+        ManagedThreadContext context = ManagedThreadContext.current();
+        TfiFlow.disable();
+
+        TfiFlow.endSession();
+
+        assertThat(context.isClosed()).isTrue();
+        assertThat(ManagedThreadContext.current()).isNull();
     }
 
     @Test
@@ -272,8 +292,10 @@ class TfiFlowTest {
         }
 
         String json = TfiFlow.exportToJson();
-        assertThat(json).isNotEmpty();
-        assertThat(json).contains("sessionId");
+        assertThat(json)
+                .contains("\"schemaVersion\":2")
+                .contains("\"session\":")
+                .contains("\"rootTask\":");
         TfiFlow.endSession();
     }
 
@@ -286,8 +308,9 @@ class TfiFlowTest {
         }
 
         Map<String, Object> map = TfiFlow.exportToMap();
-        assertThat(map).isNotEmpty();
-        assertThat(map).containsKey("sessionId");
+        assertThat(map)
+                .containsEntry("schemaVersion", 2)
+                .containsKeys("session", "statistics", "rootTask", "truncated");
         TfiFlow.endSession();
     }
 

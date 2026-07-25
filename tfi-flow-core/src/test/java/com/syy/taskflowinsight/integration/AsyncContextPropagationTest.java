@@ -6,7 +6,6 @@ import com.syy.taskflowinsight.context.ContextPropagatingExecutor;
 import com.syy.taskflowinsight.context.ContextSnapshot;
 import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.context.SafeContextManager;
-import com.syy.taskflowinsight.context.TFIAwareExecutor;
 import com.syy.taskflowinsight.context.ThreadContext;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
@@ -20,14 +19,12 @@ import static org.assertj.core.api.Assertions.*;
 /**
  * 异步上下文传播集成测试
  *
- * <p>覆盖 {@link TFIAwareExecutor}、{@link ContextPropagatingExecutor}、
- * {@link ContextSnapshot} 的跨线程上下文传播能力。
+ * <p>覆盖 {@link ContextPropagatingExecutor}、{@link ContextSnapshot} 的跨线程上下文传播能力。
  *
  * <p>测试重点：
  * <ul>
- *   <li>TFIAwareExecutor：通过 SafeContextManager 包装实现上下文传播</li>
  *   <li>ContextSnapshot：不可变快照的创建、恢复、属性验证</li>
- *   <li>ContextPropagatingExecutor：通过 ThreadContext 包装的上下文传播</li>
+ *   <li>ContextPropagatingExecutor：通过 SafeContextManager 包装的上下文传播</li>
  *   <li>跨线程会话可见性与清理</li>
  * </ul>
  *
@@ -54,12 +51,6 @@ class AsyncContextPropagationTest {
      * 强制清理底层上下文状态，避免跨测试泄漏
      */
     private void forceCleanContext() {
-        try {
-            java.lang.reflect.Field field = TfiFlow.class.getDeclaredField("cachedFlowProvider");
-            field.setAccessible(true);
-            field.set(null, null);
-        } catch (Exception ignored) {
-        }
         try {
             ManagedThreadContext ctx = ManagedThreadContext.current();
             if (ctx != null && !ctx.isClosed()) {
@@ -126,11 +117,36 @@ class AsyncContextPropagationTest {
     @DisplayName("ContextSnapshot - 无会话时 hasSession 返回 false")
     void snapshotWithoutSession() {
         // 直接构造一个无会话的快照
-        ContextSnapshot snapshot = new ContextSnapshot("test-ctx", null, null, System.nanoTime());
+        long timestamp = System.nanoTime();
+        ContextSnapshot snapshot = new ContextSnapshot("test-ctx", null, null, timestamp);
 
         assertThat(snapshot.hasSession()).isFalse();
         assertThat(snapshot.hasTask()).isFalse();
         assertThat(snapshot.getSessionId()).isNull();
+
+        ManagedThreadContext restored = snapshot.restore();
+        try {
+            assertThat(restored.getContextId()).isNotEqualTo(snapshot.getContextId());
+            assertThat(ManagedThreadContext.current()).isSameAs(restored);
+            assertThat(restored.getCurrentSession()).isNull();
+            assertThat(restored.getCurrentTask()).isNull();
+            assertThat(restored.getTaskDepth()).isZero();
+            assertThat(restored.<String>getAttribute("parent.contextId")).isEqualTo("test-ctx");
+            assertThat(restored.<Long>getAttribute("parent.timestamp")).isEqualTo(timestamp);
+            assertThat(restored.<Object>getAttribute("parent.sessionId")).isNull();
+            assertThat(restored.<Object>getAttribute("parent.taskPath")).isNull();
+        } finally {
+            restored.close();
+        }
+        assertThat(ManagedThreadContext.current()).isNull();
+    }
+
+    @Test
+    @DisplayName("ContextSnapshot - null 恢复输入被明确拒绝")
+    void snapshotRestoreRejectsNull() {
+        assertThatThrownBy(() -> ManagedThreadContext.restoreFromSnapshot(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Snapshot cannot be null");
     }
 
     @Test
@@ -150,6 +166,7 @@ class AsyncContextPropagationTest {
     @DisplayName("ContextSnapshot - restore 在新线程恢复上下文")
     void snapshotRestoreInNewThread() throws Exception {
         ManagedThreadContext parent = ManagedThreadContext.create("父上下文");
+        parent.startTask("父任务");
         ContextSnapshot snapshot;
         try {
             snapshot = parent.createSnapshot();
@@ -157,31 +174,55 @@ class AsyncContextPropagationTest {
             parent.close();
         }
 
-        AtomicReference<String> childParentContextId = new AtomicReference<>();
-        AtomicReference<Boolean> childHasSession = new AtomicReference<>();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        RestoredSnapshotObservation observation;
+        try {
+            Future<RestoredSnapshotObservation> future = worker.submit(() -> {
+                ManagedThreadContext restored = snapshot.restore();
+                try {
+                    Session restoredSession = restored.getCurrentSession();
+                    return new RestoredSnapshotObservation(
+                            restored,
+                            restored.getAttribute("parent.contextId"),
+                            restored.getAttribute("parent.sessionId"),
+                            restored.getAttribute("parent.taskPath"),
+                            restored.getAttribute("parent.timestamp"),
+                            restoredSession != null ? restoredSession.getSessionId() : null,
+                            restoredSession != null
+                                    ? restoredSession.getRootTask().getTaskName() : null,
+                            restored.getTaskDepth(),
+                            ManagedThreadContext.current() == restored);
+                } finally {
+                    restored.close();
+                }
+            });
+            observation = future.get(5, TimeUnit.SECONDS);
+            Future<ManagedThreadContext> currentAfterRestore =
+                    worker.submit((Callable<ManagedThreadContext>) ManagedThreadContext::current);
+            assertThat(currentAfterRestore.get(5, TimeUnit.SECONDS)).isNull();
+        } finally {
+            worker.shutdownNow();
+            worker.awaitTermination(5, TimeUnit.SECONDS);
+        }
 
-        Thread child = new Thread(() -> {
-            ManagedThreadContext restored = snapshot.restore();
-            try {
-                childParentContextId.set(restored.getAttribute("parent.contextId"));
-                childHasSession.set(restored.getCurrentSession() != null);
-            } finally {
-                restored.close();
-            }
-        });
-        child.start();
-        child.join(5000);
-
-        assertThat(childParentContextId.get()).isEqualTo(parent.getContextId());
-        assertThat(childHasSession.get()).isTrue();
+        assertThat(observation.context().getContextId()).isNotEqualTo(snapshot.getContextId());
+        assertThat(observation.context().isClosed()).isTrue();
+        assertThat(observation.currentIdentity()).isTrue();
+        assertThat(observation.parentContextId()).isEqualTo(snapshot.getContextId());
+        assertThat(observation.parentSessionId()).isEqualTo(snapshot.getSessionId());
+        assertThat(observation.parentTaskPath()).isEqualTo(snapshot.getTaskPath());
+        assertThat(observation.parentTimestamp()).isEqualTo(snapshot.getTimestamp());
+        assertThat(observation.sessionId()).isNotBlank().isNotEqualTo(snapshot.getSessionId());
+        assertThat(observation.rootTaskName()).isEqualTo("父上下文");
+        assertThat(observation.taskDepth()).isOne();
     }
 
-    // ==================== TFIAwareExecutor 测试 ====================
+    // ==================== canonical Executor 测试 ====================
 
     @Test
-    @DisplayName("TFIAwareExecutor - submit(Runnable) 正确传播上下文")
-    void tfiAwareExecutorSubmitRunnable() throws Exception {
-        TFIAwareExecutor executor = TFIAwareExecutor.newFixedThreadPool(2);
+    @DisplayName("ContextPropagatingExecutor - submit(Runnable) 正确传播上下文")
+    void contextPropagatingExecutorSubmitRunnable() throws Exception {
+        ExecutorService executor = ContextPropagatingExecutor.wrap(Executors.newFixedThreadPool(2));
         try {
             TfiFlow.startSession("异步任务");
             try (TaskContext stage = TfiFlow.stage("父任务")) {
@@ -206,9 +247,9 @@ class AsyncContextPropagationTest {
     }
 
     @Test
-    @DisplayName("TFIAwareExecutor - submit(Callable) 返回正确结果")
-    void tfiAwareExecutorSubmitCallable() throws Exception {
-        TFIAwareExecutor executor = TFIAwareExecutor.newFixedThreadPool(2);
+    @DisplayName("ContextPropagatingExecutor - submit(Callable) 返回正确结果")
+    void contextPropagatingExecutorSubmitCallable() throws Exception {
+        ExecutorService executor = ContextPropagatingExecutor.wrap(Executors.newFixedThreadPool(2));
         try {
             TfiFlow.startSession("Callable测试");
 
@@ -228,9 +269,9 @@ class AsyncContextPropagationTest {
     }
 
     @Test
-    @DisplayName("TFIAwareExecutor - execute() 上下文传播")
-    void tfiAwareExecutorExecute() throws Exception {
-        TFIAwareExecutor executor = TFIAwareExecutor.newFixedThreadPool(1);
+    @DisplayName("ContextPropagatingExecutor - execute() 上下文传播")
+    void contextPropagatingExecutorExecute() throws Exception {
+        ExecutorService executor = ContextPropagatingExecutor.wrap(Executors.newFixedThreadPool(1));
         try {
             TfiFlow.startSession("execute测试");
 
@@ -255,9 +296,9 @@ class AsyncContextPropagationTest {
     }
 
     @Test
-    @DisplayName("TFIAwareExecutor - 无上下文时任务正常执行")
-    void tfiAwareExecutorNoContext() throws Exception {
-        TFIAwareExecutor executor = TFIAwareExecutor.newFixedThreadPool(1);
+    @DisplayName("ContextPropagatingExecutor - 无上下文时任务正常执行")
+    void contextPropagatingExecutorNoContext() throws Exception {
+        ExecutorService executor = ContextPropagatingExecutor.wrap(Executors.newFixedThreadPool(1));
         try {
             // 不创建会话，直接提交任务
             AtomicReference<Boolean> executed = new AtomicReference<>(false);
@@ -272,9 +313,11 @@ class AsyncContextPropagationTest {
     }
 
     @Test
-    @DisplayName("TFIAwareExecutor - newThreadPool 工厂方法")
-    void tfiAwareExecutorFactory() throws Exception {
-        TFIAwareExecutor executor = TFIAwareExecutor.newThreadPool(2, 4, 60, TimeUnit.SECONDS);
+    @DisplayName("ContextPropagatingExecutor - 保留调用方选择的线程池策略")
+    void contextPropagatingExecutorUsesCallerOwnedPool() throws Exception {
+        ThreadPoolExecutor delegate = new ThreadPoolExecutor(
+                2, 4, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(1000));
+        ExecutorService executor = ContextPropagatingExecutor.wrap(delegate);
         try {
             assertThat(executor).isNotNull();
             assertThat(executor.isShutdown()).isFalse();
@@ -289,9 +332,9 @@ class AsyncContextPropagationTest {
     }
 
     @Test
-    @DisplayName("TFIAwareExecutor - 子线程上下文自动清理")
-    void tfiAwareExecutorChildContextCleanup() throws Exception {
-        TFIAwareExecutor executor = TFIAwareExecutor.newFixedThreadPool(1);
+    @DisplayName("ContextPropagatingExecutor - 子线程上下文自动清理")
+    void contextPropagatingExecutorChildContextCleanup() throws Exception {
+        ExecutorService executor = ContextPropagatingExecutor.wrap(Executors.newFixedThreadPool(1));
         try {
             TfiFlow.startSession("清理测试");
 
@@ -473,14 +516,15 @@ class AsyncContextPropagationTest {
         ExecutorService pool = Executors.newSingleThreadExecutor();
 
         ManagedThreadContext parent = ManagedThreadContext.create("callable-wrap");
+        String parentContextId = parent.getContextId();
         try {
             Callable<String> wrapped = manager.wrapCallable(() -> {
                 ManagedThreadContext ctx = ManagedThreadContext.current();
-                return ctx != null ? "propagated" : "missing";
+                return ctx != null ? ctx.getAttribute("parent.contextId") : null;
             });
 
             Future<String> future = pool.submit(wrapped);
-            assertThat(future.get(5, TimeUnit.SECONDS)).isEqualTo("propagated");
+            assertThat(future.get(5, TimeUnit.SECONDS)).isEqualTo(parentContextId);
         } finally {
             parent.close();
             pool.shutdown();
@@ -493,17 +537,29 @@ class AsyncContextPropagationTest {
     void safeContextManagerMetrics() {
         SafeContextManager manager = SafeContextManager.getInstance();
 
-        var metricsBefore = manager.getMetrics();
-        long createdBefore = (long) metricsBefore.get("contexts.created");
+        var metricsBefore = manager.metrics();
+        long createdBefore = metricsBefore.createdContexts();
 
         ManagedThreadContext ctx = ManagedThreadContext.create("指标测试");
         try {
-            var metricsAfter = manager.getMetrics();
-            long createdAfter = (long) metricsAfter.get("contexts.created");
+            var metricsAfter = manager.metrics();
+            long createdAfter = metricsAfter.createdContexts();
             assertThat(createdAfter).isGreaterThan(createdBefore);
-            assertThat((int) metricsAfter.get("contexts.active")).isGreaterThanOrEqualTo(1);
+            assertThat(metricsAfter.activeContexts()).isGreaterThanOrEqualTo(1);
         } finally {
             ctx.close();
         }
+    }
+
+    private record RestoredSnapshotObservation(
+            ManagedThreadContext context,
+            String parentContextId,
+            String parentSessionId,
+            String parentTaskPath,
+            Long parentTimestamp,
+            String sessionId,
+            String rootTaskName,
+            int taskDepth,
+            boolean currentIdentity) {
     }
 }

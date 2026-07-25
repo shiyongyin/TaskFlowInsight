@@ -46,17 +46,14 @@ class ProviderRegistryAdvancedTests {
         ProviderRegistry.register(ComparisonProvider.class, a);
         ProviderRegistry.register(ComparisonProvider.class, b);
 
-        assertEquals(10, ProviderRegistry.lookup(ComparisonProvider.class).priority());
-
-        // 移除高优先级的B
+        // mutation 必须在首次 selection 前完成。
         assertTrue(ProviderRegistry.unregister(ComparisonProvider.class, b));
-        // 现在应选择A
         assertEquals(5, ProviderRegistry.lookup(ComparisonProvider.class).priority());
 
-        // 再次移除返回true
+        // 新 epoch 中验证移除最后一个注册项；clearAll 前没有活动 Session/Task scope。
+        ProviderRegistry.clearAll();
+        ProviderRegistry.register(ComparisonProvider.class, a);
         assertTrue(ProviderRegistry.unregister(ComparisonProvider.class, a));
-        // 无可用注册项，ServiceLoader路径依赖运行环境，允许为 null
-        // 仅验证不抛异常
         assertDoesNotThrow(() -> ProviderRegistry.lookup(ComparisonProvider.class));
     }
 
@@ -90,18 +87,18 @@ class ProviderRegistryAdvancedTests {
     }
 
     @Test
-    @DisplayName("损坏的服务声明文件不应导致系统崩溃（返回空集合/空结果）")
+    @DisplayName("显式损坏 ClassLoader 不应崩溃或污染默认发现")
     void broken_services_file_should_not_crash() throws Exception {
-        // 使用仅包含损坏 services 文件的 ClassLoader 作为 TCCL
         File brokenRoot = new File("src/test/resources/broken-services");
         assertTrue(brokenRoot.exists(), "broken services resource should exist");
-        URLClassLoader brokenCl = new URLClassLoader(new URL[]{brokenRoot.toURI().toURL()}, null);
-        Thread.currentThread().setContextClassLoader(brokenCl);
+        try (URLClassLoader brokenCl = new URLClassLoader(new URL[]{brokenRoot.toURI().toURL()}, null)) {
+            assertDoesNotThrow(() ->
+                ProviderRegistry.loadProviders(brokenCl, ComparisonProvider.class));
+        }
 
-        ProviderRegistry.clearAll();
+        // 显式加载失败不发布候选；首次默认 lookup 仍使用 Registry 自身 ClassLoader。
         ComparisonProvider selected = ProviderRegistry.lookup(ComparisonProvider.class);
-        // 期望加载失败被捕获并返回 null
-        assertNull(selected, "Lookup should return null when ServiceLoader config is broken");
+        assertNotNull(selected, "Default discovery should remain available after failed explicit load");
+        assertTrue(selected instanceof DefaultComparisonProvider);
     }
 }
-

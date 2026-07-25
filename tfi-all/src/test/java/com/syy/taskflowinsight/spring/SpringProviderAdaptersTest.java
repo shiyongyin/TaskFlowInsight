@@ -1,8 +1,6 @@
 package com.syy.taskflowinsight.spring;
 
-import com.syy.taskflowinsight.api.TrackingOptions;
 import com.syy.taskflowinsight.context.ManagedThreadContext;
-import com.syy.taskflowinsight.exporter.change.ChangeExporter;
 import com.syy.taskflowinsight.model.TaskNode;
 import com.syy.taskflowinsight.spi.DefaultExportProvider;
 import com.syy.taskflowinsight.spi.DefaultFlowProvider;
@@ -11,13 +9,12 @@ import com.syy.taskflowinsight.spi.ExportProvider;
 import com.syy.taskflowinsight.spi.FlowProvider;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
 import com.syy.taskflowinsight.spi.TrackingProvider;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
+import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import org.junit.jupiter.api.*;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -136,144 +133,66 @@ class SpringProviderAdaptersTest {
         }
 
         @Test
-        @DisplayName("trackAll() 应该批量跟踪多个对象")
-        void testTrackAll() {
-            // Given: 准备多个对象
-            Map<String, Object> objects = new HashMap<>();
-            objects.put("user", new TestUser("Alice", 30));
-            objects.put("order", new TestOrder("O001", 100.0));
+        @DisplayName("multi-target execute按输入顺序返回两个结果")
+        void testMultiTargetExecution() {
+            TestUser user = new TestUser("Alice", 30);
+            TestOrder order = new TestOrder("O001", 100.0);
+            TrackingExecutor.Execution<Void> execution = new TrackingExecutor(trackingProvider).execute(
+                    List.of(
+                            new TrackingExecutor.Target("user", user),
+                            new TrackingExecutor.Target("order", order)),
+                    CompareOptions.builder().build(),
+                    () -> {
+                        user.setAge(31);
+                        order.setAmount(200.0);
+                        return null;
+                    });
 
-            // When: 批量跟踪
-            trackingProvider.trackAll(objects);
-
-            // Then: 修改对象应该能检测到变化
-            TestUser user = (TestUser) objects.get("user");
-            user.setAge(31);
-
-            List<ChangeRecord> changes = trackingProvider.getAllChanges();
-            assertFalse(changes.isEmpty(), "应该检测到 user.age 的变化");
+            assertEquals(List.of("user", "order"), execution.tracking().stream()
+                    .map(TrackingExecutor.Item::name)
+                    .toList());
+            assertTrue(execution.tracking().stream().allMatch(item -> item.result().isDifferent()));
         }
 
         @Test
-        @DisplayName("trackAll(null) 应该抛出 NullPointerException")
-        void testTrackAllNull() {
-            // When & Then: 传入 null 应该抛出异常
-            assertThrows(NullPointerException.class, () -> trackingProvider.trackAll(null));
-        }
-
-        @Test
-        @DisplayName("trackDeep() 使用默认选项应该成功执行")
-        void testTrackDeepDefault() {
-            // Given: 创建嵌套对象
+        @DisplayName("nested target使用CompareOptions而不是TrackingOptions")
+        void testNestedTargetWithCompareOptions() {
             TestOrder order = new TestOrder("O001", 100.0);
             order.setCustomer(new TestUser("Alice", 30));
 
-            // When: 深度跟踪
-            trackingProvider.trackDeep("order", order);
+            var result = new TrackingExecutor(trackingProvider).withTracked(
+                    "order",
+                    order,
+                    () -> order.getCustomer().setAge(31),
+                    CompareOptions.builder().maxDepth(5).build());
 
-            // Then: 方法应该成功执行（注：默认实现可能回退到浅层track）
-            assertDoesNotThrow(() -> {
-                order.getCustomer().setAge(31);
-                trackingProvider.getAllChanges();
-            }, "trackDeep should execute without exception");
+            assertTrue(result.isDifferent());
         }
 
         @Test
-        @DisplayName("trackDeep() 使用自定义选项应该应用配置")
-        void testTrackDeepWithOptions() {
-            // Given: 创建对象和自定义选项
+        @DisplayName("executor传播同一业务异常且不重试")
+        void testBusinessFailureIdentity() {
             TestUser user = new TestUser("Alice", 30);
-            TrackingOptions options = TrackingOptions.builder()
-                    .maxDepth(5)
-                    .build();
+            IllegalStateException failure = new IllegalStateException("business failure");
+            int[] calls = {0};
 
-            // When: 使用自定义选项跟踪
-            trackingProvider.trackDeep("user", user, options);
+            IllegalStateException thrown = assertThrows(IllegalStateException.class, () ->
+                    new TrackingExecutor(trackingProvider).execute(
+                            List.of(new TrackingExecutor.Target("user", user)),
+                            CompareOptions.builder().build(),
+                            () -> {
+                                calls[0]++;
+                                throw failure;
+                            }));
 
-            // Then: 修改应该能检测到
-            user.setAge(31);
-            List<ChangeRecord> changes = trackingProvider.getAllChanges();
-            assertFalse(changes.isEmpty());
+            assertSame(failure, thrown);
+            assertEquals(1, calls[0]);
         }
 
         @Test
-        @DisplayName("getAllChanges() 应该返回所有变化记录")
-        void testGetAllChanges() {
-            // Given: 跟踪并修改多个对象
-            TestUser user = new TestUser("Alice", 30);
-            trackingProvider.track("user", user);
-            user.setAge(31);
-
-            TestOrder order = new TestOrder("O001", 100.0);
-            trackingProvider.track("order", order);
-            order.setAmount(200.0);
-
-            // When: 获取所有变化
-            List<ChangeRecord> changes = trackingProvider.getAllChanges();
-
-            // Then: 应该包含两个变化
-            assertNotNull(changes);
-            assertEquals(2, changes.size());
-        }
-
-        @Test
-        @DisplayName("startTracking() 应该开始新的跟踪会话")
-        void testStartTracking() {
-            // When: 开始新会话
-            trackingProvider.startTracking("test-session");
-
-            // Then: 应该不抛异常（默认实现可能无操作）
-            assertDoesNotThrow(() -> trackingProvider.getAllChanges());
-        }
-
-        @Test
-        @DisplayName("recordChange() 应该记录单个变化")
-        void testRecordChange() {
-            // Given: 准备变化数据
-            String objectName = "test-object";
-            String fieldName = "status";
-            Object oldValue = "pending";
-            Object newValue = "completed";
-
-            // When: 记录变化
-            trackingProvider.recordChange(objectName, fieldName, oldValue, newValue,
-                    com.syy.taskflowinsight.tracking.ChangeType.UPDATE);
-
-            // Then: 应该能获取到变化（注：默认实现可能不记录，仅验证不抛异常）
-            assertDoesNotThrow(() -> trackingProvider.getAllChanges());
-        }
-
-        @Test
-        @DisplayName("clearTracking(sessionName) 应该清除指定会话的跟踪")
-        void testClearTrackingWithSessionName() {
-            // Given: 跟踪对象
-            TestUser user = new TestUser("Alice", 30);
-            trackingProvider.track("user", user);
-            user.setAge(31);
-
-            // When: 清除跟踪
-            trackingProvider.clearTracking("test-session");
-
-            // Then: 变化应该被清除
-            List<ChangeRecord> changes = trackingProvider.getAllChanges();
-            assertTrue(changes.isEmpty());
-        }
-
-        @Test
-        @DisplayName("withTracked() 应该在作用域内跟踪对象")
-        void testWithTracked() {
-            // Given: 创建对象
-            TestUser user = new TestUser("Alice", 30);
-            AtomicBoolean executed = new AtomicBoolean(false);
-
-            // When: 在作用域内执行
-            trackingProvider.withTracked("user", user, () -> {
-                user.setAge(31);
-                executed.set(true);
-            });
-
-            // Then: 作用域应该执行
-            assertTrue(executed.get(), "withTracked should execute the action");
+        @DisplayName("Registry返回的就是当前typed provider")
+        void testRegistryIdentity() {
+            assertSame(trackingProvider, ProviderRegistry.resolve(TrackingProvider.class));
         }
     }
 

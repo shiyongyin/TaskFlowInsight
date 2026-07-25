@@ -1,0 +1,111 @@
+{
+  "sessionId": "<session-id>",
+  "sessionName": "golden-root",
+  "status": "COMPLETED",
+  "startTime": 0,
+  "endTime": 0,
+  "duration": 0,
+  "statistics": {"totalTasks": 3, "maxDepth": 1},
+  "task": {
+    "taskId": "<task-0>",
+    "taskName": "golden-root",
+    "status": "COMPLETED",
+    "depth": 0,
+    "startTime": 0,
+    "endTime": 0,
+    "duration": 0,
+    "selfDurationMs": 0,
+    "accDurationMs": 0,
+    "attributes": {
+      "text": "value",
+      "flag": true,
+      "attempts": 7,
+      "total": 9,
+      "ratio": 1.25,
+      "nullable": null
+    },
+    "tags": ["first-tag", "second-tag"],
+    "children": [
+      {
+        "taskId": "<task-1>",
+        "taskName": "first-child",
+        "status": "COMPLETED",
+        "depth": 1,
+        "startTime": 0,
+        "endTime": 0,
+        "duration": 0,
+        "selfDurationMs": 0,
+        "accDurationMs": 0,
+        "messages": [
+          {"type": "业务流程", "content": "process-message", "timestamp": 0}
+        ]
+      },
+      {
+        "taskId": "<task-2>",
+        "taskName": "second-child",
+        "status": "COMPLETED",
+        "depth": 1,
+        "startTime": 0,
+        "endTime": 0,
+        "duration": 0,
+        "selfDurationMs": 0,
+        "accDurationMs": 0,
+        "messages": [
+          {"type": "⚠️异常提示", "content": "alert-message", "timestamp": 0}
+        ]
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "taskId": "<task-0>",
+      "taskName": "golden-root",
+      "status": "COMPLETED",
+      "depth": 0,
+      "startTime": 0,
+      "endTime": 0,
+      "duration": 0,
+      "selfDurationMs": 0,
+      "accDurationMs": 0,
+      "attributes": {
+        "text": "value",
+        "flag": true,
+        "attempts": 7,
+        "total": 9,
+        "ratio": 1.25,
+        "nullable": null
+      },
+      "tags": ["first-tag", "second-tag"],
+      "children": [
+        {
+          "taskId": "<task-1>",
+          "taskName": "first-child",
+          "status": "COMPLETED",
+          "depth": 1,
+          "startTime": 0,
+          "endTime": 0,
+          "duration": 0,
+          "selfDurationMs": 0,
+          "accDurationMs": 0,
+          "messages": [
+            {"type": "业务流程", "content": "process-message", "timestamp": 0}
+          ]
+        },
+        {
+          "taskId": "<task-2>",
+          "taskName": "second-child",
+          "status": "COMPLETED",
+          "depth": 1,
+          "startTime": 0,
+          "endTime": 0,
+          "duration": 0,
+          "selfDurationMs": 0,
+          "accDurationMs": 0,
+          "messages": [
+            {"type": "⚠️异常提示", "content": "alert-message", "timestamp": 0}
+          ]
+        }
+      ]
+    }
+  ]
+}

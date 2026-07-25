@@ -2,14 +2,16 @@ package com.syy.taskflowinsight.api;
 
 import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.enums.MessageType;
+import com.syy.taskflowinsight.exporter.json.JsonExporter;
+import com.syy.taskflowinsight.internal.FlowConfigDefaults;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
-import com.syy.taskflowinsight.spi.DefaultFlowProvider;
 import com.syy.taskflowinsight.spi.ExportProvider;
 import com.syy.taskflowinsight.spi.FlowProvider;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
 import org.junit.jupiter.api.*;
 
+import java.io.StringWriter;
 import java.util.List;
 import java.util.Map;
 
@@ -18,7 +20,7 @@ import static org.assertj.core.api.Assertions.*;
 /**
  * {@link TfiFlow} Provider 路径测试。
  *
- * <p>注册 {@link DefaultFlowProvider} 后验证 TfiFlow 所有 API 走 Provider 分支。
+ * <p>验证 TfiFlow 所有 API 走 Provider 分支，包括内置默认 Provider 和自定义 Provider。
  *
  * @author tfi-flow-core Test Team
  * @since 3.0.1
@@ -30,9 +32,6 @@ class TfiFlowProviderPathTest {
         ProviderRegistry.clearAll();
         TfiFlow.enable();
         forceCleanContext();
-
-        // 注册 DefaultFlowProvider，使 TfiFlow 走 Provider 路径
-        ProviderRegistry.register(FlowProvider.class, new DefaultFlowProvider());
     }
 
     @AfterEach
@@ -95,6 +94,28 @@ class TfiFlowProviderPathTest {
             assertThat(TfiFlow.getCurrentSession()).isNotNull();
         }
         TfiFlow.clear();
+    }
+
+    @Test
+    @DisplayName("Provider: clearAll 后仍通过内置默认 Provider 工作")
+    void defaultProviderWorksAfterRegistryClearAll() {
+        ProviderRegistry.clearAll();
+
+        try (TaskContext stage = TfiFlow.stage("default-provider-stage")) {
+            stage.message("msg");
+            assertThat(TfiFlow.getCurrentSession()).isNotNull();
+            assertThat(TfiFlow.getCurrentTask()).isNotNull();
+        }
+
+        String json = TfiFlow.exportToJson();
+        assertThat(json)
+                .contains("\"schemaVersion\":2")
+                .contains("\"session\":")
+                .contains("\"rootTask\":")
+                .contains("default-provider-stage");
+
+        TfiFlow.clear();
+        assertThat(TfiFlow.getCurrentSession()).isNull();
     }
 
     @Test
@@ -206,7 +227,37 @@ class TfiFlowProviderPathTest {
             stage.message("msg");
         }
         String json = TfiFlow.exportToJson();
-        assertThat(json).isNotEmpty().contains("sessionId");
+        assertThat(json)
+                .contains("\"schemaVersion\":2")
+                .contains("\"session\":")
+                .contains("\"rootTask\":");
+        TfiFlow.endSession();
+    }
+
+    @Test
+    @DisplayName("Provider: JSON capture failure 由 facade 转为 {} 且后续可恢复")
+    void jsonCaptureFailureKeepsFacadeFallbackAndRecovery() {
+        TfiFlow.startSession("oversized");
+        Session oversized = TfiFlow.getCurrentSession();
+        int limit = Math.toIntExact(FlowConfigDefaults.MAX_EXPORT_TEXT_CHARS);
+        oversized.getRootTask().addAttribute("oversized", "x".repeat(limit + 1));
+        JsonExporter direct = new JsonExporter();
+        StringWriter writer = new StringWriter();
+
+        assertThatThrownBy(() -> direct.export(oversized))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Export text character limit exceeded: " + limit);
+        assertThatThrownBy(() -> direct.export(oversized, writer))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Export text character limit exceeded: " + limit);
+        assertThat(writer.toString()).isEmpty();
+        assertThat(TfiFlow.exportToJson()).isEqualTo("{}");
+
+        TfiFlow.endSession();
+        TfiFlow.startSession("recovered");
+        assertThat(TfiFlow.exportToJson())
+                .contains("\"schemaVersion\":2")
+                .contains("\"name\":\"recovered\"");
         TfiFlow.endSession();
     }
 
@@ -218,7 +269,9 @@ class TfiFlowProviderPathTest {
             stage.message("msg");
         }
         Map<String, Object> map = TfiFlow.exportToMap();
-        assertThat(map).isNotEmpty().containsKey("sessionId");
+        assertThat(map)
+                .containsEntry("schemaVersion", 2)
+                .containsKeys("session", "statistics", "rootTask", "truncated");
         TfiFlow.endSession();
     }
 
@@ -237,6 +290,30 @@ class TfiFlowProviderPathTest {
         assertThat(provider.lastShowTimestamp).isTrue();
         assertThat(provider.jsonCalls).isEqualTo(1);
         assertThat(provider.mapCalls).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Provider: default ExportProvider can export custom FlowProvider session")
+    void defaultExportProviderUsesCustomFlowProviderSession() {
+        forceCleanContext();
+        ProviderRegistry.clearAll();
+        TfiFlow.registerFlowProvider(new RecordingFlowProvider());
+
+        try (TaskContext stage = TfiFlow.stage("custom-flow-export")) {
+            stage.message("msg");
+        }
+
+        assertThat(TfiFlow.exportToJson()).contains("custom-flow-export");
+        Map<String, Object> map = TfiFlow.exportToMap();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> rootTask = (Map<String, Object>) map.get("rootTask");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> children =
+                (List<Map<String, Object>>) rootTask.get("children");
+        assertThat(map).containsEntry("schemaVersion", 2);
+        assertThat(children)
+                .extracting(child -> child.get("name"))
+                .containsExactly("custom-flow-export");
     }
 
     // ==================== Provider 路径 - clear ====================
@@ -273,23 +350,22 @@ class TfiFlowProviderPathTest {
     // ==================== registerFlowProvider ====================
 
     @Test
-    @DisplayName("registerFlowProvider - 清除缓存后使用新 Provider")
-    void registerFlowProviderClearsCacheAndUses() {
+    @DisplayName("registerFlowProvider - runtime 前注册后使用新 Provider")
+    void registerFlowProviderBeforeRuntimeUsesCustomProvider() {
         forceCleanContext();
         ProviderRegistry.clearAll();
 
-        // Register custom provider
-        DefaultFlowProvider custom = new DefaultFlowProvider();
+        RecordingFlowProvider custom = new RecordingFlowProvider();
         TfiFlow.registerFlowProvider(custom);
 
         String sessionId = TfiFlow.startSession("custom");
-        assertThat(sessionId).isNotNull();
+        assertThat(sessionId).isEqualTo("recording-custom");
         TfiFlow.endSession();
     }
 
     @Test
-    @DisplayName("Provider cache - unregister invalidates TfiFlow cached provider")
-    void unregisterInvalidatesTfiFlowCachedProvider() {
+    @DisplayName("Provider freeze - runtime start 后拒绝 unregister 并保持已选 Provider")
+    void unregisterAfterRuntimeStartIsRejected() {
         forceCleanContext();
         ProviderRegistry.clearAll();
         RecordingFlowProvider provider = new RecordingFlowProvider();
@@ -297,21 +373,26 @@ class TfiFlowProviderPathTest {
 
         assertThat(TfiFlow.startSession("first")).isEqualTo("recording-first");
         assertThat(provider.startSessionCalls).isEqualTo(1);
+        TfiFlow.endSession();
 
-        assertThat(ProviderRegistry.unregister(FlowProvider.class, provider)).isTrue();
-        assertThat(TfiFlow.startSession("second")).isNotEqualTo("recording-second");
-        assertThat(provider.startSessionCalls).isEqualTo(1);
+        assertThatIllegalStateException()
+            .isThrownBy(() -> ProviderRegistry.unregister(FlowProvider.class, provider))
+            .withMessage("Provider registry is frozen after runtime start");
+        assertThat(TfiFlow.startSession("second")).isEqualTo("recording-second");
+        assertThat(provider.startSessionCalls).isEqualTo(2);
+        TfiFlow.endSession();
     }
 
     @Test
-    @DisplayName("Provider cache - clearAll invalidates TfiFlow cached provider")
-    void clearAllInvalidatesTfiFlowCachedProvider() {
+    @DisplayName("Provider cache - clearAll invalidates Registry selected provider")
+    void clearAllInvalidatesRegistrySelectedProvider() {
         forceCleanContext();
         ProviderRegistry.clearAll();
         RecordingFlowProvider provider = new RecordingFlowProvider();
         TfiFlow.registerFlowProvider(provider);
 
         assertThat(TfiFlow.startSession("first")).isEqualTo("recording-first");
+        TfiFlow.endSession();
         ProviderRegistry.clearAll();
 
         assertThat(TfiFlow.startSession("second")).isNotEqualTo("recording-second");
@@ -417,7 +498,8 @@ class TfiFlowProviderPathTest {
             if (session == null) {
                 startSession("auto-session");
             }
-            currentTask = currentTask == null ? new TaskNode(name) : new TaskNode(currentTask, name);
+            TaskNode parent = currentTask != null ? currentTask : session.getRootTask();
+            currentTask = new TaskNode(parent, name);
             return currentTask;
         }
 
@@ -427,7 +509,8 @@ class TfiFlowProviderPathTest {
             if (currentTask != null && currentTask.getStatus().isActive()) {
                 currentTask.complete();
             }
-            currentTask = currentTask != null ? currentTask.getParent() : null;
+            TaskNode parent = currentTask != null ? currentTask.getParent() : null;
+            currentTask = parent == session.getRootTask() ? null : parent;
         }
 
         @Override

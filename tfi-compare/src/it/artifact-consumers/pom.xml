@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.syy.taskflowinsight.it</groupId>
+    <artifactId>artifact-consumers</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <tfi.candidate.version>UNSET</tfi.candidate.version>
+        <tfi.it.phase>UNSET</tfi.it.phase>
+        <tfi.it.expected.version>UNSET</tfi.it.expected.version>
+        <tfi.it.expected.repository>UNSET</tfi.it.expected.repository>
+        <tfi.it.expected.sha.manifest>UNSET</tfi.it.expected.sha.manifest>
+        <tfi.it.codesource.output>UNSET</tfi.it.codesource.output>
+    </properties>
+
+    <modules>
+        <module>starter-only</module>
+        <module>ops-only</module>
+        <module>composed-boot</module>
+        <module>context-hierarchy</module>
+        <module>baseline-upgrade-rollback</module>
+    </modules>
+
+    <profiles>
+        <profile>
+            <id>candidate</id>
+            <properties>
+                <tfi.it.candidate.profile>true</tfi.it.candidate.profile>
+            </properties>
+        </profile>
+    </profiles>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.4.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.3</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.9.0</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -1,13 +1,14 @@
 package com.syy.taskflowinsight.actuator.support;
 
+import com.syy.taskflowinsight.context.ContextMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for {@link TfiStatsAggregator}.
@@ -26,43 +27,26 @@ class TfiStatsAggregatorTest {
         Map<String, Object> stats = aggregator.aggregateStats();
 
         assertNotNull(stats);
-        assertNotNull(stats.get("sessionCount"));
-        assertNotNull(stats.get("totalChanges"));
-        assertNotNull(stats.get("changesByObject"));
-        assertNotNull(stats.get("changesByType"));
-        assertNotNull(stats.get("threadContext"));
-        assertNotNull(stats.get("timestamp"));
+        assertThat(stats).containsOnlyKeys(
+                "activeContexts", "createdContexts", "closedContexts", "detectedLeaks",
+                "asyncTasks", "executorPoolSize", "executorQueueSize", "propagations", "capturedAt");
     }
 
     @Test
-    void aggregateStats_threadContext_containsExpectedKeys() {
-        Map<String, Object> stats = aggregator.aggregateStats();
+    void aggregateStats_mapsOneCanonicalContextSnapshot() {
+        ContextMetrics metrics = new ContextMetrics(7, 11L, 4L, 2L, 3L,
+                5, 6, 13L, Instant.parse("2026-07-10T00:00:00Z"));
+        Map<String, Object> stats = aggregator.aggregateStats(metrics);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> ctx = (Map<String, Object>) stats.get("threadContext");
-        assertNotNull(ctx);
-        assertTrue(ctx.containsKey("activeContexts"));
-        assertTrue(ctx.containsKey("totalCreated"));
-        assertTrue(ctx.containsKey("totalPropagations"));
-    }
-
-    @Test
-    void getTotalChangesCount_returnsNonNegative() {
-        int count = aggregator.getTotalChangesCount();
-        assertTrue(count >= 0, "Total changes count should be non-negative");
-    }
-
-    @Test
-    void getActiveSessionCount_returnsNonNegative() {
-        int count = aggregator.getActiveSessionCount();
-        assertTrue(count >= 0, "Active session count should be non-negative");
-    }
-
-    @Test
-    void aggregateStats_emptyState_sessionCountIsZero() {
-        Map<String, Object> stats = aggregator.aggregateStats();
-
-        assertEquals(0, stats.get("sessionCount"));
-        assertEquals(0, stats.get("totalChanges"));
+        assertThat(stats).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "activeContexts", 7,
+                "createdContexts", 11L,
+                "closedContexts", 4L,
+                "detectedLeaks", 2L,
+                "asyncTasks", 3L,
+                "executorPoolSize", 5,
+                "executorQueueSize", 6,
+                "propagations", 13L,
+                "capturedAt", "2026-07-10T00:00:00Z"));
     }
 }

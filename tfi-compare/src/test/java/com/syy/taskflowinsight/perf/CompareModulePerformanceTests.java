@@ -3,13 +3,12 @@ package com.syy.taskflowinsight.perf;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.CompareService;
-import com.syy.taskflowinsight.tracking.path.PathDeduplicator;
-import com.syy.taskflowinsight.tracking.path.PathDeduplicationConfig;
+import com.syy.taskflowinsight.tracking.compare.ChangeKind;
 import com.syy.taskflowinsight.tracking.compare.FieldChange;
+import com.syy.taskflowinsight.tracking.compare.internal.CompareResultReducer;
+import com.syy.taskflowinsight.tracking.path.ComparePath;
+import com.syy.taskflowinsight.tracking.path.PropertySegment;
 import com.syy.taskflowinsight.tracking.ChangeType;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
-import com.syy.taskflowinsight.tracking.snapshot.ObjectSnapshotDeep;
-import com.syy.taskflowinsight.tracking.snapshot.SnapshotConfig;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
@@ -23,7 +22,7 @@ import static org.assertj.core.api.Assertions.*;
 /**
  * tfi-compare 模块核心性能测试
  *
- * <p>测试场景覆盖 CompareService、PathDeduplicator、ObjectSnapshotDeep 的性能基线。
+ * <p>测试场景覆盖 canonical CompareService 与 CompareResult 查询性能基线。
  * 通过 {@code -Dtfi.perf.enabled=true} 或 {@code -Pperf} 激活。</p>
  *
  * <h3>运行方式</h3>
@@ -70,7 +69,7 @@ class CompareModulePerformanceTests {
             SimplePojo a = new SimplePojo("Alice", 30, "alice@test.com");
             SimplePojo b = new SimplePojo("Alice", 31, "alice@updated.com");
 
-            long[] samples = benchmark(() -> svc.compare(a, b, CompareOptions.DEFAULT));
+            long[] samples = benchmark(() -> svc.compare(a, b, CompareOptions.builder().build()));
             PerfStats stats = PerfStats.of(samples);
 
             System.out.println("[Shallow/SimplePojo] " + stats);
@@ -82,7 +81,7 @@ class CompareModulePerformanceTests {
         void shallowCompare_identical() {
             SimplePojo a = new SimplePojo("Bob", 25, "bob@test.com");
 
-            long[] samples = benchmark(() -> svc.compare(a, a, CompareOptions.DEFAULT));
+            long[] samples = benchmark(() -> svc.compare(a, a, CompareOptions.builder().build()));
             PerfStats stats = PerfStats.of(samples);
 
             System.out.println("[Shallow/Identical] " + stats);
@@ -108,7 +107,7 @@ class CompareModulePerformanceTests {
             NestedPojo b = createNestedPojo(3, "v2");
 
             CompareOptions opts = CompareOptions.builder()
-                .enableDeepCompare(true)
+                
                 .maxDepth(5)
                 .build();
 
@@ -130,7 +129,7 @@ class CompareModulePerformanceTests {
             }
 
             CompareOptions opts = CompareOptions.builder()
-                .enableDeepCompare(true)
+                
                 .build();
 
             long[] samples = benchmark(() -> svc.compare(a, b, opts));
@@ -151,7 +150,7 @@ class CompareModulePerformanceTests {
             list2.add("new-item");
 
             CompareOptions opts = CompareOptions.builder()
-                .enableDeepCompare(true)
+                
                 .build();
 
             long[] samples = benchmark(() -> svc.compare(list1, list2, opts));
@@ -172,7 +171,7 @@ class CompareModulePerformanceTests {
             }
 
             CompareOptions opts = CompareOptions.builder()
-                .enableDeepCompare(true)
+                
                 .build();
 
             long[] samples = benchmark(() -> svc.compare(map1, map2, opts));
@@ -183,96 +182,6 @@ class CompareModulePerformanceTests {
         }
     }
 
-    // ========== PathDeduplicator Performance ==========
-
-    @Nested
-    @DisplayName("PathDeduplicator — Deduplication Performance")
-    class PathDeduplicatorPerf {
-
-        @Test
-        @DisplayName("Deduplication of 100 change records < 10ms avg")
-        void dedup_100records() {
-            PathDeduplicationConfig config = new PathDeduplicationConfig();
-            PathDeduplicator dedup = new PathDeduplicator(config);
-
-            List<ChangeRecord> changes = createSyntheticChangeRecords(100);
-
-            long[] samples = benchmark(() -> dedup.deduplicate(changes));
-            PerfStats stats = PerfStats.of(samples);
-
-            System.out.println("[PathDedup/100 records] " + stats);
-            assertThat(stats.avgMs).isLessThan(10.0);
-        }
-
-        @Test
-        @DisplayName("Deduplication of 1000 change records < 100ms avg")
-        void dedup_1000records() {
-            PathDeduplicationConfig config = new PathDeduplicationConfig();
-            PathDeduplicator dedup = new PathDeduplicator(config);
-
-            List<ChangeRecord> changes = createSyntheticChangeRecords(1000);
-
-            long[] samples = benchmark(() -> dedup.deduplicate(changes));
-            PerfStats stats = PerfStats.of(samples);
-
-            System.out.println("[PathDedup/1000 records] " + stats);
-            assertThat(stats.avgMs).isLessThan(100.0);
-        }
-    }
-
-    // ========== ObjectSnapshotDeep Performance ==========
-
-    @Nested
-    @DisplayName("ObjectSnapshotDeep — Snapshot Performance")
-    class SnapshotDeepPerf {
-
-        @Test
-        @DisplayName("Deep snapshot of POJO < 2ms avg")
-        void snapshot_simplePojo() {
-            SnapshotConfig config = new SnapshotConfig();
-            ObjectSnapshotDeep snapshotter = new ObjectSnapshotDeep(config);
-            SimplePojo target = new SimplePojo("Alice", 30, "alice@test.com");
-
-            long[] samples = benchmark(() ->
-                snapshotter.captureDeep(target, 3, Collections.emptySet(), Collections.emptySet()));
-            PerfStats stats = PerfStats.of(samples);
-
-            System.out.println("[Snapshot/SimplePojo] " + stats);
-            assertThat(stats.avgMs).isLessThan(2.0);
-        }
-
-        @Test
-        @DisplayName("Deep snapshot of nested object (depth=3) < 5ms avg")
-        void snapshot_nestedPojo() {
-            SnapshotConfig config = new SnapshotConfig();
-            ObjectSnapshotDeep snapshotter = new ObjectSnapshotDeep(config);
-            NestedPojo target = createNestedPojo(3, "snap");
-
-            long[] samples = benchmark(() ->
-                snapshotter.captureDeep(target, 5, Collections.emptySet(), Collections.emptySet()));
-            PerfStats stats = PerfStats.of(samples);
-
-            System.out.println("[Snapshot/Nested(depth=3)] " + stats);
-            assertThat(stats.avgMs).isLessThan(5.0);
-        }
-
-        @Test
-        @DisplayName("Deep snapshot of List(100) < 10ms avg")
-        void snapshot_list100() {
-            SnapshotConfig config = new SnapshotConfig();
-            ObjectSnapshotDeep snapshotter = new ObjectSnapshotDeep(config);
-            List<String> target = IntStream.range(0, 100)
-                .mapToObj(i -> "item-" + i).collect(Collectors.toList());
-
-            long[] samples = benchmark(() ->
-                snapshotter.captureDeep(target, 3, Collections.emptySet(), Collections.emptySet()));
-            PerfStats stats = PerfStats.of(samples);
-
-            System.out.println("[Snapshot/List(100)] " + stats);
-            assertThat(stats.avgMs).isLessThan(10.0);
-        }
-    }
-
     // ========== CompareResult Query API Performance ==========
 
     @Nested
@@ -280,47 +189,13 @@ class CompareModulePerformanceTests {
     class CompareResultQueryPerf {
 
         @Test
-        @DisplayName("prettyPrint() with 500 changes < 5ms avg")
-        void prettyPrint_500changes() {
-            List<FieldChange> changes = IntStream.range(0, 500).mapToObj(i ->
-                FieldChange.builder()
-                    .fieldName("field" + i)
-                    .fieldPath("obj.field" + i)
-                    .changeType(i % 3 == 0 ? ChangeType.CREATE : (i % 3 == 1 ? ChangeType.UPDATE : ChangeType.DELETE))
-                    .oldValue("old" + i)
-                    .newValue("new" + i)
-                    .build()
-            ).collect(Collectors.toList());
-
-            CompareResult result = CompareResult.builder()
-                .changes(changes)
-                .identical(false)
-                .build();
-
-            long[] samples = benchmark(result::prettyPrint);
-            PerfStats stats = PerfStats.of(samples);
-
-            System.out.println("[CompareResult/prettyPrint(500)] " + stats);
-            assertThat(stats.avgMs).isLessThan(5.0);
-        }
-
-        @Test
         @DisplayName("groupByObject() with 500 changes < 5ms avg")
         void groupByObject_500changes() {
             List<FieldChange> changes = IntStream.range(0, 500).mapToObj(i ->
-                FieldChange.builder()
-                    .fieldName("field" + (i % 10))
-                    .fieldPath("obj" + (i / 50) + ".field" + (i % 10))
-                    .changeType(ChangeType.UPDATE)
-                    .oldValue("old" + i)
-                    .newValue("new" + i)
-                    .build()
+                FieldChange.at(ChangeKind.MODIFY, ComparePath.root().append(new PropertySegment("obj" + (i / 50) + ".field" + (i % 10))), "old" + i, "new" + i)
             ).collect(Collectors.toList());
 
-            CompareResult result = CompareResult.builder()
-                .changes(changes)
-                .identical(false)
-                .build();
+            CompareResult result = CompareResultReducer.complete(changes);
 
             long[] samples = benchmark(result::groupByObject);
             PerfStats stats = PerfStats.of(samples);
@@ -333,18 +208,10 @@ class CompareModulePerformanceTests {
         @DisplayName("getChangesByType() with 500 changes < 2ms avg")
         void getChangesByType_500changes() {
             List<FieldChange> changes = IntStream.range(0, 500).mapToObj(i ->
-                FieldChange.builder()
-                    .fieldName("field" + i)
-                    .changeType(i % 3 == 0 ? ChangeType.CREATE : (i % 3 == 1 ? ChangeType.UPDATE : ChangeType.DELETE))
-                    .oldValue("old" + i)
-                    .newValue("new" + i)
-                    .build()
+                FieldChange.fromLegacy(i % 3 == 0 ? ChangeType.CREATE : (i % 3 == 1 ? ChangeType.UPDATE : ChangeType.DELETE), ComparePath.root().append(new PropertySegment("field" + i)), "old" + i, "new" + i)
             ).collect(Collectors.toList());
 
-            CompareResult result = CompareResult.builder()
-                .changes(changes)
-                .identical(false)
-                .build();
+            CompareResult result = CompareResultReducer.complete(changes);
 
             long[] samples = benchmark(() -> result.getChangesByType(ChangeType.CREATE, ChangeType.DELETE));
             PerfStats stats = PerfStats.of(samples);
@@ -421,25 +288,7 @@ class CompareModulePerformanceTests {
 
     private List<FieldChange> createSyntheticChanges(int count) {
         return IntStream.range(0, count).mapToObj(i ->
-            FieldChange.builder()
-                .fieldName("field" + (i % 20))
-                .fieldPath("obj" + (i / 20) + ".field" + (i % 20))
-                .changeType(ChangeType.UPDATE)
-                .oldValue("old" + i)
-                .newValue("new" + i)
-                .build()
-        ).collect(Collectors.toList());
-    }
-
-    private List<ChangeRecord> createSyntheticChangeRecords(int count) {
-        return IntStream.range(0, count).mapToObj(i ->
-            ChangeRecord.of(
-                "obj" + (i / 20),
-                "field" + (i % 20),
-                "old" + i,
-                "new" + i,
-                ChangeType.UPDATE
-            )
+            FieldChange.at(ChangeKind.MODIFY, ComparePath.root().append(new PropertySegment("obj" + (i / 20) + ".field" + (i % 20))), "old" + i, "new" + i)
         ).collect(Collectors.toList());
     }
 

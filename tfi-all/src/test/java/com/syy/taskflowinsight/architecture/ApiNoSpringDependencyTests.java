@@ -26,21 +26,11 @@ class ApiNoSpringDependencyTests {
         .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
         .importPackages("com.syy.taskflowinsight");
 
-    /**
-     * 规则：API 包不得依赖 Spring
-     * <p>已知例外（Tech Debt for v4.1.0 refactoring）：</p>
-     * <ul>
-     *   <li>TfiListDiff - 遗留静态工具类，计划重构为 Provider 模式</li>
-     *   <li>TfiListDiffFacade - Spring Bean facade，计划迁移到 api-spring 模块</li>
-     *   <li>DiffBuilder.fromSpring() - Spring 配置便捷方法，计划提取到 api-spring</li>
-     * </ul>
-     */
+    /** 规则：API包不得依赖Spring，且不再保留类型级例外。 */
     @Test
     void apiPackage_should_not_depend_on_spring() {
         ArchRule rule = noClasses()
             .that().resideInAPackage("com.syy.taskflowinsight.api..")
-            .and().haveSimpleNameNotContaining("TfiListDiff")  // Exclude both TfiListDiff and TfiListDiffFacade
-            .and().haveSimpleNameNotContaining("DiffBuilder")   // Exclude DiffBuilder with fromSpring() method
             .should().dependOnClassesThat().resideInAnyPackage(
                 "org.springframework..",
                 "org.springframework.boot..",

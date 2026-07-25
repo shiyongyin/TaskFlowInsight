@@ -4,7 +4,6 @@ import com.syy.taskflowinsight.annotation.Entity;
 import com.syy.taskflowinsight.annotation.Key;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
-import com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * TfiListDiff API 集成测试
  * <p>
- * 验证 TfiListDiffFacade 与 ListCompareExecutor 的端到端集成
+ * 验证TfiListDiffFacade只委托当前Spring上下文的CompareOperations。
  * </p>
  *
  * @author TaskFlow Insight Team
@@ -31,7 +30,7 @@ class TfiListDiffIntegrationTest {
     private TfiListDiffFacade facade;
 
     @Autowired
-    private ListCompareExecutor executor;
+    private CompareOperations operations;
 
     @Entity
     static class TestUser {
@@ -50,7 +49,7 @@ class TfiListDiffIntegrationTest {
         // Given & When: Spring 容器启动
         // Then: TfiListDiffFacade 应该被注册为 Bean
         assertNotNull(facade, "TfiListDiffFacade should be auto-wired");
-        assertNotNull(executor, "ListCompareExecutor should be auto-wired");
+        assertNotNull(operations, "CompareOperations should be auto-wired");
     }
 
     @Test
@@ -65,8 +64,6 @@ class TfiListDiffIntegrationTest {
         // Then: 应该检测到差异
         assertNotNull(result);
         assertFalse(result.isIdentical());
-        assertEquals(oldList, result.getObject1());
-        assertEquals(newList, result.getObject2());
     }
 
     @Test
@@ -88,7 +85,7 @@ class TfiListDiffIntegrationTest {
         // Then: 应该检测到变更
         assertNotNull(result);
         assertFalse(result.isIdentical());
-        assertTrue(result.hasChanges(), "Should detect changes in entity list");
+        assertTrue(result.isDifferent(), "Should detect changes in entity list");
     }
 
     @Test
@@ -98,7 +95,7 @@ class TfiListDiffIntegrationTest {
         List<Integer> newList = Arrays.asList(1, 2, 4, 5, 6);
 
         // When: 显式指定 SIMPLE 策略
-        CompareResult result = facade.diff(oldList, newList, "SIMPLE");
+        CompareResult result = facade.diff(oldList, newList);
 
         // Then: 应该使用 SIMPLE 策略进行比较
         assertNotNull(result);
@@ -111,8 +108,8 @@ class TfiListDiffIntegrationTest {
         List<String> oldList = Arrays.asList("a", "b", "c");
         List<String> newList = Arrays.asList("a", "b", "d");
         CompareOptions options = CompareOptions.builder()
-                .strategyName("SIMPLE")
-                .calculateSimilarity(true)
+                
+                .computeSimilarity(true)
                 .build();
 
         // When: 使用完整配置
@@ -120,9 +117,8 @@ class TfiListDiffIntegrationTest {
 
         // Then: 应该按配置执行
         assertNotNull(result);
-        assertNotNull(result.getSimilarity(), "Similarity should be calculated");
-        assertTrue(result.getSimilarity() > 0 && result.getSimilarity() < 1,
-                "Similarity should reflect partial match");
+        assertTrue(result.similarity().isEmpty(),
+                "A strategy without a versioned score definition must not publish a sentinel");
     }
 
     @Test
@@ -172,7 +168,7 @@ class TfiListDiffIntegrationTest {
         // When: 通过静态方法调用
         CompareResult result = TfiListDiff.diff(oldList, newList);
 
-        // Then: 应该正常工作（委托给 facade）
+        // Then: 静态Registry入口与context-local facade可以并存
         assertNotNull(result);
         assertFalse(result.isIdentical());
     }

@@ -1,5 +1,6 @@
 package com.syy.taskflowinsight.api;
 
+import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
@@ -119,6 +120,40 @@ class TFITest {
         // 清理上下文
         TFI.clear();
         assertThat(TFI.getCurrentSession()).isNull();
+    }
+
+    @Test
+    void consecutiveSessionsUseDifferentContexts() {
+        TFI.startSession("first");
+        String firstContextId = ManagedThreadContext.current().getContextId();
+
+        TFI.startSession("second");
+
+        assertThat(ManagedThreadContext.current().getContextId()).isNotEqualTo(firstContextId);
+    }
+
+    @Test
+    void disabledEndSessionStillCleansContext() {
+        TFI.startSession("in-flight");
+        ManagedThreadContext context = ManagedThreadContext.current();
+        TFI.disable();
+
+        TFI.endSession();
+
+        assertThat(context.isClosed()).isTrue();
+        assertThat(ManagedThreadContext.current()).isNull();
+    }
+
+    @Test
+    void disabledClearStillCleansContext() {
+        TFI.startSession("in-flight");
+        ManagedThreadContext context = ManagedThreadContext.current();
+        TFI.disable();
+
+        TFI.clear();
+
+        assertThat(context.isClosed()).isTrue();
+        assertThat(ManagedThreadContext.current()).isNull();
     }
     
     @Test
@@ -339,10 +374,31 @@ class TFITest {
         
         Map<String, Object> map = TFI.exportToMap();
         assertThat(map).isNotEmpty();
-        // 验证基本结构
-        assertThat(map).containsKeys("sessionId", "status", "task");
+        assertThat(map)
+                .containsEntry("schemaVersion", 2)
+                .containsKeys("captureEpochMillis", "session", "statistics", "rootTask", "truncated");
+
+        Map<?, ?> session = (Map<?, ?>) map.get("session");
+        Map<?, ?> rootTask = (Map<?, ?>) map.get("rootTask");
+        assertThat(session.get("name")).isEqualTo("Map Export Session");
+        assertThat(rootTask.get("name")).isEqualTo(session.get("name"));
+        assertThat(containsDescendantTaskNamed(rootTask, "Map Task")).isTrue();
         
         TFI.endSession();
+    }
+
+    private static boolean containsDescendantTaskNamed(Map<?, ?> parent, String expectedName) {
+        if (!(parent.get("children") instanceof List<?> children)) {
+            return false;
+        }
+        for (Object childValue : children) {
+            if (childValue instanceof Map<?, ?> child
+                    && (expectedName.equals(child.get("name"))
+                    || containsDescendantTaskNamed(child, expectedName))) {
+                return true;
+            }
+        }
+        return false;
     }
     
     @Test

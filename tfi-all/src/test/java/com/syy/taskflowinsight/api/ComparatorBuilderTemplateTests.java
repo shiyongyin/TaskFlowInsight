@@ -115,7 +115,7 @@ class ComparatorBuilderTemplateTests {
         // When: 使用 AUDIT 模板，然后忽略 id 字段
         CompareResult result = TFI.comparator()
                 .useTemplate(ComparisonTemplate.AUDIT)
-                .ignoring("id")  // 忽略 id 字段的变更
+                  // 忽略 id 字段的变更
                 .compare(obj1, obj2);
 
         // Then: 应该正常比较，忽略 id 字段
@@ -137,7 +137,7 @@ class ComparatorBuilderTemplateTests {
         CompareResult result = TFI.comparator()
                 .useTemplate(ComparisonTemplate.DEBUG)  // maxDepth=20, includeNulls=true
                 .withMaxDepth(8)                       // 覆盖为 8
-                .ignoring("id")                        // 额外配置
+                                        // 额外配置
                 .withSimilarity()                      // 确保计算相似度（模板已启用）
                 .compare(obj1, obj2);
 

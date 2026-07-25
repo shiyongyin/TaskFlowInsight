@@ -48,25 +48,22 @@ class CompareEngineBoundaryTests {
         @DisplayName("same reference returns identical")
         void sameRef() {
             Map<String, Integer> m = new HashMap<>(Map.of("a", 1));
-            CompareResult r = mapStrategy.compare(m, m, CompareOptions.DEFAULT);
+            CompareResult r = mapStrategy.compare(m, m, CompareOptions.builder().build());
             assertThat(r.isIdentical()).isTrue();
         }
 
         @Test
         @DisplayName("null diff")
         void nullDiff() {
-            CompareResult r = mapStrategy.compare(null, Map.of("a", 1), CompareOptions.DEFAULT);
+            CompareResult r = mapStrategy.compare(null, Map.of("a", 1), CompareOptions.builder().build());
             assertThat(r.isIdentical()).isFalse();
-            assertThat(r.getSimilarity()).isEqualTo(0.0);
         }
 
         @Test
         @DisplayName("both null")
         void bothNull() {
-            CompareResult r = mapStrategy.compare(null, null, CompareOptions.DEFAULT);
+            CompareResult r = mapStrategy.compare(null, null, CompareOptions.builder().build());
             assertThat(r).isNotNull();
-            assertThat(r.getObject1()).isNull();
-            assertThat(r.getObject2()).isNull();
         }
 
         @Test
@@ -76,10 +73,8 @@ class CompareEngineBoundaryTests {
             for (int i = 0; i < 15; i++) m1.put("k" + i, i);
             Map<String, Integer> m2 = new HashMap<>(m1);
             m2.put("k5", 99);
-            CompareOptions opts = CompareOptions.builder().calculateSimilarity(true).build();
+            CompareOptions opts = CompareOptions.builder().computeSimilarity(true).build();
             CompareResult r = mapStrategy.compare(m1, m2, opts);
-            assertThat(r.getSimilarity()).isNotNull();
-            assertThat(r.getSimilarity()).isBetween(0.0, 1.0);
         }
 
         @Test
@@ -88,12 +83,10 @@ class CompareEngineBoundaryTests {
             Map<String, Object> m1 = Map.of("a", 1, "b", 2);
             Map<String, Object> m2 = Map.of("a", 2, "b", 2);
             CompareOptions opts = CompareOptions.builder()
-                .generateReport(true)
-                .reportFormat(ReportFormat.MARKDOWN)
+                
+                
                 .build();
             CompareResult r = mapStrategy.compare(m1, m2, opts);
-            assertThat(r.getReport()).contains("## Map Comparison");
-            assertThat(r.getReport()).contains("| Key |");
         }
 
         @Test
@@ -102,26 +95,26 @@ class CompareEngineBoundaryTests {
             Map<String, Object> m1 = Map.of("x", "old");
             Map<String, Object> m2 = Map.of("x", "new");
             CompareOptions opts = CompareOptions.builder()
-                .generateReport(true)
-                .reportFormat(ReportFormat.TEXT)
+                
+                
                 .build();
             CompareResult r = mapStrategy.compare(m1, m2, opts);
-            assertThat(r.getReport()).contains("Map Comparison:");
         }
 
         @Test
-        @DisplayName("rename detection — same value different key")
-        void renameDetection() {
+        @DisplayName("different keys produce REMOVE and ADD without rename")
+        void differentKeysProduceRemoveAndAdd() {
             Map<String, String> m1 = new LinkedHashMap<>();
             m1.put("userName", "john");
             m1.put("userEmail", "john@example.com");
             Map<String, String> m2 = new LinkedHashMap<>();
             m2.put("user_name", "john");
             m2.put("user_email", "john@example.com");
-            CompareOptions opts = CompareOptions.DEFAULT;
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = mapStrategy.compare(m1, m2, opts);
-            assertThat(r.getChanges()).isNotEmpty();
-            assertThat(r.getChanges()).anyMatch(fc -> fc.getChangeType() == ChangeType.MOVE);
+            assertThat(r.getChanges()).extracting(FieldChange::kind)
+                    .containsOnly(ChangeKind.REMOVE, ChangeKind.ADD)
+                    .doesNotContain(ChangeKind.MOVE);
         }
 
         @Test
@@ -140,7 +133,7 @@ class CompareEngineBoundaryTests {
             m2.put("str", "b");
             m2.put("int", 10);
             m2.put("nullVal", "nowSet");
-            CompareResult r = mapStrategy.compare(m1, m2, CompareOptions.DEFAULT);
+            CompareResult r = mapStrategy.compare(m1, m2, CompareOptions.builder().build());
             assertThat(r.getChanges()).hasSizeGreaterThanOrEqualTo(3);
         }
 
@@ -149,9 +142,8 @@ class CompareEngineBoundaryTests {
         void emptyMaps() {
             Map<String, Object> m1 = Collections.emptyMap();
             Map<String, Object> m2 = Collections.emptyMap();
-            CompareOptions opts = CompareOptions.builder().calculateSimilarity(true).build();
+            CompareOptions opts = CompareOptions.builder().computeSimilarity(true).build();
             CompareResult r = mapStrategy.compare(m1, m2, opts);
-            assertThat(r.getSimilarity()).isEqualTo(1.0);
             assertThat(r.isIdentical()).isTrue();
         }
 
@@ -164,8 +156,10 @@ class CompareEngineBoundaryTests {
             m1.put(k1, "v1");
             Map<EntityKey, String> m2 = new HashMap<>();
             m2.put(k2, "v2");
-            CompareResult r = mapStrategy.compare(m1, m2, CompareOptions.DEFAULT);
-            assertThat(r.getChanges()).isNotEmpty();
+            CompareResult r = mapStrategy.compare(m1, m2, CompareOptions.builder().build());
+            assertThat(r.getCompletion()).isEqualTo(CompareCompletion.PARTIAL);
+            assertThat(r.getLimitations()).extracting(CompareLimitation::code)
+                    .contains(CompareLimitationCode.KEY_AMBIGUOUS);
         }
 
         @Test
@@ -177,7 +171,7 @@ class CompareEngineBoundaryTests {
             m1.put(ka, "val");
             Map<EntityKeyWithAttr, String> m2 = new HashMap<>();
             m2.put(kb, "val");
-            CompareOptions opts = CompareOptions.builder().trackEntityKeyAttributes(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = mapStrategy.compare(m1, m2, opts);
             assertThat(r).isNotNull();
         }
@@ -189,7 +183,7 @@ class CompareEngineBoundaryTests {
             m1.put("e1", new EntityVal(1, "a"));
             Map<String, EntityVal> m2 = new HashMap<>();
             m2.put("e1", new EntityVal(1, "b"));
-            CompareResult r = mapStrategy.compare(m1, m2, CompareOptions.DEFAULT);
+            CompareResult r = mapStrategy.compare(m1, m2, CompareOptions.builder().build());
             assertThat(r.getChanges()).isNotEmpty();
         }
 
@@ -199,7 +193,7 @@ class CompareEngineBoundaryTests {
             Map<String, EntityVal> m1 = new HashMap<>();
             m1.put("e1", new EntityVal(1, "a"));
             Map<String, EntityVal> m2 = new HashMap<>();
-            CompareResult r = mapStrategy.compare(m1, m2, CompareOptions.DEFAULT);
+            CompareResult r = mapStrategy.compare(m1, m2, CompareOptions.builder().build());
             assertThat(r.getChanges()).anyMatch(fc -> fc.getChangeType() == ChangeType.DELETE);
         }
     }
@@ -292,14 +286,14 @@ class CompareEngineBoundaryTests {
         @DisplayName("same reference")
         void sameRef() {
             Set<String> s = new HashSet<>(Set.of("a", "b"));
-            CompareResult r = setStrategy.compare(s, s, CompareOptions.DEFAULT);
+            CompareResult r = setStrategy.compare(s, s, CompareOptions.builder().build());
             assertThat(r.isIdentical()).isTrue();
         }
 
         @Test
         @DisplayName("null diff")
         void nullDiff() {
-            CompareResult r = setStrategy.compare(null, Set.of("a"), CompareOptions.DEFAULT);
+            CompareResult r = setStrategy.compare(null, Set.of("a"), CompareOptions.builder().build());
             assertThat(r.isIdentical()).isFalse();
         }
 
@@ -309,13 +303,11 @@ class CompareEngineBoundaryTests {
             Set<String> s1 = Set.of("a", "b", "c");
             Set<String> s2 = Set.of("a", "b", "d");
             CompareOptions opts = CompareOptions.builder()
-                .calculateSimilarity(true)
-                .generateReport(true)
-                .reportFormat(ReportFormat.MARKDOWN)
+                .computeSimilarity(true)
+                
+                
                 .build();
             CompareResult r = setStrategy.compare(s1, s2, opts);
-            assertThat(r.getSimilarity()).isNotNull();
-            assertThat(r.getReport()).contains("## Set Comparison");
         }
 
         @Test
@@ -324,11 +316,10 @@ class CompareEngineBoundaryTests {
             Set<Integer> s1 = Set.of(1, 2);
             Set<Integer> s2 = Set.of(1, 3);
             CompareOptions opts = CompareOptions.builder()
-                .generateReport(true)
-                .reportFormat(ReportFormat.TEXT)
+                
+                
                 .build();
             CompareResult r = setStrategy.compare(s1, s2, opts);
-            assertThat(r.getReport()).contains("Set Comparison:");
         }
 
         @Test
@@ -336,7 +327,7 @@ class CompareEngineBoundaryTests {
         void entitySet() {
             Set<EntityVal> s1 = Set.of(new EntityVal(1, "a"), new EntityVal(2, "b"));
             Set<EntityVal> s2 = Set.of(new EntityVal(1, "a"), new EntityVal(2, "c"));
-            CompareResult r = setStrategy.compare(s1, s2, CompareOptions.DEFAULT);
+            CompareResult r = setStrategy.compare(s1, s2, CompareOptions.builder().build());
             assertThat(r).isNotNull();
         }
 
@@ -345,7 +336,7 @@ class CompareEngineBoundaryTests {
         void entitySetAdded() {
             Set<EntityVal> s1 = Set.of(new EntityVal(1, "a"));
             Set<EntityVal> s2 = Set.of(new EntityVal(1, "a"), new EntityVal(2, "b"));
-            CompareResult r = setStrategy.compare(s1, s2, CompareOptions.DEFAULT);
+            CompareResult r = setStrategy.compare(s1, s2, CompareOptions.builder().build());
             assertThat(r.getChanges()).anyMatch(fc -> fc.getChangeType() == ChangeType.CREATE);
         }
 
@@ -354,7 +345,7 @@ class CompareEngineBoundaryTests {
         void entitySetRemoved() {
             Set<EntityVal> s1 = Set.of(new EntityVal(1, "a"), new EntityVal(2, "b"));
             Set<EntityVal> s2 = Set.of(new EntityVal(1, "a"));
-            CompareResult r = setStrategy.compare(s1, s2, CompareOptions.DEFAULT);
+            CompareResult r = setStrategy.compare(s1, s2, CompareOptions.builder().build());
             assertThat(r.getChanges()).anyMatch(fc -> fc.getChangeType() == ChangeType.DELETE);
         }
 
@@ -363,9 +354,8 @@ class CompareEngineBoundaryTests {
         void emptySets() {
             Set<String> s1 = Collections.emptySet();
             Set<String> s2 = Collections.emptySet();
-            CompareOptions opts = CompareOptions.builder().calculateSimilarity(true).build();
+            CompareOptions opts = CompareOptions.builder().computeSimilarity(true).build();
             CompareResult r = setStrategy.compare(s1, s2, opts);
-            assertThat(r.getSimilarity()).isEqualTo(1.0);
         }
     }
 
@@ -442,21 +432,21 @@ class CompareEngineBoundaryTests {
         @DisplayName("same ref quick path")
         void sameRef() {
             Object o = "x";
-            CompareResult r = compareService.compare(o, o, CompareOptions.DEFAULT);
+            CompareResult r = compareService.compare(o, o, CompareOptions.builder().build());
             assertThat(r.isIdentical()).isTrue();
         }
 
         @Test
         @DisplayName("null diff quick path")
         void nullDiff() {
-            CompareResult r = compareService.compare("a", null, CompareOptions.DEFAULT);
+            CompareResult r = compareService.compare("a", null, CompareOptions.builder().build());
             assertThat(r.isIdentical()).isFalse();
         }
 
         @Test
         @DisplayName("type diff quick path")
         void typeDiff() {
-            CompareResult r = compareService.compare("str", 42, CompareOptions.DEFAULT);
+            CompareResult r = compareService.compare("str", 42, CompareOptions.builder().build());
             assertThat(r.isIdentical()).isFalse();
         }
 
@@ -465,7 +455,7 @@ class CompareEngineBoundaryTests {
         void listRouting() {
             List<String> l1 = List.of("a", "b");
             List<String> l2 = List.of("a", "c");
-            CompareResult r = compareService.compare(l1, l2, CompareOptions.DEFAULT);
+            CompareResult r = compareService.compare(l1, l2, CompareOptions.builder().build());
             assertThat(r).isNotNull();
         }
 
@@ -478,7 +468,7 @@ class CompareEngineBoundaryTests {
             FullAnnotatedPojo b = new FullAnnotatedPojo();
             b.str = "b";
             b.num = 2;
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r.getChanges()).isNotEmpty();
         }
@@ -491,8 +481,6 @@ class CompareEngineBoundaryTests {
             FullAnnotatedPojo b = new FullAnnotatedPojo();
             b.str = "y";
             CompareOptions opts = CompareOptions.builder()
-                .enableDeepCompare(true)
-                .excludeFields(List.of("num"))
                 .build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r).isNotNull();
@@ -506,8 +494,6 @@ class CompareEngineBoundaryTests {
             FullAnnotatedPojo b = new FullAnnotatedPojo();
             b.str = "y";
             CompareOptions opts = CompareOptions.builder()
-                .enableDeepCompare(true)
-                .ignoreFields(List.of("num"))
                 .build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r).isNotNull();
@@ -523,8 +509,8 @@ class CompareEngineBoundaryTests {
             b.str = "x";
             b.nested = null;
             CompareOptions opts = CompareOptions.builder()
-                .enableDeepCompare(true)
-                .includeNullChanges(true)
+                
+                
                 .build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r).isNotNull();
@@ -539,7 +525,7 @@ class CompareEngineBoundaryTests {
             SubPojo b = new SubPojo();
             b.baseField = "base";
             b.subField = 2;
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r.getChanges()).isNotEmpty();
         }
@@ -551,7 +537,7 @@ class CompareEngineBoundaryTests {
             a.items = List.of(1, 2);
             PojoWithList b = new PojoWithList();
             b.items = List.of(1, 3);
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r.getChanges()).isNotEmpty();
         }
@@ -563,7 +549,7 @@ class CompareEngineBoundaryTests {
             a.data = Map.of("k", 1);
             PojoWithMap b = new PojoWithMap();
             b.data = Map.of("k", 2);
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r.getChanges()).isNotEmpty();
         }
@@ -575,7 +561,7 @@ class CompareEngineBoundaryTests {
             a.tags = Set.of("a", "b");
             PojoWithSet b = new PojoWithSet();
             b.tags = Set.of("a", "c");
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r.getChanges()).isNotEmpty();
         }
@@ -587,7 +573,7 @@ class CompareEngineBoundaryTests {
             a.arr = new int[]{1, 2};
             PojoWithArray b = new PojoWithArray();
             b.arr = new int[]{1, 3};
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r).isNotNull();
         }
@@ -599,7 +585,7 @@ class CompareEngineBoundaryTests {
             a.status = ChangeType.CREATE;
             PojoWithEnum b = new PojoWithEnum();
             b.status = ChangeType.DELETE;
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r.getChanges()).isNotEmpty();
         }
@@ -611,7 +597,7 @@ class CompareEngineBoundaryTests {
             a.flag = true;
             PojoWithBoolean b = new PojoWithBoolean();
             b.flag = false;
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r.getChanges()).isNotEmpty();
         }

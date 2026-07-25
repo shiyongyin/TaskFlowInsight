@@ -18,6 +18,8 @@ import java.util.concurrent.TimeUnit;
 @Fork(1)
 public class ReferenceChangeBenchmarks {
 
+    private static final CompareOptions OPTIONS = CompareOptions.builder().build();
+
     @Entity
     public static class Customer {
         @Key String id; String name;
@@ -38,7 +40,7 @@ public class ReferenceChangeBenchmarks {
 
         @Setup(Level.Trial)
         public void setup() {
-            svc = CompareService.createDefault(CompareOptions.typeAware());
+            svc = CompareService.createDefault(OPTIONS);
             oldOrder = new Order(new Customer("C1", "Alice"), new Customer("R1", "Ray"));
             newOrder = new Order(new Customer("C2", "Bob"), new Customer("R1", "Ray")); // assignee 切换
         }
@@ -46,8 +48,7 @@ public class ReferenceChangeBenchmarks {
 
     @Benchmark
     public void bench_reference_change_detection(DataState s, Blackhole bh) {
-        CompareResult r = s.svc.compare(s.oldOrder, s.newOrder, CompareOptions.typeAware());
+        CompareResult r = s.svc.compare(s.oldOrder, s.newOrder, OPTIONS);
         bh.consume(r.getReferenceChanges());
     }
 }
-

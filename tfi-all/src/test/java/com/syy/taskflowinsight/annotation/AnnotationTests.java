@@ -40,17 +40,7 @@ class AnnotationTests {
         
         ValueObject annotation = TestValueObject.class.getAnnotation(ValueObject.class);
         assertNotNull(annotation);
-        assertEquals(ValueObjectCompareStrategy.AUTO, annotation.strategy());
-    }
-    
-    @Test
-    void testValueObjectAnnotationWithCustomStrategy() throws Exception {
-        @ValueObject(strategy = ValueObjectCompareStrategy.EQUALS)
-        class TestValueObject {}
-        
-        ValueObject annotation = TestValueObject.class.getAnnotation(ValueObject.class);
-        assertNotNull(annotation);
-        assertEquals(ValueObjectCompareStrategy.EQUALS, annotation.strategy());
+        assertEquals(0, ValueObject.class.getDeclaredMethods().length);
     }
     
     @Test
@@ -97,20 +87,4 @@ class AnnotationTests {
         assertTrue(field.isAnnotationPresent(DiffInclude.class));
     }
     
-    @Test
-    void testObjectTypeEnumValues() {
-        assertEquals(4, ObjectType.values().length);
-        assertEquals("Entity", ObjectType.ENTITY.getDisplayName());
-        assertEquals("ValueObject", ObjectType.VALUE_OBJECT.getDisplayName());
-        assertEquals("BasicType", ObjectType.BASIC_TYPE.getDisplayName());
-        assertEquals("Collection", ObjectType.COLLECTION.getDisplayName());
-    }
-    
-    @Test
-    void testValueObjectCompareStrategyEnumValues() {
-        assertEquals(3, ValueObjectCompareStrategy.values().length);
-        assertEquals("Auto", ValueObjectCompareStrategy.AUTO.getDisplayName());
-        assertEquals("Equals", ValueObjectCompareStrategy.EQUALS.getDisplayName());
-        assertEquals("Fields", ValueObjectCompareStrategy.FIELDS.getDisplayName());
-    }
-}
+} 

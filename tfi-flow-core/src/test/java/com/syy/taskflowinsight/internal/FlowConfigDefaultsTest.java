@@ -1,5 +1,7 @@
 package com.syy.taskflowinsight.internal;
 
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -16,19 +18,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class FlowConfigDefaultsTest {
 
     @Test
-    @DisplayName("flow context 默认值正确")
-    void flowContextDefaults() {
-        assertThat(FlowConfigDefaults.NESTED_STAGE_MAX_DEPTH).isEqualTo(20);
-        assertThat(FlowConfigDefaults.NESTED_CLEANUP_BATCH_SIZE).isEqualTo(100);
-    }
-
-    @Test
-    @DisplayName("旧 ConfigDefaults 常量保持兼容别名")
-    void legacyConfigDefaultsAliasesRemainCompatible() {
-        assertThat(ConfigDefaults.NESTED_STAGE_MAX_DEPTH)
-            .isEqualTo(FlowConfigDefaults.NESTED_STAGE_MAX_DEPTH);
-        assertThat(ConfigDefaults.NESTED_CLEANUP_BATCH_SIZE)
-            .isEqualTo(FlowConfigDefaults.NESTED_CLEANUP_BATCH_SIZE);
+    @DisplayName("只发布 flow-core 自有默认值")
+    void publishesOnlyFlowOwnedDefaults() {
+        assertThat(publicFieldNames(FlowConfigDefaults.class))
+                .containsExactlyInAnyOrder(
+                        "MAX_EXPORT_DEPTH",
+                        "MAX_EXPORT_NODES",
+                        "MAX_EXPORT_PAYLOAD_ENTRIES",
+                        "MAX_EXPORT_TEXT_CHARS",
+                        "MAX_MESSAGES_PER_NODE");
     }
 
     @Test
@@ -36,5 +34,12 @@ class FlowConfigDefaultsTest {
     void privateConstructorExists() throws Exception {
         var constructor = FlowConfigDefaults.class.getDeclaredConstructor();
         assertThat(java.lang.reflect.Modifier.isPrivate(constructor.getModifiers())).isTrue();
+    }
+
+    private static String[] publicFieldNames(Class<?> type) {
+        return Arrays.stream(type.getDeclaredFields())
+                .filter(field -> Modifier.isPublic(field.getModifiers()))
+                .map(field -> field.getName())
+                .toArray(String[]::new);
     }
 }

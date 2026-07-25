@@ -12,28 +12,28 @@ class TfiErrorResponseTest {
 
     @Test
     void notFound_createsCorrectCode() {
-        TfiErrorResponse response = TfiErrorResponse.notFound("Session", "check /actuator/tfi-advanced/sessions");
+        TfiErrorResponse response = TfiErrorResponse.notFound("Metric", "check /actuator/tfi-metrics");
         assertEquals("TFI-404", response.code());
-        assertEquals("Session not found", response.message());
-        assertEquals("check /actuator/tfi-advanced/sessions", response.hint());
+        assertEquals("Metric not found", response.message());
+        assertEquals("check /actuator/tfi-metrics", response.hint());
         assertNotNull(response.timestamp());
     }
 
     @Test
     void unavailable_createsCorrectCode() {
-        TfiErrorResponse response = TfiErrorResponse.unavailable("Metrics", "check tfi.metrics.enabled");
+        TfiErrorResponse response = TfiErrorResponse.unavailable("Metrics", "configure host MeterRegistry");
         assertEquals("TFI-503", response.code());
         assertEquals("Metrics unavailable", response.message());
-        assertEquals("check tfi.metrics.enabled", response.hint());
+        assertEquals("configure host MeterRegistry", response.hint());
         assertNotNull(response.timestamp());
     }
 
     @Test
     void badRequest_createsCorrectCode() {
-        TfiErrorResponse response = TfiErrorResponse.badRequest("Invalid sessionId format", "use UUID format");
+        TfiErrorResponse response = TfiErrorResponse.badRequest("Invalid metric name", "use a published metric name");
         assertEquals("TFI-400", response.code());
-        assertEquals("Invalid sessionId format", response.message());
-        assertEquals("use UUID format", response.hint());
+        assertEquals("Invalid metric name", response.message());
+        assertEquals("use a published metric name", response.hint());
         assertNotNull(response.timestamp());
     }
 

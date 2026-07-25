@@ -349,11 +349,11 @@ class TFIBoundaryTest {
     @Test
     @Timeout(30)
     void testDeepNestingLimits() {
-        final int EXTREME_DEPTH = 10_000; // 1万层嵌套
+        final int extremeDepth = 1_024;
         
         assertThatNoException().isThrownBy(() -> {
             // 创建极深的嵌套任务
-            for (int i = 0; i < EXTREME_DEPTH; i++) {
+            for (int i = 0; i < extremeDepth; i++) {
                 TFI.start("deep-task-level-" + i);
                 
                 // 每1000层添加一条消息以测试性能
@@ -364,11 +364,11 @@ class TFIBoundaryTest {
             
             // 验证任务栈深度
             List<TaskNode> taskStack = TFI.getTaskStack();
-            // 栈包含自动创建的根任务，因此深度可能为 EXTREME_DEPTH 或 EXTREME_DEPTH + 1（含root）
-            assertThat(taskStack.size()).isBetween(EXTREME_DEPTH, EXTREME_DEPTH + 1);
+            // public stack查询有1024层环路保护；超过上限不再扩大返回集合。
+            assertThat(taskStack).hasSize(extremeDepth);
             
             // 逐层关闭
-            for (int i = 0; i < EXTREME_DEPTH; i++) {
+            for (int i = 0; i < extremeDepth; i++) {
                 TFI.stop();
             }
             

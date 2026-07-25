@@ -38,7 +38,7 @@ class TfiContextConcurrencyTests {
                     for (int i = 0; i < loops; i++) {
                         Item a = new Item("k", 1);
                         Item b = new Item("k", (i % 2 == 0) ? 1 : 2);
-                        CompareResult r = ctx.compare(a, b, CompareOptions.DEEP);
+                        CompareResult r = ctx.compare(a, b, CompareOptions.builder().maxDepth(10).build());
                         boolean expectedIdentical = (i % 2 == 0);
                         if (r.isIdentical() != expectedIdentical) {
                             mismatches.incrementAndGet();

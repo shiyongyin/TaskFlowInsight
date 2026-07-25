@@ -56,13 +56,7 @@ class EntityDiffTests {
         @Test
         @DisplayName("Builder 构建完整分组")
         void builder_shouldCreateGroup() {
-            FieldChange change = FieldChange.builder()
-                    .fieldName("name")
-                    .fieldPath("entity.name")
-                    .oldValue("old")
-                    .newValue("new")
-                    .changeType(ChangeType.UPDATE)
-                    .build();
+            FieldChange change = FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("entity.name")), "old", "new");
 
             EntityChangeGroup group = EntityChangeGroup.builder()
                     .entityKey("entity[1001]")
@@ -79,20 +73,8 @@ class EntityDiffTests {
         @Test
         @DisplayName("getFieldChanges 按字段名查询")
         void getFieldChanges_shouldFilterByFieldName() {
-            FieldChange nameChange = FieldChange.builder()
-                    .fieldName("name")
-                    .fieldPath("entity.name")
-                    .oldValue("old")
-                    .newValue("new")
-                    .changeType(ChangeType.UPDATE)
-                    .build();
-            FieldChange ageChange = FieldChange.builder()
-                    .fieldName("age")
-                    .fieldPath("entity.age")
-                    .oldValue(20)
-                    .newValue(30)
-                    .changeType(ChangeType.UPDATE)
-                    .build();
+            FieldChange nameChange = FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("entity.name")), "old", "new");
+            FieldChange ageChange = FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("entity.age")), 20, 30);
 
             EntityChangeGroup group = EntityChangeGroup.builder()
                     .entityKey("user[1]")
@@ -102,7 +84,7 @@ class EntityDiffTests {
 
             List<FieldChange> nameChanges = group.getFieldChanges("name");
             assertThat(nameChanges).hasSize(1);
-            assertThat(nameChanges.get(0).getFieldName()).isEqualTo("name");
+            assertThat(nameChanges.get(0)).isEqualTo(nameChange);
         }
 
         @Test
@@ -156,8 +138,7 @@ class EntityDiffTests {
                     .entityKey("entity[new]")
                     .operation(EntityOperation.ADD)
                     .changes(List.of(
-                            FieldChange.builder().fieldName("name").fieldPath("entity.name")
-                                    .changeType(ChangeType.CREATE).newValue("New Item").build()
+                            FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.ADD, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("entity.name")), null, "New Item")
                     ))
                     .build();
 
@@ -165,8 +146,7 @@ class EntityDiffTests {
                     .entityKey("entity[1001]")
                     .operation(EntityOperation.MODIFY)
                     .changes(List.of(
-                            FieldChange.builder().fieldName("status").fieldPath("entity.status")
-                                    .changeType(ChangeType.UPDATE).oldValue("ACTIVE").newValue("INACTIVE").build()
+                            FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("entity.status")), "ACTIVE", "INACTIVE")
                     ))
                     .build();
 
@@ -218,9 +198,7 @@ class EntityDiffTests {
             EntityChangeGroup group = EntityChangeGroup.builder()
                     .entityKey("entity[1]")
                     .operation(EntityOperation.ADD)
-                    .changes(List.of(FieldChange.builder()
-                            .fieldName("f").fieldPath("f")
-                            .changeType(ChangeType.CREATE).build()))
+                    .changes(List.of(FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.ADD, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("f")), null, null)))
                     .build();
 
             EntityListDiffResult result = EntityListDiffResult.builder()
@@ -242,18 +220,9 @@ class EntityDiffTests {
         @Test
         @DisplayName("from CompareResult → 转换成功")
         void fromCompareResult_shouldConvert() {
-            FieldChange change = FieldChange.builder()
-                    .fieldName("status")
-                    .fieldPath("entity.status")
-                    .oldValue("A")
-                    .newValue("B")
-                    .changeType(ChangeType.UPDATE)
-                    .build();
+            FieldChange change = FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("entity.status")), "A", "B");
 
-            CompareResult compareResult = CompareResult.builder()
-                    .changes(List.of(change))
-                    .identical(false)
-                    .build();
+            CompareResult compareResult = com.syy.taskflowinsight.tracking.compare.internal.CompareResultReducer.complete(List.of(change));
 
             EntityListDiffResult result = EntityListDiffResult.from(compareResult);
             assertThat(result).isNotNull();

@@ -3,6 +3,7 @@ package com.syy.taskflowinsight.tracking.compare;
 import com.syy.taskflowinsight.annotation.Entity;
 import com.syy.taskflowinsight.annotation.Key;
 import com.syy.taskflowinsight.annotation.ShallowReference;
+import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult;
 import com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy;
 import org.openjdk.jmh.annotations.*;
@@ -39,6 +40,8 @@ import java.util.concurrent.TimeUnit;
 @Fork(1)
 @State(Scope.Benchmark)
 public class P1PerformanceBenchmark {
+
+    private static final CompareOptions OPTIONS = CompareOptions.builder().build();
 
     // ==================== 测试数据模型 ====================
 
@@ -98,7 +101,7 @@ public class P1PerformanceBenchmark {
 
     @Setup(Level.Trial)
     public void setup() {
-        compareService = CompareService.createDefault(CompareOptions.typeAware());
+        compareService = CompareService.createDefault(OPTIONS);
 
         // 创建供应商池（10个供应商）
         suppliers = new ArrayList<>();
@@ -204,7 +207,7 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_small,
                 newList_small,
-                CompareOptions.typeAware()
+                OPTIONS
         );
         EntityListDiffResult diffResult = EntityListDiffResult.from(result, oldList_small, newList_small);
         bh.consume(diffResult.getGroups());
@@ -215,7 +218,7 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_medium,
                 newList_medium,
-                CompareOptions.typeAware()
+                OPTIONS
         );
         EntityListDiffResult diffResult = EntityListDiffResult.from(result, oldList_medium, newList_medium);
         bh.consume(diffResult.getGroups());
@@ -232,7 +235,7 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_small,
                 newList_small,
-                CompareOptions.typeAware()
+                OPTIONS
         );
         // 模拟旧版本的路径解析开销：每个变更都需要解析路径
         result.getChanges().forEach(fc -> {
@@ -264,7 +267,7 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_small,
                 newList_small,
-                CompareOptions.typeAware()
+                OPTIONS
         );
         // 使用Query API快速筛选引用变更
         List<FieldChange> refChanges = result.getReferenceChanges();
@@ -276,7 +279,7 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_medium,
                 newList_medium,
-                CompareOptions.typeAware()
+                OPTIONS
         );
         List<FieldChange> refChanges = result.getReferenceChanges();
         bh.consume(refChanges);
@@ -295,11 +298,11 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_small,
                 newList_small,
-                CompareOptions.typeAware()
+                OPTIONS
         );
-        bh.consume(result.getChangesByType(com.syy.taskflowinsight.tracking.ChangeType.UPDATE));
-        bh.consume(result.getChangesByType(com.syy.taskflowinsight.tracking.ChangeType.CREATE));
-        bh.consume(result.getChangesByType(com.syy.taskflowinsight.tracking.ChangeType.DELETE));
+        bh.consume(result.getChangesByType(ChangeType.UPDATE));
+        bh.consume(result.getChangesByType(ChangeType.CREATE));
+        bh.consume(result.getChangesByType(ChangeType.DELETE));
     }
 
     @Benchmark
@@ -307,7 +310,7 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_small,
                 newList_small,
-                CompareOptions.typeAware()
+                OPTIONS
         );
         bh.consume(result.groupByObject());
     }
@@ -320,11 +323,11 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_small,
                 newList_small,
-                CompareOptions.typeAware()
+                OPTIONS
         );
         // 手动filter（Query API消除的样板代码）
         long updateCount = result.getChanges().stream()
-                .filter(c -> c.getChangeType() == com.syy.taskflowinsight.tracking.ChangeType.UPDATE)
+                .filter(c -> c.getChangeType() == ChangeType.UPDATE)
                 .count();
         bh.consume(updateCount);
     }
@@ -342,19 +345,17 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_small,
                 newList_small,
-                CompareOptions.typeAware()
+                OPTIONS
         );
 
         // 使用P1所有新特性
         EntityListDiffResult diffResult = EntityListDiffResult.from(result, oldList_small, newList_small);
         List<FieldChange> refChanges = result.getReferenceChanges();
         List<FieldChange> containerChanges = result.getContainerChanges();
-        String summary = result.prettyPrint();
 
         bh.consume(diffResult);
         bh.consume(refChanges);
         bh.consume(containerChanges);
-        bh.consume(summary);
     }
 
     @Benchmark
@@ -362,17 +363,15 @@ public class P1PerformanceBenchmark {
         CompareResult result = compareService.compare(
                 oldList_medium,
                 newList_medium,
-                CompareOptions.typeAware()
+                OPTIONS
         );
 
         EntityListDiffResult diffResult = EntityListDiffResult.from(result, oldList_medium, newList_medium);
         List<FieldChange> refChanges = result.getReferenceChanges();
         List<FieldChange> containerChanges = result.getContainerChanges();
-        String summary = result.prettyPrint();
 
         bh.consume(diffResult);
         bh.consume(refChanges);
         bh.consume(containerChanges);
-        bh.consume(summary);
     }
 }

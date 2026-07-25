@@ -1,12 +1,23 @@
 package com.syy.taskflowinsight.context;
 
+import com.syy.taskflowinsight.model.Message;
+import com.syy.taskflowinsight.model.Session;
+import com.syy.taskflowinsight.model.TaskNode;
 import org.junit.jupiter.api.*;
 
-import java.util.Map;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.AbstractList;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.*;
@@ -14,8 +25,7 @@ import static org.assertj.core.api.Assertions.*;
 /**
  * {@link SafeContextManager} 单元测试。
  *
- * <p>覆盖 configure、registerContext/unregisterContext、getCurrentContext、
- * detectAndCleanLeaks、LeakListener、applyTfiConfig 等路径。
+ * <p>覆盖 getCurrentContext、detectAndCleanLeaks、LeakListener、异步传播与指标路径。
  *
  * @author tfi-flow-core Test Team
  * @since 3.0.1
@@ -29,14 +39,13 @@ class SafeContextManagerTest {
         manager = SafeContextManager.getInstance();
         // 确保干净状态
         manager.clearAllContextsForTesting();
-        // 禁用泄漏检测以避免干扰
-        manager.setLeakDetectionEnabled(false);
+        manager.apply(ContextManagerConfig.defaults());
     }
 
     @AfterEach
     void cleanup() {
         manager.clearAllContextsForTesting();
-        manager.setLeakDetectionEnabled(false);
+        manager.apply(ContextManagerConfig.defaults());
     }
 
     // ==================== 单例 ====================
@@ -49,73 +58,12 @@ class SafeContextManagerTest {
         assertThat(m1).isSameAs(m2);
     }
 
-    // ==================== registerContext / unregisterContext ====================
-
-    @Test
-    @DisplayName("registerContext - 注册后 getCurrentContext 可获取")
-    void registerAndGet() {
-        // ManagedThreadContext.create() 内部已调用 registerContext
-        ManagedThreadContext ctx = ManagedThreadContext.create("test");
-        try {
-            ManagedThreadContext current = manager.getCurrentContext();
-            assertThat(current).isSameAs(ctx);
-        } finally {
-            manager.unregisterContext(ctx);
-            ctx.close();
-        }
-    }
-
-    @Test
-    @DisplayName("registerContext - null 抛出 IllegalArgumentException")
-    void registerNullThrows() {
-        assertThatThrownBy(() -> manager.registerContext(null))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("unregisterContext - 注销后 getCurrentContext 返回 null")
-    void unregisterClearsContext() {
-        ManagedThreadContext ctx = ManagedThreadContext.create("test");
-        try {
-            manager.registerContext(ctx);
-            manager.unregisterContext(ctx);
-            assertThat(manager.getCurrentContext()).isNull();
-        } finally {
-            ctx.close();
-        }
-    }
-
-    @Test
-    @DisplayName("unregisterContext - null 安全忽略")
-    void unregisterNullSafe() {
-        assertThatNoException().isThrownBy(() -> manager.unregisterContext(null));
-    }
-
-    @Test
-    @DisplayName("create - 替换旧未关闭上下文会自动关闭旧上下文")
-    void replacingContextClosesOld() {
-        // ManagedThreadContext.create 内部调用 registerContext
-        ManagedThreadContext ctx1 = ManagedThreadContext.create("old");
-        assertThat(ctx1.isClosed()).isFalse();
-
-        // 创建新上下文会关闭旧上下文
-        ManagedThreadContext ctx2 = ManagedThreadContext.create("new");
-        try {
-            assertThat(ctx1.isClosed()).isTrue();
-            assertThat(manager.getCurrentContext()).isSameAs(ctx2);
-        } finally {
-            manager.unregisterContext(ctx2);
-            ctx2.close();
-        }
-    }
-
     // ==================== getCurrentContext ====================
 
     @Test
     @DisplayName("getCurrentContext - 已关闭上下文返回 null 并清理")
     void getCurrentContextCleansClosed() {
         ManagedThreadContext ctx = ManagedThreadContext.create("test");
-        manager.registerContext(ctx);
         ctx.close(); // 手动关闭
 
         ManagedThreadContext result = manager.getCurrentContext();
@@ -126,67 +74,6 @@ class SafeContextManagerTest {
     @DisplayName("getCurrentContext - 无注册返回 null")
     void getCurrentContextNoRegistration() {
         assertThat(manager.getCurrentContext()).isNull();
-    }
-
-    // ==================== configure ====================
-
-    @Test
-    @DisplayName("configure - 配置参数被正确应用")
-    void configureAppliesSettings() {
-        assertThatNoException().isThrownBy(() ->
-                manager.configure(30000L, false, 5000L));
-    }
-
-    @Test
-    @DisplayName("configure - 启用泄漏检测会启动检测器")
-    void configureEnablesLeakDetection() {
-        assertThatNoException().isThrownBy(() -> {
-            manager.configure(30000L, true, 5000L);
-            Thread.sleep(50);
-            manager.configure(30000L, false, 5000L);
-        });
-    }
-
-    // ==================== applyTfiConfig ====================
-
-    @Test
-    @DisplayName("applyTfiConfig - 委托到各 setter")
-    void applyTfiConfigDelegates() {
-        assertThatNoException().isThrownBy(() ->
-                manager.applyTfiConfig(60000L, false, 30000L));
-    }
-
-    // ==================== setLeakDetectionEnabled ====================
-
-    @Test
-    @DisplayName("setLeakDetectionEnabled - 切换不抛异常")
-    void leakDetectionToggle() {
-        assertThatNoException().isThrownBy(() -> {
-            manager.setLeakDetectionEnabled(true);
-            Thread.sleep(50);
-            manager.setLeakDetectionEnabled(false);
-        });
-    }
-
-    // ==================== setLeakDetectionIntervalMillis ====================
-
-    @Test
-    @DisplayName("setLeakDetectionIntervalMillis - 重启检测器不抛异常")
-    void leakDetectionIntervalRestart() {
-        assertThatNoException().isThrownBy(() -> {
-            manager.setLeakDetectionEnabled(true);
-            manager.setLeakDetectionIntervalMillis(10000L);
-            manager.setLeakDetectionEnabled(false);
-        });
-    }
-
-    // ==================== setContextTimeoutMillis ====================
-
-    @Test
-    @DisplayName("setContextTimeoutMillis - 设置超时不抛异常")
-    void setContextTimeoutSafe() {
-        assertThatNoException().isThrownBy(() ->
-                manager.setContextTimeoutMillis(120000L));
     }
 
     // ==================== detectAndCleanLeaks ====================
@@ -202,7 +89,7 @@ class SafeContextManagerTest {
     void detectAndCleanLeaksKeepsAliveContext() {
         // 当前测试线程存活且上下文未超时，detectAndCleanLeaks 不应将其误判为泄漏
         // 显式设置较大超时，避免共享单例被其他测试改写超时阈值造成的偶发失败
-        manager.setContextTimeoutMillis(3_600_000L);
+        manager.apply(ContextManagerConfig.defaults());
         ManagedThreadContext ctx = ManagedThreadContext.create("alive-ctx");
         try {
             int before = manager.getActiveContextCount();
@@ -256,7 +143,6 @@ class SafeContextManagerTest {
 
         Thread worker = new Thread(() -> {
             ManagedThreadContext ctx = ManagedThreadContext.create("worker");
-            manager.registerContext(ctx);
             ctxRef.set(ctx);
             latch.countDown();
             // 线程结束，不清理上下文
@@ -292,7 +178,6 @@ class SafeContextManagerTest {
             CountDownLatch latch = new CountDownLatch(1);
             Thread worker = new Thread(() -> {
                 ManagedThreadContext ctx = ManagedThreadContext.create("leak");
-                manager.registerContext(ctx);
                 latch.countDown();
             });
             worker.start();
@@ -363,7 +248,6 @@ class SafeContextManagerTest {
     @DisplayName("executeAsync - 有活跃上下文时传播快照")
     void executeAsyncWithContextPropagation() throws Exception {
         ManagedThreadContext ctx = ManagedThreadContext.create("parent");
-        manager.registerContext(ctx);
 
         try {
             AtomicBoolean ran = new AtomicBoolean(false);
@@ -373,9 +257,216 @@ class SafeContextManagerTest {
             future.get(5, TimeUnit.SECONDS);
             assertThat(ran.get()).isTrue();
         } finally {
-            manager.unregisterContext(ctx);
             ctx.close();
         }
+    }
+
+    @Test
+    void executeAsyncCreatesNamedTask() throws Exception {
+        ManagedThreadContext parent = ManagedThreadContext.create("named-parent");
+        AtomicReference<ManagedThreadContext> childRef = new AtomicReference<>();
+        AtomicReference<TaskNode> namedTaskRef = new AtomicReference<>();
+
+        try {
+            CompletableFuture<String> future = manager.executeAsync("named-child", () -> {
+                ManagedThreadContext child = ManagedThreadContext.current();
+                childRef.set(child);
+                namedTaskRef.set(child != null ? child.getCurrentTask() : null);
+                return "done";
+            });
+
+            assertThat(future.get(5, TimeUnit.SECONDS)).isEqualTo("done");
+            assertThat(childRef.get()).isNotNull().isNotSameAs(parent);
+            assertThat(namedTaskRef.get()).isNotNull();
+            assertThat(namedTaskRef.get().getTaskName()).isEqualTo("named-child");
+            assertThat(namedTaskRef.get().getStatus().isSuccessful()).isTrue();
+            assertThat(childRef.get().isClosed()).isTrue();
+        } finally {
+            parent.close();
+        }
+    }
+
+    @Test
+    void executeAsyncCompletesNamedTaskBeforeFutureCompletion() throws Exception {
+        AtomicReference<ManagedThreadContext> contextRef = new AtomicReference<>();
+        AtomicReference<Session> sessionRef = new AtomicReference<>();
+        AtomicReference<TaskNode> taskRef = new AtomicReference<>();
+
+        CompletableFuture<String> future = manager.executeAsync("root-async-task", () -> {
+            ManagedThreadContext context = ManagedThreadContext.current();
+            contextRef.set(context);
+            sessionRef.set(context != null ? context.getCurrentSession() : null);
+            taskRef.set(context != null ? context.getCurrentTask() : null);
+            return "completed";
+        });
+
+        assertThat(future.get(5, TimeUnit.SECONDS)).isEqualTo("completed");
+        assertThat(taskRef.get()).isNotNull();
+        assertThat(taskRef.get().getTaskName()).isEqualTo("root-async-task");
+        assertThat(taskRef.get().getStatus().isSuccessful()).isTrue();
+        assertThat(sessionRef.get()).isNotNull();
+        assertThat(sessionRef.get().getStatus().isCompleted()).isTrue();
+        assertThat(contextRef.get().isClosed()).isTrue();
+        assertThat(manager.getActiveContextCount()).isZero();
+    }
+
+    @Test
+    void concurrentExecuteAsyncCleansEveryContextBeforeFutureCompletion() throws Exception {
+        int taskCount = 4;
+        CountDownLatch allStarted = new CountDownLatch(taskCount);
+        CountDownLatch release = new CountDownLatch(1);
+        Set<ManagedThreadContext> observedContexts = ConcurrentHashMap.newKeySet();
+        List<CompletableFuture<Integer>> futures = new ArrayList<>();
+
+        boolean startedTogether;
+        int activeWhileBlocked;
+        try {
+            for (int index = 0; index < taskCount; index++) {
+                int taskIndex = index;
+                futures.add(manager.executeAsync("concurrent-" + taskIndex, () -> {
+                    ManagedThreadContext context = ManagedThreadContext.current();
+                    allStarted.countDown();
+                    if (context == null) {
+                        throw new AssertionError("executeAsync task has no current Context");
+                    }
+                    observedContexts.add(context);
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError("Timed out waiting to release concurrent tasks");
+                    }
+                    return taskIndex;
+                }));
+            }
+
+            startedTogether = allStarted.await(5, TimeUnit.SECONDS);
+            activeWhileBlocked = manager.getActiveContextCount();
+        } finally {
+            release.countDown();
+        }
+        for (int index = 0; index < futures.size(); index++) {
+            assertThat(futures.get(index).get(5, TimeUnit.SECONDS)).isEqualTo(index);
+        }
+
+        assertThat(startedTogether).isTrue();
+        assertThat(activeWhileBlocked).isEqualTo(taskCount);
+        assertThat(observedContexts).hasSize(taskCount).allMatch(ManagedThreadContext::isClosed);
+        assertThat(manager.getActiveContextCount()).isZero();
+    }
+
+    @Test
+    void executeAsyncAttributesFailureToNamedTask() {
+        ManagedThreadContext parent = ManagedThreadContext.create("failure-parent");
+        RuntimeException businessFailure = new RuntimeException("async business failed");
+        AtomicReference<Session> childSessionRef = new AtomicReference<>();
+        AtomicReference<TaskNode> namedTaskRef = new AtomicReference<>();
+
+        try {
+            CompletableFuture<Void> future = manager.executeAsync("failing-child", () -> {
+                ManagedThreadContext child = ManagedThreadContext.current();
+                childSessionRef.set(child != null ? child.getCurrentSession() : null);
+                namedTaskRef.set(child != null ? child.getCurrentTask() : null);
+                throw businessFailure;
+            });
+
+            Throwable thrown = catchThrowable(() -> future.get(5, TimeUnit.SECONDS));
+            assertThat(thrown).isInstanceOf(java.util.concurrent.ExecutionException.class);
+            assertThat(thrown.getCause()).isSameAs(businessFailure);
+            assertThat(namedTaskRef.get()).isNotNull();
+            assertThat(namedTaskRef.get().getTaskName()).isEqualTo("failing-child");
+            assertThat(namedTaskRef.get().getStatus().isFailed()).isTrue();
+            assertThat(childSessionRef.get().getStatus().isError()).isTrue();
+        } finally {
+            parent.close();
+        }
+    }
+
+    @Test
+    void executeAsyncLinksChildSessionWithoutSharingTree() throws Exception {
+        ManagedThreadContext parent = ManagedThreadContext.create("linked-parent");
+        Session parentSession = parent.getCurrentSession();
+        TaskNode parentTask = parent.startTask("parent-step");
+        String expectedTaskPath = parentTask.getTaskPath();
+        AtomicReference<Session> childSessionRef = new AtomicReference<>();
+        AtomicReference<TaskNode> namedTaskRef = new AtomicReference<>();
+        AtomicReference<String> parentContextId = new AtomicReference<>();
+        AtomicReference<String> parentSessionId = new AtomicReference<>();
+        AtomicReference<String> parentTaskPath = new AtomicReference<>();
+
+        try {
+            CompletableFuture<Void> future = manager.executeAsync("linked-child", () -> {
+                ManagedThreadContext child = ManagedThreadContext.current();
+                childSessionRef.set(child.getCurrentSession());
+                namedTaskRef.set(child.getCurrentTask());
+                parentContextId.set(child.getAttribute("parent.contextId"));
+                parentSessionId.set(child.getAttribute("parent.sessionId"));
+                parentTaskPath.set(child.getAttribute("parent.taskPath"));
+            });
+
+            future.get(5, TimeUnit.SECONDS);
+            Session childSession = childSessionRef.get();
+            TaskNode namedTask = namedTaskRef.get();
+            assertThat(childSession).isNotNull().isNotSameAs(parentSession);
+            assertThat(childSession.getRootTask()).isNotSameAs(parentSession.getRootTask());
+            assertThat(namedTask.getParent()).isSameAs(childSession.getRootTask());
+            assertThat(parentContextId.get()).isEqualTo(parent.getContextId());
+            assertThat(parentSessionId.get()).isEqualTo(parentSession.getSessionId());
+            assertThat(parentTaskPath.get()).isEqualTo(expectedTaskPath);
+            assertThat(parentTask.getChildren()).doesNotContain(namedTask);
+            assertThat(namedTask.getStatus().isSuccessful()).isTrue();
+            assertThat(childSession.getStatus().isCompleted()).isTrue();
+        } finally {
+            parent.close();
+        }
+    }
+
+    @Test
+    void executeAsyncRestoresPollutedWorkerAfterFailure() throws Exception {
+        ThreadPoolExecutor executor = asyncExecutorForTesting();
+        int workerCount = executor.getCorePoolSize();
+        runOnEveryAsyncWorker(executor, () ->
+                ManagedThreadContext.create("polluted-" + Thread.currentThread().getName()));
+        assertThat(manager.getActiveContextCount()).isEqualTo(workerCount);
+        RuntimeException businessFailure = new RuntimeException("polluted worker failure");
+
+        try {
+            CompletableFuture<Void> future = manager.executeAsync("polluted-failure", () -> {
+                throw businessFailure;
+            });
+            Throwable thrown = catchThrowable(() -> future.get(5, TimeUnit.SECONDS));
+
+            assertThat(thrown).isInstanceOf(java.util.concurrent.ExecutionException.class);
+            assertThat(thrown.getCause()).isSameAs(businessFailure);
+            assertThat(manager.getActiveContextCount()).isEqualTo(workerCount);
+        } finally {
+            runOnEveryAsyncWorker(executor, () -> {
+                ManagedThreadContext current = manager.getCurrentContext();
+                if (current != null) {
+                    current.close();
+                }
+            });
+        }
+        assertThat(manager.getActiveContextCount()).isZero();
+    }
+
+    @Test
+    void executeAsyncPreservesBusinessFailureWhenFailureSignalingFails() {
+        RuntimeException businessFailure = new RuntimeException("async business failure");
+        RuntimeException taskFailure = new RuntimeException("named task cleanup failure");
+        RuntimeException scopeFailure = new RuntimeException("scope cleanup failure");
+        AtomicReference<ManagedThreadContext> contextRef = new AtomicReference<>();
+
+        CompletableFuture<Void> future = manager.executeAsync("failure-order", () -> {
+            ManagedThreadContext context = ManagedThreadContext.current();
+            contextRef.set(context);
+            installAsyncFailureSequence(context, taskFailure, scopeFailure);
+            throw businessFailure;
+        });
+
+        Throwable thrown = catchThrowable(() -> future.get(5, TimeUnit.SECONDS));
+        assertThat(thrown).isInstanceOf(java.util.concurrent.ExecutionException.class);
+        assertThat(thrown.getCause()).isSameAs(businessFailure);
+        assertThat(businessFailure.getSuppressed()).containsExactly(taskFailure, scopeFailure);
+        assertThat(contextRef.get().isClosed()).isTrue();
+        assertThat(manager.getActiveContextCount()).isZero();
     }
 
     // ==================== wrapRunnable / wrapCallable ====================
@@ -405,43 +496,99 @@ class SafeContextManagerTest {
         int before = manager.getActiveContextCount();
 
         ManagedThreadContext ctx = ManagedThreadContext.create("test");
-        manager.registerContext(ctx);
         assertThat(manager.getActiveContextCount()).isEqualTo(before + 1);
 
-        manager.unregisterContext(ctx);
         ctx.close();
         assertThat(manager.getActiveContextCount()).isEqualTo(before);
     }
 
-    // ==================== getMetrics ====================
-
-    @Test
-    @DisplayName("getMetrics - 包含所有必要指标")
-    void metricsContainsKeys() {
-        Map<String, Object> metrics = manager.getMetrics();
-        assertThat(metrics).containsKeys(
-                "contexts.created",
-                "contexts.closed",
-                "contexts.active",
-                "contexts.leaked",
-                "async.tasks",
-                "executor.poolSize",
-                "executor.queueSize"
-        );
+    private ThreadPoolExecutor asyncExecutorForTesting() {
+        try {
+            Method method = SafeContextManager.class.getDeclaredMethod("getAsyncExecutor");
+            method.setAccessible(true);
+            return (ThreadPoolExecutor) method.invoke(manager);
+        } catch (ReflectiveOperationException reflectionFailure) {
+            throw new AssertionError("Unable to access async executor", reflectionFailure);
+        }
     }
 
-    @Test
-    @DisplayName("metric getters - 与 getMetrics 快照保持一致")
-    void metricGettersMatchSnapshot() {
-        Map<String, Object> metrics = manager.getMetrics();
+    private static void runOnEveryAsyncWorker(
+            ThreadPoolExecutor executor, Runnable action) throws Exception {
+        int workerCount = executor.getCorePoolSize();
+        executor.prestartAllCoreThreads();
+        CountDownLatch ready = new CountDownLatch(workerCount);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(workerCount);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
 
-        assertThat(metrics)
-                .containsEntry("contexts.created", manager.getContextCreatedCount())
-                .containsEntry("contexts.closed", manager.getContextClosedCount())
-                .containsEntry("contexts.active", manager.getActiveContextCount())
-                .containsEntry("contexts.leaked", manager.getLeakDetectedCount())
-                .containsEntry("async.tasks", manager.getAsyncTaskCount())
-                .containsEntry("executor.poolSize", manager.getAsyncExecutorPoolSize())
-                .containsEntry("executor.queueSize", manager.getAsyncExecutorQueueSize());
+        for (int index = 0; index < workerCount; index++) {
+            executor.execute(() -> {
+                try {
+                    action.run();
+                } catch (Throwable thrown) {
+                    failure.compareAndSet(null, thrown);
+                } finally {
+                    ready.countDown();
+                }
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        failure.compareAndSet(null, new AssertionError("Worker release timed out"));
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    failure.compareAndSet(null, interrupted);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+
+        boolean allReady = ready.await(5, TimeUnit.SECONDS);
+        release.countDown();
+        assertThat(allReady).isTrue();
+        assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(failure.get()).isNull();
     }
+
+    private static void installAsyncFailureSequence(
+            ManagedThreadContext context,
+            RuntimeException taskFailure,
+            RuntimeException scopeFailure) {
+        if (context == null || context.getCurrentTask() == null) {
+            throw new AssertionError("Named async task is not active");
+        }
+        try {
+            AtomicInteger messageWrites = new AtomicInteger();
+            Field messages = TaskNode.class.getDeclaredField("messages");
+            messages.setAccessible(true);
+            messages.set(context.getCurrentTask(), new AbstractList<Message>() {
+                @Override
+                public Message get(int index) {
+                    throw new IndexOutOfBoundsException(index);
+                }
+
+                @Override
+                public int size() {
+                    return 0;
+                }
+
+                @Override
+                public boolean add(Message message) {
+                    if (messageWrites.getAndIncrement() == 0) {
+                        throw taskFailure;
+                    }
+                    return true;
+                }
+            });
+
+            Field terminalProbe = ManagedThreadContext.class.getDeclaredField("terminalProbe");
+            terminalProbe.setAccessible(true);
+            terminalProbe.set(context, (ContextTerminalProbe) (ignoredContext, ignoredSession) -> {
+                throw scopeFailure;
+            });
+        } catch (ReflectiveOperationException reflectionFailure) {
+            throw new AssertionError("Unable to install async failure sequence", reflectionFailure);
+        }
+    }
+
 }

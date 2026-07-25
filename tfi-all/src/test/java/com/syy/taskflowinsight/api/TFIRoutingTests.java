@@ -4,170 +4,208 @@ import com.syy.taskflowinsight.spi.ComparisonProvider;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
 import com.syy.taskflowinsight.spi.RenderProvider;
 import com.syy.taskflowinsight.spi.TrackingProvider;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.tracking.TrackingBatchScope;
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
+import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.tracking.compare.CompareResult;
+import com.syy.taskflowinsight.tracking.compare.internal.CompareResultReducer;
+import com.syy.taskflowinsight.tracking.projection.CompareProjection;
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
 import org.junit.jupiter.api.*;
 
-import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * TFI 路由改造验证（02 卡）
+ * TFI对Core Registry的无状态适配合同。
  *
  * <p>验证点：
- * - FeatureFlag 打开后，TFI.compare/render/track 走 ProviderRegistry
- * - 关闭时保持 legacy 行为
- * - Provider 为 null 时不崩溃（降级）
+ * - compare/render/withTracked只消费Registry选中的typed Provider
+ * - facade不缓存选择，也不吞掉Registry freeze异常
  */
 class TFIRoutingTests {
 
+    private OptionsAwareComparisonProvider comparisonProvider;
+    private MockTrackingProvider trackingProvider;
+    private MockRenderProvider renderProvider;
+
     @BeforeEach
-    void setUp() throws Exception {
-        // 启用路由
-        System.setProperty("tfi.api.routing.enabled", "true");
-        // 清空注册表与缓存
+    void setUp() {
+        TFI.clear();
         ProviderRegistry.clearAll();
-        resetTFICache();
+        ProviderRegistry.setAllowedProviders(null);
+        System.setProperty("tfi.api.routing.enabled", "true");
+        comparisonProvider = new OptionsAwareComparisonProvider(300);
+        trackingProvider = new MockTrackingProvider(300);
+        renderProvider = new MockRenderProvider(300);
+        TFI.registerComparisonProvider(comparisonProvider);
+        TFI.registerTrackingProvider(trackingProvider);
+        TFI.registerRenderProvider(renderProvider);
+        TFI.enable();
+        TFI.setChangeTrackingEnabled(true);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        System.clearProperty("tfi.api.routing.enabled");
+    void tearDown() {
+        TFI.clear();
+        TFI.disable();
         ProviderRegistry.clearAll();
-        resetTFICache();
+        ProviderRegistry.setAllowedProviders(null);
+        System.clearProperty("tfi.api.routing.enabled");
     }
 
     @Test
     @DisplayName("compare() 应路由到 ComparisonProvider 并返回 provider 结果")
     void compare_should_route_to_provider() {
-        // 准备：注册一个高优先级的 MockComparisonProvider
-        MockComparisonProvider mock = new MockComparisonProvider(300);
-        ProviderRegistry.register(ComparisonProvider.class, mock);
-
-        // 调用：字符串不同，provider 会被调用一次
         var r = TFI.compare("foo", "bar");
 
-        // 断言：调用次数与返回结果
-        assertEquals(1, mock.callCount.get(), "ComparisonProvider should be invoked exactly once");
+        assertEquals(1, comparisonProvider.callCount.get(),
+                "ComparisonProvider should be invoked exactly once");
         assertNotNull(r);
-        assertFalse(r.isIdentical(), "mock result should not be identical");
+        assertTrue(r.isIdentical(), "complete empty result should stay identical");
     }
 
     @Test
     @DisplayName("comparator() 应返回 Provider-aware builder 并透传 CompareOptions")
     void comparator_should_be_provider_aware() throws Exception {
-        // 注册可感知 options 的 provider
-        OptionsAwareComparisonProvider mock = new OptionsAwareComparisonProvider(300);
-        ProviderRegistry.register(ComparisonProvider.class, mock);
-
-        var builder = TFI.comparator().withSimilarity().withReport();
+        var builder = TFI.comparator().withSimilarity();
         var r = builder.compare("x", "y");
 
-        assertFalse(r.isIdentical());
-        assertEquals(1, mock.callCount.get(), "Provider.compare(options) should be called");
-        assertTrue(mock.optionsSeen.get(), "CompareOptions should be forwarded to provider");
+        assertTrue(r.isIdentical());
+        assertEquals(1, comparisonProvider.callCount.get(), "Provider.compare(options) should be called");
+        assertTrue(comparisonProvider.optionsSeen.get(), "CompareOptions should be forwarded to provider");
     }
 
     @Test
     @DisplayName("render() 应路由到 RenderProvider 并返回 provider 文本")
     void render_should_route_to_provider() {
-        // 准备：注册一个高优先级的 MockRenderProvider
-        ProviderRegistry.register(RenderProvider.class, new MockRenderProvider(300));
+        var result = CompareResult.identical();
+        String md = TFI.render(result, RenderOptions.markdown());
 
-        // 调用：使用 compare 先得到一个结果
-        var result = com.syy.taskflowinsight.tracking.compare.CompareResult.ofTypeDiff("a", "b");
-        String md = TFI.render(result, "standard");
-
-        // 断言：应返回 Mock 字符串
         assertEquals("MOCK_RENDER", md);
     }
 
     @Test
-    @DisplayName("track() 应路由到 TrackingProvider，不抛异常")
+    @DisplayName("withTracked() 应经 Registry 路由到 typed TrackingProvider")
     void track_should_route_to_provider() {
-        MockTrackingProvider mock = new MockTrackingProvider(300);
-        ProviderRegistry.register(TrackingProvider.class, mock);
+        AtomicInteger actionCalls = new AtomicInteger();
+        TFI.withTracked("obj", new Object(), actionCalls::incrementAndGet);
 
-        // 需要先启用 Facade（isEnabled() 才会继续执行）
-        TFI.enable();
-        TFI.track("obj", new Object());
+        assertEquals(1, trackingProvider.beginCalls.get(), "TrackingProvider.begin should be invoked");
+        assertEquals(1, actionCalls.get(), "action should be invoked exactly once");
+    }
 
-        assertEquals(1, mock.trackCalls.get(), "TrackingProvider.track should be invoked");
-        // 变更获取
-        assertDoesNotThrow(() -> mock.changes());
+    @Test
+    @DisplayName("扩展 Provider 选择应随 Registry epoch 切换")
+    void extension_provider_selection_should_follow_registry_epoch() {
+        assertSame(comparisonProvider, TfiProviderDelegate.getComparisonProvider());
+        assertSame(trackingProvider, TfiProviderDelegate.getTrackingProvider());
+        assertSame(renderProvider, TfiProviderDelegate.getRenderProvider());
+
+        ProviderRegistry.clearAll();
+        MockComparisonProvider secondComparison = new MockComparisonProvider(400);
+        MockTrackingProvider secondTracking = new MockTrackingProvider(400);
+        MockRenderProvider secondRender = new MockRenderProvider(400);
+        TFI.registerComparisonProvider(secondComparison);
+        TFI.registerTrackingProvider(secondTracking);
+        TFI.registerRenderProvider(secondRender);
+
+        assertSame(secondComparison, TfiProviderDelegate.getComparisonProvider());
+        assertSame(secondTracking, TfiProviderDelegate.getTrackingProvider());
+        assertSame(secondRender, TfiProviderDelegate.getRenderProvider());
+    }
+
+    @Test
+    @DisplayName("首次解析后公开注册原样抛freeze异常且不能替换当前Provider")
+    void latePublicRegistrationPropagatesFreezeFailure() {
+        assertTrue(TFI.compare("first", "resolution").isIdentical());
+        MockComparisonProvider lateProvider = new MockComparisonProvider(400);
+
+        assertThrows(IllegalStateException.class,
+                () -> TFI.registerComparisonProvider(lateProvider));
+        assertTrue(TFI.compare("second", "resolution").isIdentical());
+
+        assertSame(comparisonProvider, TfiProviderDelegate.getComparisonProvider());
+        assertEquals(2, comparisonProvider.callCount.get());
+        assertEquals(0, lateProvider.callCount.get());
     }
 
     // ========== Mocks ==========
 
     static class MockComparisonProvider implements ComparisonProvider {
+        /** provider选择优先级。 */
         final int prio;
+        /** compare调用次数。 */
         final AtomicInteger callCount = new AtomicInteger();
         MockComparisonProvider(int prio) { this.prio = prio; }
         @Override
-        public com.syy.taskflowinsight.tracking.compare.CompareResult compare(Object before, Object after) {
+        public CompareResult compare(Object before, Object after) {
             callCount.incrementAndGet();
-            return com.syy.taskflowinsight.tracking.compare.CompareResult.builder()
-                .object1(before).object2(after)
-                .identical(false)
-                .changes(Collections.emptyList())
-                .build();
+            return CompareResultReducer.complete(Collections.emptyList());
+        }
+        @Override
+        public CompareResult compare(Object before, Object after, CompareOptions options) {
+            return compare(before, after);
         }
         @Override public int priority() { return prio; }
         @Override public String toString() { return "MockComparisonProvider{" + prio + "}"; }
     }
 
     static class OptionsAwareComparisonProvider extends MockComparisonProvider {
-        final AtomicInteger callCount = new AtomicInteger();
-        final java.util.concurrent.atomic.AtomicBoolean optionsSeen = new java.util.concurrent.atomic.AtomicBoolean(false);
+        /** typed options是否到达provider边界。 */
+        final AtomicBoolean optionsSeen = new AtomicBoolean(false);
         OptionsAwareComparisonProvider(int prio) { super(prio); }
         @Override
-        public com.syy.taskflowinsight.tracking.compare.CompareResult compare(Object before, Object after, com.syy.taskflowinsight.tracking.compare.CompareOptions options) {
+        public CompareResult compare(
+                Object before,
+                Object after,
+                CompareOptions options) {
             callCount.incrementAndGet();
             if (options != null) {
                 optionsSeen.set(true);
             }
-            return com.syy.taskflowinsight.tracking.compare.CompareResult.builder()
-                .object1(before).object2(after)
-                .identical(false)
-                .changes(Collections.emptyList())
-                .build();
+            return CompareResultReducer.complete(Collections.emptyList());
         }
     }
 
     static class MockRenderProvider implements RenderProvider {
         final int prio;
         MockRenderProvider(int prio) { this.prio = prio; }
-        @Override public String render(Object result, Object style) { return "MOCK_RENDER"; }
+        @Override
+        public String render(CompareProjection projection, RenderOptions options) {
+            return "MOCK_RENDER";
+        }
         @Override public int priority() { return prio; }
     }
 
     static class MockTrackingProvider implements TrackingProvider {
         final int prio;
-        final AtomicInteger trackCalls = new AtomicInteger();
+        final AtomicInteger beginCalls = new AtomicInteger();
         MockTrackingProvider(int prio) { this.prio = prio; }
-        @Override public void track(String name, Object target, String... fields) { trackCalls.incrementAndGet(); }
-        @Override public List<ChangeRecord> changes() { return Collections.emptyList(); }
-        @Override public void clear() { }
+        @Override
+        public TrackingBatchScope begin(
+                List<TrackingExecutor.Target> targets,
+                CompareOptions options) {
+            beginCalls.incrementAndGet();
+            return new TrackingBatchScope() {
+                @Override
+                public List<TrackingExecutor.Item> capture() {
+                    return targets.stream()
+                            .map(target -> new TrackingExecutor.Item(
+                                    target.name(), CompareResult.identical()))
+                            .toList();
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        }
         @Override public int priority() { return prio; }
     }
 
-    // ========== Helpers ==========
-    private static void resetTFICache() throws Exception {
-        Class<?> tfi = TFI.class;
-        for (String f : List.of(
-            "cachedComparisonProvider", "cachedTrackingProvider",
-            "cachedFlowProvider", "cachedRenderProvider",
-            "compareService", "markdownRenderer")) {
-            try {
-                Field field = tfi.getDeclaredField(f);
-                field.setAccessible(true);
-                field.set(null, null);
-            } catch (NoSuchFieldException ignore) {
-                // 忽略不存在的字段（向前兼容）
-            }
-        }
-    }
 }

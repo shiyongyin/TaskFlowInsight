@@ -1,6 +1,5 @@
 package com.syy.taskflowinsight.testkit;
 
-import com.syy.taskflowinsight.config.TfiConfig;
 import com.syy.taskflowinsight.core.TfiCore;
 
 import java.util.*;
@@ -12,7 +11,6 @@ import java.util.*;
  * many test classes, reducing boilerplate and improving consistency.
  *
  * <pre>{@code
- * var config = TestFixtures.enabledConfig();
  * var user = TestFixtures.sampleUser();
  * var order = TestFixtures.sampleOrder();
  * }</pre>
@@ -27,41 +25,14 @@ public final class TestFixtures {
     }
 
     // ─────────────────────────────────────────────────────────────
-    //  TfiConfig factories
+    //  TfiCore factories
     // ─────────────────────────────────────────────────────────────
-
-    /**
-     * Creates a TfiConfig with TFI enabled and change tracking enabled.
-     */
-    public static TfiConfig enabledConfig() {
-        return configWith(true, true);
-    }
-
-    /**
-     * Creates a TfiConfig with TFI disabled.
-     */
-    public static TfiConfig disabledConfig() {
-        return configWith(false, false);
-    }
-
-    /**
-     * Creates a TfiConfig with specific enabled/change-tracking flags.
-     */
-    public static TfiConfig configWith(boolean enabled, boolean changeTrackingEnabled) {
-        return new TfiConfig(
-                enabled,
-                new TfiConfig.ChangeTracking(changeTrackingEnabled, null, null, null, null, null, null, null),
-                new TfiConfig.Context(null, null, null, null, null),
-                new TfiConfig.Metrics(null, null, null),
-                new TfiConfig.Security(null, null)
-        );
-    }
 
     /**
      * Creates a ready-to-use TfiCore with default enabled config.
      */
     public static TfiCore enabledCore() {
-        return new TfiCore(enabledConfig());
+        return new TfiCore(true, true);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -137,7 +108,7 @@ public final class TestFixtures {
     }
 
     /**
-     * Creates a map of N tracked targets for {@code TFI.trackAll()} tests.
+     * Creates N named targets for explicit {@code TrackingExecutor.execute(...)} batch tests.
      */
     public static Map<String, Object> bulkTrackedTargets(int count) {
         Map<String, Object> targets = new LinkedHashMap<>();

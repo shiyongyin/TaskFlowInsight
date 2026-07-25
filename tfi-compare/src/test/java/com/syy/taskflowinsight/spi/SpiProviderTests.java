@@ -1,6 +1,14 @@
 package com.syy.taskflowinsight.spi;
 
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
+import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
+import com.syy.taskflowinsight.tracking.projection.CompareProjection;
+import com.syy.taskflowinsight.tracking.projection.CompareProjectionFactory;
+import com.syy.taskflowinsight.tracking.projection.MaskingPolicy;
+import com.syy.taskflowinsight.tracking.projection.ProjectionMetadata;
+import com.syy.taskflowinsight.tracking.projection.ProjectionOptions;
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -56,13 +64,6 @@ class SpiProviderTests {
             assertThat(provider.priority()).isEqualTo(0);
         }
 
-        @Test
-        @DisplayName("similarity 返回数值")
-        void similarity_shouldReturnValue() {
-            DefaultComparisonProvider provider = new DefaultComparisonProvider();
-            double sim = provider.similarity("hello", "hello");
-            assertThat(sim).isBetween(0.0, 1.0);
-        }
     }
 
     // ── DefaultTrackingProvider ──
@@ -72,14 +73,16 @@ class SpiProviderTests {
     class DefaultTrackingProviderTests {
 
         @Test
-        @DisplayName("track + changes + clear 基本生命周期")
+        @DisplayName("typed batch通过final executor完成生命周期")
         void lifecycle_shouldWork() {
             DefaultTrackingProvider provider = new DefaultTrackingProvider();
-            assertThatCode(() -> {
-                provider.track("obj", new Object(), "field1");
-                provider.changes();
-                provider.clear();
-            }).doesNotThrowAnyException();
+            int[] target = {1};
+            CompareResult result = new TrackingExecutor(provider).withTracked(
+                    "obj",
+                    target,
+                    () -> target[0] = 2,
+                    CompareOptions.builder().build());
+            assertThat(result.isDifferent()).isTrue();
         }
 
         @Test
@@ -97,11 +100,10 @@ class SpiProviderTests {
     class DefaultRenderProviderTests {
 
         @Test
-        @DisplayName("render 空结果 → 不抛异常")
+        @DisplayName("render 空projection → 不抛异常")
         void renderEmpty_shouldNotThrow() {
             DefaultRenderProvider provider = new DefaultRenderProvider();
-            CompareResult empty = CompareResult.identical();
-            assertThatCode(() -> provider.render(empty, "standard"))
+            assertThatCode(() -> provider.render(projection(CompareResult.identical()), RenderOptions.markdown()))
                     .doesNotThrowAnyException();
         }
 
@@ -117,8 +119,16 @@ class SpiProviderTests {
         void renderWithChanges_shouldReturnMarkdown() {
             DefaultRenderProvider provider = new DefaultRenderProvider();
             CompareResult result = CompareResult.ofNullDiff(null, "newObject");
-            String rendered = provider.render(result, "standard");
-            assertThat(rendered).isNotNull();
+            String rendered = provider.render(projection(result), RenderOptions.markdown());
+            assertThat(rendered).contains("# Compare Projection");
+        }
+
+        private CompareProjection projection(CompareResult result) {
+            return new CompareProjectionFactory().create(
+                    result,
+                    ProjectionMetadata.empty(),
+                    MaskingPolicy.safeDefaults(),
+                    ProjectionOptions.defaults());
         }
     }
 }

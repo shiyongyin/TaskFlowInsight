@@ -92,22 +92,19 @@ class CompareServiceTests {
         @Test
         @DisplayName("DEFAULT 选项不为 null")
         void defaultOptions_shouldBeValid() {
-            assertThat(CompareOptions.DEFAULT).isNotNull();
+            assertThat(CompareOptions.builder().build()).isNotNull();
         }
 
         @Test
         @DisplayName("Builder 构建自定义选项")
         void builder_shouldCreateOptions() {
             CompareOptions opts = CompareOptions.builder()
-                    .enableDeepCompare(true)
+                    
                     .maxDepth(5)
-                    .includeNullChanges(true)
-                    .strategyName("custom")
+                    
+                    
                     .build();
-            assertThat(opts.isEnableDeepCompare()).isTrue();
-            assertThat(opts.getMaxDepth()).isEqualTo(5);
-            assertThat(opts.isIncludeNullChanges()).isTrue();
-            assertThat(opts.getStrategyName()).isEqualTo("custom");
+            assertThat(opts.maxDepth()).isEqualTo(5);
         }
 
         @Test
@@ -116,7 +113,7 @@ class CompareServiceTests {
             TestOrder a = new TestOrder(1L, "A", 10.0, "NEW");
             TestOrder b = new TestOrder(1L, "B", 20.0, "OLD");
             CompareOptions opts = CompareOptions.builder()
-                    .enableDeepCompare(true)
+                    
                     .maxDepth(3)
                     .build();
             CompareResult result = service.compare(a, b, opts);
@@ -124,18 +121,17 @@ class CompareServiceTests {
         }
 
         @Test
-        @DisplayName("忽略字段 → 被忽略的字段不在变更列表中")
-        void ignoreFields_shouldExcludeThem() {
+        @DisplayName("旧 ignore 选项删除后保留全部确定差异")
+        void removedIgnoreOption_doesNotDiscardDifferences() {
             TestOrder a = new TestOrder(1L, "A", 10.0, "NEW");
             TestOrder b = new TestOrder(1L, "B", 20.0, "OLD");
             CompareOptions opts = CompareOptions.builder()
-                    .ignoreFields(List.of("name"))
                     .build();
             CompareResult result = service.compare(a, b, opts);
             assertThat(result).isNotNull();
             if (result.getChanges() != null) {
                 assertThat(result.getChanges())
-                        .noneMatch(c -> "name".equals(c.getFieldName()));
+                        .anyMatch(c -> "name".equals(c.getFieldName()));
             }
         }
     }
@@ -152,19 +148,9 @@ class CompareServiceTests {
                 public CompareResult compare(TestOrder obj1, TestOrder obj2, CompareOptions options) {
                     List<FieldChange> changes = new ArrayList<>();
                     if (!Objects.equals(obj1.status, obj2.status)) {
-                        changes.add(FieldChange.builder()
-                                .fieldName("status")
-                                .fieldPath("status")
-                                .oldValue(obj1.status)
-                                .newValue(obj2.status)
-                                .changeType(ChangeType.UPDATE)
-                                .build());
+                        changes.add(FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("status")), obj1.status, obj2.status));
                     }
-                    return CompareResult.builder()
-                            .object1(obj1).object2(obj2)
-                            .changes(changes)
-                            .identical(changes.isEmpty())
-                            .build();
+                    return com.syy.taskflowinsight.tracking.compare.internal.CompareResultReducer.complete(changes);
                 }
 
                 @Override
@@ -174,11 +160,16 @@ class CompareServiceTests {
                 public boolean supports(Class<?> type) { return TestOrder.class.isAssignableFrom(type); }
             };
 
-            service.registerStrategy(TestOrder.class, strategy);
+            CompareRuntime runtime = CompareRuntime.builder()
+                    .registerStrategy(
+                            TestOrder.class,
+                            AlgorithmId.of("test:test-order:v1"),
+                            strategy)
+                    .build();
 
             TestOrder a = new TestOrder(1L, "A", 10.0, "PENDING");
             TestOrder b = new TestOrder(1L, "B", 20.0, "PAID");
-            CompareResult result = service.compare(a, b);
+            CompareResult result = runtime.engine().compare(a, b);
 
             assertThat(result).isNotNull();
             // Custom strategy only tracks status, so only status change should be found
@@ -186,35 +177,6 @@ class CompareServiceTests {
             assertThat(result.getChanges().get(0).getFieldName()).isEqualTo("status");
         }
 
-        @Test
-        @DisplayName("注册命名策略 → 通过 strategyName 使用")
-        void registerNamedStrategy_shouldBeUsedByName() {
-            CompareStrategy<Object> namedStrategy = new CompareStrategy<>() {
-                @Override
-                public CompareResult compare(Object obj1, Object obj2, CompareOptions options) {
-                    return CompareResult.builder()
-                            .object1(obj1).object2(obj2)
-                            .changes(Collections.emptyList())
-                            .identical(true)
-                            .similarity(1.0)
-                            .build();
-                }
-
-                @Override
-                public String getName() { return "always-identical"; }
-
-                @Override
-                public boolean supports(Class<?> type) { return true; }
-            };
-
-            service.registerNamedStrategy("always-identical", namedStrategy);
-
-            CompareOptions opts = CompareOptions.builder().strategyName("always-identical").build();
-            CompareResult result = service.compare("different", "values", opts);
-
-            assertThat(result).isNotNull();
-            assertThat(result.isIdentical()).isTrue();
-        }
     }
 
     @Nested
@@ -290,7 +252,6 @@ class CompareServiceTests {
             CompareResult result = CompareResult.identical();
             assertThat(result.isIdentical()).isTrue();
             assertThat(result.getChanges()).isEmpty();
-            assertThat(result.getSimilarity()).isEqualTo(1.0);
         }
 
         @Test
@@ -299,8 +260,6 @@ class CompareServiceTests {
             Object obj = "test";
             CompareResult result = CompareResult.ofNullDiff(null, obj);
             assertThat(result.isIdentical()).isFalse();
-            assertThat(result.getObject1()).isNull();
-            assertThat(result.getObject2()).isEqualTo(obj);
         }
 
         @Test
@@ -308,28 +267,14 @@ class CompareServiceTests {
         void ofTypeDiff_shouldCreateCorrectResult() {
             CompareResult result = CompareResult.ofTypeDiff("string", 42);
             assertThat(result.isIdentical()).isFalse();
-            assertThat(result.getSimilarity()).isEqualTo(0.0);
         }
 
         @Test
         @DisplayName("Builder 构建完整结果")
         void builder_shouldCreateFullResult() {
-            FieldChange change = FieldChange.builder()
-                    .fieldName("name")
-                    .fieldPath("name")
-                    .oldValue("old")
-                    .newValue("new")
-                    .changeType(ChangeType.UPDATE)
-                    .build();
-            CompareResult result = CompareResult.builder()
-                    .object1("a")
-                    .object2("b")
-                    .changes(List.of(change))
-                    .identical(false)
-                    .similarity(0.5)
-                    .build();
+            FieldChange change = FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("name")), "old", "new");
+            CompareResult result = com.syy.taskflowinsight.tracking.compare.internal.CompareResultReducer.complete(List.of(change));
             assertThat(result.getChanges()).hasSize(1);
-            assertThat(result.getSimilarity()).isEqualTo(0.5);
             assertThat(result.getChangeCount()).isEqualTo(1);
         }
     }
@@ -341,33 +286,14 @@ class CompareServiceTests {
         @Test
         @DisplayName("Builder 构建字段变更")
         void builder_shouldCreateFieldChange() {
-            FieldChange fc = FieldChange.builder()
-                    .fieldName("price")
-                    .fieldPath("order.price")
-                    .oldValue(100.0)
-                    .newValue(90.0)
-                    .changeType(ChangeType.UPDATE)
-                    .valueType("Double")
-                    .build();
+            FieldChange fc = FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("order.price")), 100.0, 90.0);
 
-            assertThat(fc.getFieldName()).isEqualTo("price");
+            assertThat(fc.getFieldName()).isEqualTo("order.price");
             assertThat(fc.getFieldPath()).isEqualTo("order.price");
-            assertThat(fc.getOldValue()).isEqualTo(100.0);
-            assertThat(fc.getNewValue()).isEqualTo(90.0);
+            assertThat(fc.beforeValue()).get().extracting(ValueSnapshot::typeCode).isEqualTo("double");
+            assertThat(fc.afterValue()).get().extracting(ValueSnapshot::typeCode).isEqualTo("double");
             assertThat(fc.getChangeType()).isEqualTo(ChangeType.UPDATE);
-            assertThat(fc.getValueType()).isEqualTo("Double");
-        }
-
-        @Test
-        @DisplayName("referenceChange 标记")
-        void referenceChange_shouldBeTracked() {
-            FieldChange fc = FieldChange.builder()
-                    .fieldName("ref")
-                    .fieldPath("ref")
-                    .changeType(ChangeType.UPDATE)
-                    .referenceChange(true)
-                    .build();
-            assertThat(fc.isReferenceChange()).isTrue();
+            assertThat(fc.getValueType()).isEqualTo("double");
         }
     }
 

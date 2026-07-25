@@ -1,0 +1,4 @@
+type=CHANGE
+code=KCOMPARE_CHANGE_V1
+text=null
+data=change,changeIndex,operation,schemaVersion

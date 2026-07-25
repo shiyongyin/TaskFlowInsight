@@ -1,5 +1,10 @@
 package com.syy.taskflowinsight.tracking.compare;
 
+import com.syy.taskflowinsight.tracking.compare.internal.CompareResultReducer;
+import com.syy.taskflowinsight.tracking.path.ComparePath;
+import com.syy.taskflowinsight.tracking.path.IndexSegment;
+import com.syy.taskflowinsight.tracking.path.MapKeySegment;
+import com.syy.taskflowinsight.tracking.path.PropertySegment;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 
@@ -24,6 +29,7 @@ public class QueryApiBenchmarks {
 
     @State(Scope.Thread)
     public static class DataState {
+        /** 当前基准轮次生成的canonical change数量。 */
         @Param({"1000", "10000"})
         public int size;
 
@@ -41,49 +47,26 @@ public class QueryApiBenchmarks {
             for (int i = 0; i < scalar; i++) {
                 String obj = (i % 2 == 0) ? "order" : "customer";
                 String prop = (i % 3 == 0) ? "status" : (i % 3 == 1) ? "price" : "amount";
-                FieldChange fc = FieldChange.builder()
-                    .fieldName(prop)
-                    .fieldPath(obj + "." + prop)
-                    .oldValue(i)
-                    .newValue(i + 1)
-                    .changeType(com.syy.taskflowinsight.tracking.ChangeType.UPDATE)
-                    .build();
+                FieldChange fc = FieldChange.at(ChangeKind.MODIFY, ComparePath.root().append(new PropertySegment(obj + "." + prop)), i, i + 1);
                 changes.add(fc);
             }
 
             for (int i = 0; i < container; i++) {
                 boolean list = (i % 2 == 0);
-                FieldChange.ContainerType ct = list
-                    ? FieldChange.ContainerType.LIST
-                    : FieldChange.ContainerType.MAP;
-                FieldChange.ElementOperation op;
-                switch (i % 3) {
-                    case 0 -> op = FieldChange.ElementOperation.ADD;
-                    case 1 -> op = FieldChange.ElementOperation.REMOVE;
-                    default -> op = FieldChange.ElementOperation.MODIFY;
-                }
-
-                FieldChange.FieldChangeBuilder b = FieldChange.builder()
-                    .fieldName(list ? ("[" + i + "]") : ("k" + i))
-                    .oldValue(list ? null : i)
-                    .newValue(list ? i : (i + 1))
-                    .changeType(list ? com.syy.taskflowinsight.tracking.ChangeType.CREATE : com.syy.taskflowinsight.tracking.ChangeType.UPDATE)
-                    .elementEvent(FieldChange.ContainerElementEvent.builder()
-                        .containerType(ct)
-                        .operation(op)
-                        .index(list ? i : null)
-                        .mapKey(list ? null : ("k" + i))
-                        .build());
-
-                changes.add(b.build());
+                ComparePath path = list
+                        ? ComparePath.root().append(
+                                new IndexSegment(i))
+                        : ComparePath.root().append(
+                                new MapKeySegment(
+                                        ValueSnapshot.ofString("k" + i, 4096)));
+                changes.add(FieldChange.at(
+                        list ? ChangeKind.ADD : ChangeKind.MODIFY,
+                        path,
+                        list ? null : i,
+                        list ? i : i + 1));
             }
 
-            result = CompareResult.builder()
-                .object1(null)
-                .object2(null)
-                .changes(changes)
-                .identical(false)
-                .build();
+            result = CompareResultReducer.complete(changes);
         }
     }
 
@@ -107,4 +90,3 @@ public class QueryApiBenchmarks {
         bh.consume(s.result.getChangeCountByType());
     }
 }
-

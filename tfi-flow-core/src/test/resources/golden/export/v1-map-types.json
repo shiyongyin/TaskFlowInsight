@@ -1,0 +1,130 @@
+{
+  "sessionId": "java.lang.String",
+  "sessionName": "java.lang.String",
+  "status": "java.lang.String",
+  "startTime": "java.lang.Long",
+  "endTime": "java.lang.Long",
+  "duration": "java.lang.Long",
+  "statistics": {
+    "totalTasks": "java.lang.Integer",
+    "maxDepth": "java.lang.Integer"
+  },
+  "task": {
+    "taskId": "java.lang.String",
+    "taskName": "java.lang.String",
+    "status": "java.lang.String",
+    "depth": "java.lang.Integer",
+    "startTime": "java.lang.Long",
+    "endTime": "java.lang.Long",
+    "duration": "java.lang.Long",
+    "selfDurationMs": "java.lang.Long",
+    "accDurationMs": "java.lang.Long",
+    "attributes": {
+      "text": "java.lang.String",
+      "flag": "java.lang.Boolean",
+      "attempts": "java.lang.Integer",
+      "total": "java.lang.Long",
+      "ratio": "java.math.BigDecimal",
+      "nullable": null
+    },
+    "tags": ["java.lang.String", "java.lang.String"],
+    "children": [
+      {
+        "taskId": "java.lang.String",
+        "taskName": "java.lang.String",
+        "status": "java.lang.String",
+        "depth": "java.lang.Integer",
+        "startTime": "java.lang.Long",
+        "endTime": "java.lang.Long",
+        "duration": "java.lang.Long",
+        "selfDurationMs": "java.lang.Long",
+        "accDurationMs": "java.lang.Long",
+        "messages": [
+          {
+            "type": "java.lang.String",
+            "content": "java.lang.String",
+            "timestamp": "java.lang.Long"
+          }
+        ]
+      },
+      {
+        "taskId": "java.lang.String",
+        "taskName": "java.lang.String",
+        "status": "java.lang.String",
+        "depth": "java.lang.Integer",
+        "startTime": "java.lang.Long",
+        "endTime": "java.lang.Long",
+        "duration": "java.lang.Long",
+        "selfDurationMs": "java.lang.Long",
+        "accDurationMs": "java.lang.Long",
+        "messages": [
+          {
+            "type": "java.lang.String",
+            "content": "java.lang.String",
+            "timestamp": "java.lang.Long"
+          }
+        ]
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "taskId": "java.lang.String",
+      "taskName": "java.lang.String",
+      "status": "java.lang.String",
+      "depth": "java.lang.Integer",
+      "startTime": "java.lang.Long",
+      "endTime": "java.lang.Long",
+      "duration": "java.lang.Long",
+      "selfDurationMs": "java.lang.Long",
+      "accDurationMs": "java.lang.Long",
+      "attributes": {
+        "text": "java.lang.String",
+        "flag": "java.lang.Boolean",
+        "attempts": "java.lang.Integer",
+        "total": "java.lang.Long",
+        "ratio": "java.math.BigDecimal",
+        "nullable": null
+      },
+      "tags": ["java.lang.String", "java.lang.String"],
+      "children": [
+        {
+          "taskId": "java.lang.String",
+          "taskName": "java.lang.String",
+          "status": "java.lang.String",
+          "depth": "java.lang.Integer",
+          "startTime": "java.lang.Long",
+          "endTime": "java.lang.Long",
+          "duration": "java.lang.Long",
+          "selfDurationMs": "java.lang.Long",
+          "accDurationMs": "java.lang.Long",
+          "messages": [
+            {
+              "type": "java.lang.String",
+              "content": "java.lang.String",
+              "timestamp": "java.lang.Long"
+            }
+          ]
+        },
+        {
+          "taskId": "java.lang.String",
+          "taskName": "java.lang.String",
+          "status": "java.lang.String",
+          "depth": "java.lang.Integer",
+          "startTime": "java.lang.Long",
+          "endTime": "java.lang.Long",
+          "duration": "java.lang.Long",
+          "selfDurationMs": "java.lang.Long",
+          "accDurationMs": "java.lang.Long",
+          "messages": [
+            {
+              "type": "java.lang.String",
+              "content": "java.lang.String",
+              "timestamp": "java.lang.Long"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

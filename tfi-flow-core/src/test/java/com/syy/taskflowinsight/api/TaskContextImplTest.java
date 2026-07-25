@@ -2,6 +2,7 @@ package com.syy.taskflowinsight.api;
 
 import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.enums.TaskStatus;
+import com.syy.taskflowinsight.model.Message;
 import com.syy.taskflowinsight.model.TaskNode;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
 import org.junit.jupiter.api.*;
@@ -38,12 +39,6 @@ class TaskContextImplTest {
     }
 
     private void forceCleanContext() {
-        try {
-            java.lang.reflect.Field field = TfiFlow.class.getDeclaredField("cachedFlowProvider");
-            field.setAccessible(true);
-            field.set(null, null);
-        } catch (Exception ignored) {
-        }
         try {
             ManagedThreadContext ctx = ManagedThreadContext.current();
             if (ctx != null && !ctx.isClosed()) {
@@ -100,6 +95,10 @@ class TaskContextImplTest {
     void debugAddsMessage() {
         try (TaskContextImpl ctx = createContext("debug-test")) {
             assertThat(ctx.debug("debug info")).isSameAs(ctx);
+            assertThat(mtc.getCurrentTask().getMessages()).singleElement()
+                    .usingRecursiveComparison()
+                    .ignoringFields("messageId", "timestampMillis", "timestampNanos")
+                    .isEqualTo(Message.debug("debug info"));
         }
     }
 
@@ -108,6 +107,10 @@ class TaskContextImplTest {
     void warnAddsMessage() {
         try (TaskContextImpl ctx = createContext("warn-test")) {
             assertThat(ctx.warn("warning")).isSameAs(ctx);
+            assertThat(mtc.getCurrentTask().getMessages()).singleElement()
+                    .usingRecursiveComparison()
+                    .ignoringFields("messageId", "timestampMillis", "timestampNanos")
+                    .isEqualTo(Message.warn("warning"));
         }
     }
 

@@ -1,7 +1,14 @@
 package com.syy.taskflowinsight.model;
 
+import com.syy.taskflowinsight.enums.MessageSeverity;
 import com.syy.taskflowinsight.enums.MessageType;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -14,6 +21,36 @@ import static org.assertj.core.api.Assertions.*;
  * @since 3.0.0
  */
 class MessageTest {
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("categoryAndSeverityCases")
+    @DisplayName("所有工厂方法使用固定 category/severity 映射")
+    void factoriesUseFixedCategoryAndSeverity(
+            String factory, Supplier<Message> factoryCall, MessageType type, MessageSeverity severity) {
+        Message message = factoryCall.get();
+
+        assertThat(message.getType()).isEqualTo(type);
+        assertThat(message.getSeverity()).isEqualTo(severity);
+    }
+
+    private static Stream<Arguments> categoryAndSeverityCases() {
+        return Stream.of(
+                Arguments.of("info", (Supplier<Message>) () -> Message.info("content"),
+                        MessageType.PROCESS, MessageSeverity.INFO),
+                Arguments.of("debug", (Supplier<Message>) () -> Message.debug("content"),
+                        MessageType.METRIC, MessageSeverity.DEBUG),
+                Arguments.of("warn", (Supplier<Message>) () -> Message.warn("content"),
+                        MessageType.ALERT, MessageSeverity.WARN),
+                Arguments.of("error(String)", (Supplier<Message>) () -> Message.error("content"),
+                        MessageType.ALERT, MessageSeverity.ERROR),
+                Arguments.of("error(Throwable)",
+                        (Supplier<Message>) () -> Message.error(new IllegalStateException("content")),
+                        MessageType.ALERT, MessageSeverity.ERROR),
+                Arguments.of("withType", (Supplier<Message>) () -> Message.withType("content", MessageType.CHANGE),
+                        MessageType.CHANGE, MessageSeverity.INFO),
+                Arguments.of("withLabel", (Supplier<Message>) () -> Message.withLabel("content", "custom"),
+                        null, MessageSeverity.INFO));
+    }
 
     // ==================== 工厂方法 ====================
 

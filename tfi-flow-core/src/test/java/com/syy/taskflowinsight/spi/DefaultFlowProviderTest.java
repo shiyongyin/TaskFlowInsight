@@ -74,8 +74,25 @@ class DefaultFlowProviderTest {
     @DisplayName("endSession - 关闭后 currentSession 返回 null")
     void endSessionClearsSession() {
         provider.startSession("end-test");
+        ManagedThreadContext context = ManagedThreadContext.current();
         provider.endSession();
+
         assertThat(provider.currentSession()).isNull();
+        assertThat(context).isNotNull();
+        assertThat(context.isClosed()).isTrue();
+        assertThat(ManagedThreadContext.current()).isNull();
+    }
+
+    @Test
+    @DisplayName("startSession - 连续会话使用不同 Context")
+    void consecutiveSessionsUseDifferentContexts() {
+        provider.startSession("first");
+        String firstContextId = ManagedThreadContext.current().getContextId();
+
+        provider.startSession("second");
+
+        assertThat(ManagedThreadContext.current().getContextId()).isNotEqualTo(firstContextId);
+        provider.endSession();
     }
 
     // ==================== startTask / endTask ====================
@@ -92,10 +109,13 @@ class DefaultFlowProviderTest {
     }
 
     @Test
-    @DisplayName("startTask - 无会话时返回 null")
-    void startTaskWithoutSessionReturnsNull() {
+    @DisplayName("startTask - 无会话时自动创建 auto-session")
+    void startTaskWithoutSessionCreatesAutoSession() {
         TaskNode task = provider.startTask("orphan");
-        assertThat(task).isNull();
+        assertThat(task).isNotNull();
+        assertThat(task.getTaskName()).isEqualTo("orphan");
+        assertThat(provider.currentSession()).isNotNull();
+        provider.clear();
     }
 
     @Test

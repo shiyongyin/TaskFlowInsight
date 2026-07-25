@@ -6,7 +6,6 @@ import com.syy.taskflowinsight.annotation.ShallowReference;
 import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.detector.DiffDetector;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -22,22 +21,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 针对低覆盖方法的精准覆盖测试。
- * 覆盖：MapCompareStrategy.processChangesSimple、processChangesWithEntityKeys、
- * DiffDetector.diffWithMode、deduplicateByPath、
+ * 覆盖：Map 的精确 key 合同、不可寻址 key 限制、DiffDetector.diffWithMode、
  * CompareEngine.collectShallowReferenceChanges、extractLeafFieldName。
  *
  * @author Senior Test Expert
  * @since 3.0.0
  */
-@DisplayName("精准方法覆盖测试 — processChangesSimple、processChangesWithEntityKeys、diffWithMode、deduplicateByPath、collectShallowReferenceChanges、extractLeafFieldName")
+@DisplayName("精准方法覆盖测试 — Map key 合同、diffWithMode、collectShallowReferenceChanges")
 class CompareEngineMethodTests {
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  1. MapCompareStrategy.processChangesSimple（非 Entity 路径）
+    //  1. MapCompareStrategy 精确 key 路径
     // ═══════════════════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("MapCompareStrategy.processChangesSimple — 无 Entity key 场景")
+    @DisplayName("MapCompareStrategy — 可寻址 key 场景")
     class ProcessChangesSimpleTests {
 
         private MapCompareStrategy strategy;
@@ -48,9 +46,8 @@ class CompareEngineMethodTests {
         }
 
         @Test
-        @DisplayName("候选对超阈值 → processChangesSimple 非 Entity 路径：新增/删除/修改键")
-        void processChangesSimple_addedRemovedModifiedKeys() {
-            // 35*35=1225 > 1000，触发 processChangesSimple，且无 Entity key
+        @DisplayName("大 Map 仍完整报告新增、删除和修改 key")
+        void largeMap_addedRemovedModifiedKeys() {
             Map<String, Object> m1 = new HashMap<>();
             Map<String, Object> m2 = new HashMap<>();
             for (int i = 0; i < 35; i++) {
@@ -62,16 +59,17 @@ class CompareEngineMethodTests {
             m1.put("common", 1);
             m2.put("common", 2);
 
-            CompareResult r = strategy.compare(m1, m2, CompareOptions.DEFAULT);
+            CompareResult r = strategy.compare(m1, m2, CompareOptions.builder().build());
             assertThat(r).isNotNull();
             assertThat(r.isIdentical()).isFalse();
             assertThat(r.getChanges()).isNotEmpty();
-            assertThat(r.getChanges()).anyMatch(c -> "common".equals(c.getFieldName()) && c.getChangeType() == ChangeType.UPDATE);
+            assertThat(r.getChanges()).anyMatch(c -> CanonicalChangeTestSupport.hasExactMapKey(c, "common")
+                    && c.getChangeType() == ChangeType.UPDATE);
         }
 
         @Test
-        @DisplayName("processChangesSimple：null 值 CREATE/DELETE")
-        void processChangesSimple_nullValues() {
+        @DisplayName("present-null 变为非 null 是同 key UPDATE")
+        void presentNullToValue_isUpdate() {
             Map<String, Object> m1 = new HashMap<>();
             Map<String, Object> m2 = new HashMap<>();
             for (int i = 0; i < 35; i++) m1.put("d" + i, i);
@@ -79,8 +77,9 @@ class CompareEngineMethodTests {
             m1.put("k", null);
             m2.put("k", "new");
 
-            CompareResult r = strategy.compare(m1, m2, CompareOptions.DEFAULT);
-            assertThat(r.getChanges()).anyMatch(c -> "k".equals(c.getFieldName()) && c.getChangeType() == ChangeType.CREATE);
+            CompareResult r = strategy.compare(m1, m2, CompareOptions.builder().build());
+            assertThat(r.getChanges()).anyMatch(c -> CanonicalChangeTestSupport.hasExactMapKey(c, "k")
+                    && c.getChangeType() == ChangeType.UPDATE);
         }
 
         @Test
@@ -95,17 +94,18 @@ class CompareEngineMethodTests {
             m1.put("nested", inner1);
             m2.put("nested", inner2);
 
-            CompareResult r = strategy.compare(m1, m2, CompareOptions.DEFAULT);
-            assertThat(r.getChanges()).anyMatch(c -> "nested".equals(c.getFieldName()) && c.getChangeType() == ChangeType.UPDATE);
+            CompareResult r = strategy.compare(m1, m2, CompareOptions.builder().build());
+            assertThat(r.getChanges()).anyMatch(c -> CanonicalChangeTestSupport.hasExactMapKey(c, "nested")
+                    && c.getChangeType() == ChangeType.UPDATE);
         }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  2. MapCompareStrategy.processChangesWithEntityKeys
+    //  2. MapCompareStrategy 不可寻址复杂 key
     // ═══════════════════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("MapCompareStrategy.processChangesWithEntityKeys — Entity key 场景")
+    @DisplayName("MapCompareStrategy — 不可寻址复杂 key")
     class ProcessChangesWithEntityKeysTests {
 
         private MapCompareStrategy strategy;
@@ -116,8 +116,8 @@ class CompareEngineMethodTests {
         }
 
         @Test
-        @DisplayName("Entity key 相同、value 不同 → UPDATE")
-        void entityKeySame_valueDifferent() {
+        @DisplayName("复杂 key 不使用 Entity 身份猜测配对")
+        void complexKeyDoesNotUseEntityIdentity() {
             EntityKey k1 = new EntityKey(100L);
             EntityKey k2 = new EntityKey(100L);
             Map<EntityKey, String> m1 = new HashMap<>();
@@ -125,14 +125,15 @@ class CompareEngineMethodTests {
             m1.put(k1, "v1");
             m2.put(k2, "v2");
 
-            CompareResult r = strategy.compare(m1, m2, CompareOptions.DEFAULT);
-            assertThat(r).isNotNull();
-            assertThat(r.getChanges()).anyMatch(c -> c.getChangeType() == ChangeType.UPDATE);
+            CompareResult r = strategy.compare(m1, m2, CompareOptions.builder().build());
+            assertThat(r.getCompletion()).isEqualTo(CompareCompletion.PARTIAL);
+            assertThat(r.getLimitations()).extracting(CompareLimitation::code)
+                    .contains(CompareLimitationCode.KEY_AMBIGUOUS);
         }
 
         @Test
-        @DisplayName("Entity key 删除 → DELETE")
-        void entityKeyDeleted() {
+        @DisplayName("不同复杂 key 形成 typed limitation")
+        void differentComplexKeysAreLimited() {
             EntityKey k1 = new EntityKey(1L);
             EntityKey k2 = new EntityKey(2L);
             Map<EntityKey, String> m1 = new HashMap<>();
@@ -140,9 +141,10 @@ class CompareEngineMethodTests {
             m1.put(k1, "v1");
             m2.put(k2, "v2");
 
-            CompareResult r = strategy.compare(m1, m2, CompareOptions.DEFAULT);
-            assertThat(r.getChanges()).anyMatch(c -> c.getChangeType() == ChangeType.DELETE);
-            assertThat(r.getChanges()).anyMatch(c -> c.getChangeType() == ChangeType.CREATE);
+            CompareResult r = strategy.compare(m1, m2, CompareOptions.builder().build());
+            assertThat(r.getCompletion()).isEqualTo(CompareCompletion.PARTIAL);
+            assertThat(r.getLimitations()).extracting(CompareLimitation::code)
+                    .contains(CompareLimitationCode.KEY_AMBIGUOUS);
         }
 
         @Test
@@ -155,7 +157,7 @@ class CompareEngineMethodTests {
             m1.put(k1, new EntityItem(1L, "A"));
             m2.put(k2, new EntityItem(1L, "B"));
 
-            CompareOptions opts = CompareOptions.builder().trackEntityKeyAttributes(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = strategy.compare(m1, m2, opts);
             assertThat(r).isNotNull();
         }
@@ -166,35 +168,35 @@ class CompareEngineMethodTests {
     // ═══════════════════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("DiffDetector.diffWithMode — COMPAT/ENHANCED 模式")
+    @DisplayName("DiffDetector.diffWithMode — 旧签名统一委托canonical runtime")
     class DiffWithModeTests {
 
-        @BeforeEach
-        void setUp() {
-            DiffDetector.setPrecisionCompareEnabled(false);
-        }
-
         @Test
-        @DisplayName("COMPAT 模式 DELETE 时 valueRepr 为 null")
+        @DisplayName("不同Map实现不影响DELETE语义")
         void compatDelete_valueReprNull() {
             Map<String, Object> before = Map.of("x", "deleted");
             Map<String, Object> after = new HashMap<>();
 
             List<ChangeRecord> r = DiffDetector.diffWithMode("Obj", before, after, DiffDetector.DiffMode.COMPAT);
             ChangeRecord del = r.stream().filter(c -> c.getChangeType() == ChangeType.DELETE).findFirst().orElseThrow();
+            assertThat(del.getOldValue()).isEqualTo("deleted");
+            assertThat(del.getNewValue()).isNull();
             assertThat(del.getValueRepr()).isNull();
         }
 
         @Test
-        @DisplayName("ENHANCED 模式 reprOld/reprNew 非空")
+        @DisplayName("ENHANCED token不建立第二套展示投影")
         void enhancedReprOldNew() {
             Map<String, Object> before = Map.of("a", 1, "b", "hello");
             Map<String, Object> after = Map.of("a", 2, "b", "world");
 
             List<ChangeRecord> r = DiffDetector.diffWithMode("Obj", before, after, DiffDetector.DiffMode.ENHANCED);
             assertThat(r).isNotEmpty();
-            assertThat(r.get(0).getReprOld()).isNotNull();
-            assertThat(r.get(0).getReprNew()).isNotNull();
+            ChangeRecord change = r.stream().filter(c -> "a".equals(c.getFieldName())).findFirst().orElseThrow();
+            assertThat(change.getOldValue()).isEqualTo(1);
+            assertThat(change.getNewValue()).isEqualTo(2);
+            assertThat(change.getReprOld()).isNull();
+            assertThat(change.getReprNew()).isNull();
         }
 
         @Test
@@ -205,74 +207,6 @@ class CompareEngineMethodTests {
 
             List<ChangeRecord> r = DiffDetector.diffWithMode("Obj", before, after, DiffDetector.DiffMode.ENHANCED);
             assertThat(r).hasSize(3);
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  4. DiffDetector.deduplicateByPath
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    @Nested
-    @DisplayName("DiffDetector.deduplicateByPath — 路径去重")
-    class DeduplicateByPathTests {
-
-        private boolean savedEnhanced;
-
-        @BeforeEach
-        void setUp() {
-            savedEnhanced = DiffDetector.isEnhancedDeduplicationEnabled();
-            DiffDetector.setEnhancedDeduplicationEnabled(false);
-        }
-
-        @AfterEach
-        void tearDown() {
-            DiffDetector.setEnhancedDeduplicationEnabled(savedEnhanced);
-        }
-
-        @Test
-        @DisplayName("基础去重：无嵌套路径直接返回")
-        void basicDedup_noNestedPath() {
-            Map<String, Object> before = Map.of("a", 1, "b", 2);
-            Map<String, Object> after = Map.of("a", 2, "b", 3);
-
-            List<ChangeRecord> r = DiffDetector.diff("Obj", before, after);
-            assertThat(r).hasSize(2);
-        }
-
-        @Test
-        @DisplayName("基础去重：嵌套路径去重（父路径与子路径）")
-        void basicDedup_nestedPaths() {
-            Map<String, Object> before = new HashMap<>();
-            Map<String, Object> after = new HashMap<>();
-            before.put("root", Map.of("a", 1, "b", 2));
-            after.put("root", Map.of("a", 2, "b", 3));
-            // DiffDetector 对 Map 值做快照比较，会产生 root.a、root.b 等路径
-            // 通过 DiffFacade 会走 DiffDetector，需要嵌套结构产生多路径
-            Map<String, Object> innerBefore = new HashMap<>();
-            innerBefore.put("a", 1);
-            innerBefore.put("b", 2);
-            innerBefore.put("c", 3);
-            Map<String, Object> innerAfter = new HashMap<>();
-            innerAfter.put("a", 10);
-            innerAfter.put("b", 20);
-            innerAfter.put("c", 30);
-            before.put("nested", innerBefore);
-            after.put("nested", innerAfter);
-
-            List<ChangeRecord> r = DiffDetector.diff("Obj", before, after);
-            assertThat(r).isNotEmpty();
-        }
-
-        @Test
-        @DisplayName("增强去重模式")
-        void enhancedDedup() {
-            DiffDetector.setEnhancedDeduplicationEnabled(true);
-            Map<String, Object> before = Map.of("a", 1, "b", Map.of("x", 1));
-            Map<String, Object> after = Map.of("a", 2, "b", Map.of("x", 2));
-
-            List<ChangeRecord> r = DiffDetector.diff("Obj", before, after);
-            assertThat(r).isNotEmpty();
-            DiffDetector.setEnhancedDeduplicationEnabled(false);
         }
     }
 
@@ -300,7 +234,7 @@ class CompareEngineMethodTests {
             EntityItem[] arr1 = {e1};
             EntityItem[] arr2 = {e2};
 
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(arr1, arr2, opts);
             assertThat(r).isNotNull();
         }
@@ -313,7 +247,7 @@ class CompareEngineMethodTests {
             List<EntityItem> list1 = List.of(e1);
             List<EntityItem> list2 = List.of(e2);
 
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(list1, list2, opts);
             assertThat(r).isNotNull();
         }
@@ -324,7 +258,7 @@ class CompareEngineMethodTests {
             Map<String, EntityItem> m1 = Map.of("k", new EntityItem(1L, "A"));
             Map<String, EntityItem> m2 = Map.of("k", new EntityItem(2L, "B"));
 
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(m1, m2, opts);
             assertThat(r).isNotNull();
         }
@@ -337,7 +271,7 @@ class CompareEngineMethodTests {
             ContainerWithShallowRef a = new ContainerWithShallowRef(ref1);
             ContainerWithShallowRef b = new ContainerWithShallowRef(ref2);
 
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r).isNotNull();
         }
@@ -355,7 +289,7 @@ class CompareEngineMethodTests {
             b.items = List.of(new EntityItem(3L, "z"));
             b.map = Map.of("k", new EntityItem(4L, "w"));
 
-            CompareOptions opts = CompareOptions.builder().enableDeepCompare(true).build();
+            CompareOptions opts = CompareOptions.builder().build();
             CompareResult r = compareService.compare(a, b, opts);
             assertThat(r).isNotNull();
         }

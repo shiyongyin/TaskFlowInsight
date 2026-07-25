@@ -1,9 +1,9 @@
 package com.syy.taskflowinsight.spring;
 
-import com.syy.taskflowinsight.api.TrackingOptions;
 import com.syy.taskflowinsight.context.ManagedThreadContext;
 import com.syy.taskflowinsight.model.TaskNode;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
+import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.spi.ExportProvider;
 import com.syy.taskflowinsight.spi.FlowProvider;
 import com.syy.taskflowinsight.spi.ProviderRegistry;
@@ -12,7 +12,6 @@ import org.junit.jupiter.api.*;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -190,76 +189,40 @@ class TfiSpringBridgeIntegrationTest {
         }
 
         @Test
-        @DisplayName("trackAll() 应该批量跟踪多个对象")
-        void testTrackAll() {
-            // Given: 准备多个对象
-            Map<String, Object> objects = new HashMap<>();
+        @DisplayName("Registry provider执行有序multi-target batch")
+        void testMultiTargetBatch() {
             TestUser user = new TestUser("Bob", 25);
             TestOrder order = new TestOrder("O002", 200.0);
-            objects.put("user", user);
-            objects.put("order", order);
+            TrackingExecutor.Execution<Void> execution = new TrackingExecutor(trackingProvider).execute(
+                    List.of(
+                            new TrackingExecutor.Target("user", user),
+                            new TrackingExecutor.Target("order", order)),
+                    CompareOptions.builder().build(),
+                    () -> {
+                        user.setAge(26);
+                        order.setAmount(300.0);
+                        return null;
+                    });
 
-            // When: 批量跟踪
-            trackingProvider.trackAll(objects);
-
-            // Then: 修改对象应该能检测到变化
-            user.setAge(26);
-            order.setAmount(300.0);
-
-            List<ChangeRecord> changes = trackingProvider.getAllChanges();
-            assertTrue(changes.size() >= 2, "应该检测到至少 2 个变化");
+            assertEquals(List.of("user", "order"), execution.tracking().stream()
+                    .map(TrackingExecutor.Item::name)
+                    .toList());
+            assertTrue(execution.tracking().stream().allMatch(item -> item.result().isDifferent()));
         }
 
         @Test
-        @DisplayName("trackDeep() 应该成功执行")
-        void testTrackDeep() {
-            // Given: 创建嵌套对象
+        @DisplayName("nested mutation使用CompareOptions进入同一executor")
+        void testNestedMutation() {
             TestOrder order = new TestOrder("O003", 150.0);
             order.setCustomer(new TestUser("Charlie", 35));
 
-            // When: 深度跟踪
-            trackingProvider.trackDeep("order", order);
+            var result = new TrackingExecutor(trackingProvider).withTracked(
+                    "order",
+                    order,
+                    () -> order.getCustomer().setAge(36),
+                    CompareOptions.builder().maxDepth(3).build());
 
-            // Then: 方法应该成功执行（注：默认实现可能回退到浅层track）
-            assertDoesNotThrow(() -> {
-                order.getCustomer().setAge(36);
-                trackingProvider.getAllChanges();
-            }, "trackDeep should execute via Spring adapter");
-        }
-
-        @Test
-        @DisplayName("trackDeep() 使用自定义选项应该生效")
-        void testTrackDeepWithCustomOptions() {
-            // Given: 创建对象和自定义选项
-            TestUser user = new TestUser("David", 40);
-            TrackingOptions options = TrackingOptions.builder()
-                    .maxDepth(3)
-                    .build();
-
-            // When: 使用自定义选项跟踪
-            trackingProvider.trackDeep("user", user, options);
-
-            // Then: 修改应该能检测到
-            user.setAge(41);
-            List<ChangeRecord> changes = trackingProvider.getAllChanges();
-            assertFalse(changes.isEmpty());
-        }
-
-        @Test
-        @DisplayName("getAllChanges() 应该返回所有变化记录")
-        void testGetAllChanges() {
-            // Given: 跟踪并修改对象
-            TestUser user = new TestUser("Eve", 28);
-            trackingProvider.track("user", user);
-            user.setAge(29);
-            user.setName("Eve Smith");
-
-            // When: 获取所有变化
-            List<ChangeRecord> changes = trackingProvider.getAllChanges();
-
-            // Then: 应该包含所有变化
-            assertNotNull(changes);
-            assertTrue(changes.size() >= 2, "应该检测到至少 2 个变化（age + name）");
+            assertTrue(result.isDifferent());
         }
     }
 

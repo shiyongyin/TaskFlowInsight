@@ -6,6 +6,8 @@ import com.syy.taskflowinsight.model.TaskNode;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -39,7 +41,7 @@ class JsonExportValidationTest {
     }
     
     @Test
-    void testSessionExportWithNestedTasks() {
+    void testSessionExportWithNestedTasks() throws Exception {
         // 清理环境
         TFI.clear();
         
@@ -76,9 +78,12 @@ class JsonExportValidationTest {
         assertThat(json).contains("Child 2");
         assertThat(json).contains("Grandchild");
         
-        // 验证包含会话基本字段
-        assertThat(json).contains("sessionId");
-        assertThat(json).contains("root");
+        var document = new ObjectMapper().readTree(json);
+        assertThat(document.path("schemaVersion").intValue()).isEqualTo(2);
+        assertThat(document.path("session").path("name").textValue()).isEqualTo("Test Session");
+        assertThat(document.path("statistics").path("totalTasks").intValue()).isEqualTo(5);
+        assertThat(document.path("rootTask").path("name").textValue()).isEqualTo("Test Session");
+        assertThat(document.path("rootTask").path("children")).hasSize(1);
         
         System.out.println("Session export with nested tasks successful!");
         System.out.println("Exported JSON length: " + json.length() + " characters");
@@ -101,18 +106,17 @@ class JsonExportValidationTest {
         // 导出为 Map
         var map = TFI.exportToMap();
         
-        // 验证新的导出结构
-        assertThat(map).containsKey("sessionId");
-        assertThat(map).containsKey("sessionName");
-        assertThat(map).containsKey("status");
-        assertThat(map).containsKey("tasks");
-        assertThat(map).containsKey("task");
-        
-        // 验证 sessionName 的值（应该是根任务名）
-        assertThat(map.get("sessionName")).isEqualTo("Map Test Session");
-        
-        // 验证 tasks 是一个列表
-        assertThat(map.get("tasks")).isInstanceOf(java.util.List.class);
+        assertThat(map.keySet()).containsExactly(
+                "schemaVersion", "captureEpochMillis", "session",
+                "statistics", "rootTask", "truncated");
+        assertThat(map).containsEntry("schemaVersion", 2);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> exportedSession = (Map<String, Object>) map.get("session");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> rootTask = (Map<String, Object>) map.get("rootTask");
+        assertThat(exportedSession).containsEntry("name", "Map Test Session");
+        assertThat(rootTask).containsEntry("name", "Map Test Session");
+        assertThat(rootTask.get("children")).isInstanceOf(java.util.List.class);
         
         System.out.println("Map export structure validation successful!");
         

@@ -1,0 +1,72 @@
+{
+  "sessionId": "<session-id>",
+  "threadId": 0,
+  "threadName": "<thread-name>",
+  "status": "COMPLETED",
+  "createdAtNanos": 0,
+  "endedAtNanos": 0,
+  "durationNanos": 0,
+  "root": {
+    "nodeId": "<node-0>",
+    "name": "golden-root",
+    "depth": 0,
+    "sequence": 0,
+    "taskPath": "golden-root",
+    "startNanos": 0,
+    "endNanos": 0,
+    "durationNanos": 0,
+    "selfDurationMs": 0,
+    "accDurationMs": 0,
+    "status": "COMPLETED",
+    "isActive": false,
+    "messages": [],
+    "attributes": {
+      "text": "value",
+      "flag": true,
+      "attempts": 7,
+      "total": 9,
+      "ratio": 1.25,
+      "nullable": null
+    },
+    "tags": ["first-tag", "second-tag"],
+    "children": [
+      {
+        "nodeId": "<node-1>",
+        "name": "first-child",
+        "depth": 1,
+        "sequence": 0,
+        "taskPath": "golden-root/first-child",
+        "startNanos": 0,
+        "endNanos": 0,
+        "durationNanos": 0,
+        "selfDurationMs": 0,
+        "accDurationMs": 0,
+        "status": "COMPLETED",
+        "isActive": false,
+        "messages": [
+          {"type": "PROCESS", "content": "process-message", "timestamp": 0}
+        ],
+        "children": []
+      },
+      {
+        "nodeId": "<node-2>",
+        "name": "second-child",
+        "depth": 1,
+        "sequence": 0,
+        "taskPath": "golden-root/second-child",
+        "startNanos": 0,
+        "endNanos": 0,
+        "durationNanos": 0,
+        "selfDurationMs": 0,
+        "accDurationMs": 0,
+        "status": "COMPLETED",
+        "isActive": false,
+        "messages": [
+          {"type": "ALERT", "content": "alert-message", "timestamp": 0}
+        ],
+        "children": []
+      }
+    ]
+  },
+  "statistics": {"totalTasks": 3, "maxDepth": 1, "totalMessages": 2}
+}

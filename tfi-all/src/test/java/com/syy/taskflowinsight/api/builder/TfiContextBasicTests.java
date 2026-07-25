@@ -24,7 +24,7 @@ class TfiContextBasicTests {
         Person c = new Person("bob", 18);
 
         CompareResult r1 = ctx.compare(a, b);
-        CompareResult r2 = ctx.compare(a, c, CompareOptions.DEEP);
+        CompareResult r2 = ctx.compare(a, c, CompareOptions.builder().maxDepth(10).build());
 
         assertTrue(r1.isIdentical());
         assertFalse(r2.isIdentical());

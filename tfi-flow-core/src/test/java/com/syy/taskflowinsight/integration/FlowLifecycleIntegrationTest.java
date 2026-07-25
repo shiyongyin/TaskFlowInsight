@@ -40,11 +40,6 @@ class FlowLifecycleIntegrationTest {
 
     private void forceCleanContext() {
         try {
-            java.lang.reflect.Field field = TfiFlow.class.getDeclaredField("cachedFlowProvider");
-            field.setAccessible(true);
-            field.set(null, null);
-        } catch (Exception ignored) {}
-        try {
             ManagedThreadContext ctx = ManagedThreadContext.current();
             if (ctx != null && !ctx.isClosed()) {
                 ctx.close();
@@ -98,13 +93,20 @@ class FlowLifecycleIntegrationTest {
         // JSON 导出
         JsonExporter jsonExporter = new JsonExporter();
         String json = jsonExporter.export(session);
-        assertThat(json).contains("sessionId");
-        assertThat(json).contains("订单处理流程");
+        assertThat(json)
+                .contains("\"schemaVersion\":2")
+                .contains("\"session\":")
+                .contains("\"rootTask\":")
+                .contains("订单处理流程");
 
         // Map 导出
         Map<String, Object> map = MapExporter.export(session);
-        assertThat(map).containsKey("sessionId");
-        assertThat(map).containsKey("statistics");
+        assertThat(map)
+                .containsEntry("schemaVersion", 2)
+                .containsKeys("session", "statistics", "rootTask", "truncated");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> exportedSession = (Map<String, Object>) map.get("session");
+        assertThat(exportedSession).containsEntry("name", "订单处理流程");
 
         // 5. 结束会话
         TfiFlow.endSession();

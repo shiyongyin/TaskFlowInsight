@@ -4,6 +4,8 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -156,7 +158,8 @@ class ContextBenchmarkTest {
         int threadCount = Runtime.getRuntime().availableProcessors();
         int operationsPerThread = 1000;
         
-        TFIAwareExecutor executor = TFIAwareExecutor.newFixedThreadPool(threadCount);
+        ExecutorService executor = ContextPropagatingExecutor.wrap(
+                Executors.newFixedThreadPool(threadCount));
         
         try {
             long startTime = System.nanoTime();

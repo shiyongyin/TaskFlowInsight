@@ -1,73 +1,113 @@
 package com.syy.taskflowinsight.perf;
 
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
-
-/**
- * 性能门���（可选）：在严格模式下（-Dtfi.perf.strict=true）
- * 对比 routing.enabled=true 与 false 两份 JMH JSON 报告，确认平均时延劣化 < 5%。
- *
- * 跑法（先生成报告）：
- *   ./mvnw -q -P bench exec:java -Dexec.mainClass=com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner
- *   ./mvnw -q -Dtest=*PerfGateIT verify -Dtfi.perf.strict=true -Dtfi.perf.enabled=true
- */
+/** 严格模式下比较同一次 CI 运行生成的 routing 与 legacy JMH 报告。 */
 public class TfiRoutingPerfGateIT {
 
-    // 修复: 使用单独的常量避免复杂的正则表达式字面量触发Java 21编译器bug
-    private static final String SCORE_REGEX_PART1 = "\"primaryMetric\"";
-    private static final String SCORE_REGEX_PART2 = "\\s*:\\s*\\{[^}]*";
-    private static final String SCORE_REGEX_PART3 = "\"score\"\\s*:\\s*([0-9.]+)";
-    private static final Pattern SCORE_PATTERN = Pattern.compile(
-            SCORE_REGEX_PART1 + SCORE_REGEX_PART2 + SCORE_REGEX_PART3
-    );
+    private static final String ROUTING_BENCHMARK =
+            "com.syy.taskflowinsight.api.TFIRoutingBenchmark.compare_routing_enabled";
+    private static final String LEGACY_BENCHMARK =
+            "com.syy.taskflowinsight.api.TFIRoutingBenchmark.compare_routing_disabled";
+    private static final String ROUTING_REPORT_PROPERTY = "tfi.perf.report.routing";
+    private static final String LEGACY_REPORT_PROPERTY = "tfi.perf.report.legacy";
+    private static final double MAX_REGRESSION_RATIO = 1.05;
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     @Test
-    @DisplayName("Routing 与 Legacy 平均时延劣化 < 5%")
-    void routing_perf_should_not_regress_over_5_percent() throws IOException {
-        if (!Boolean.getBoolean("tfi.perf.strict") || !Boolean.getBoolean("tfi.perf.enabled")) {
-            // 非严格模式：跳过门禁
+    @DisplayName("Routing 与 Legacy 平均时延劣化不超过 5%")
+    void routingPerfShouldNotRegressOverFivePercent() throws IOException {
+        if (!Boolean.getBoolean("tfi.perf.strict")
+                || !Boolean.getBoolean("tfi.perf.enabled")) {
             return;
         }
 
-        Path routing = Path.of("docs/task/v4.0.0/baseline/tfi_routing_enabled.json");
-        Path legacy = Path.of("docs/task/v4.0.0/baseline/tfi_routing_legacy.json");
-
-        if (!Files.exists(routing) || !Files.exists(legacy)) {
-            // 未生成报告：跳过
-            return;
-        }
-
-        double routingAvg = extractScore(Files.readString(routing));
-        double legacyAvg = extractScore(Files.readString(legacy));
-
-        assertTrue(routingAvg > 0 && legacyAvg > 0, "Invalid JMH scores");
-        double ratio = routingAvg / legacyAvg;
-
-        // 修复: 提前构建错误消息以避免Java 21编译器字符串模板解析器混淆
-        double regressionPercent = (ratio - 1.0) * 100;
-        String errorMsg = buildErrorMessage(routingAvg, legacyAvg, regressionPercent);
-        assertTrue(ratio <= 1.05, errorMsg);
+        verifyReports(
+                reportPath(ROUTING_REPORT_PROPERTY, "tfi-routing-enabled.json"),
+                reportPath(LEGACY_REPORT_PROPERTY, "tfi-routing-legacy.json"));
     }
 
-    private static double extractScore(String json) {
-        Matcher m = SCORE_PATTERN.matcher(json);
-        if (m.find()) {
-            return Double.parseDouble(m.group(1));
+    static void verifyReports(Path routingReport, Path legacyReport) throws IOException {
+        requireGeneratedReport(routingReport);
+        requireGeneratedReport(legacyReport);
+
+        double routingAverage = extractAverageTimeScore(routingReport, ROUTING_BENCHMARK);
+        double legacyAverage = extractAverageTimeScore(legacyReport, LEGACY_BENCHMARK);
+        double ratio = routingAverage / legacyAverage;
+        if (ratio > MAX_REGRESSION_RATIO) {
+            double regressionPercent = (ratio - 1.0) * 100;
+            throw new AssertionError(buildErrorMessage(
+                    routingAverage, legacyAverage, regressionPercent));
         }
-        return -1.0;
     }
 
-    // 修复: 将String.format提取到单独的方法，避免编译器解析问题
-    private static String buildErrorMessage(double routingAvg, double legacyAvg, double percent) {
-        String template = "Routing perf regression too high: avg_ns %.2f vs %.2f (%.2f%%)";
-        return String.format(template, routingAvg, legacyAvg, percent);
+    private static void requireGeneratedReport(Path report) {
+        if (!Files.isRegularFile(report)) {
+            throw new IllegalStateException("Missing generated JMH report: " + report);
+        }
+    }
+
+    private static double extractAverageTimeScore(Path report, String expectedBenchmark)
+            throws IOException {
+        JsonNode root;
+        try {
+            root = JSON.readTree(report.toFile());
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Invalid JMH JSON report: " + report, exception);
+        }
+        if (!root.isArray()) {
+            throw new IllegalArgumentException("JMH report must be a JSON array: " + report);
+        }
+
+        for (JsonNode result : root) {
+            if (!expectedBenchmark.equals(result.path("benchmark").asText())) {
+                continue;
+            }
+            String mode = result.path("mode").asText();
+            String scoreUnit = result.path("primaryMetric").path("scoreUnit").asText();
+            JsonNode scoreNode = result.path("primaryMetric").path("score");
+            double score = scoreNode.asDouble(Double.NaN);
+            if (!"avgt".equals(mode) || !"ns/op".equals(scoreUnit)
+                    || !scoreNode.isNumber() || !Double.isFinite(score) || score <= 0.0) {
+                throw new IllegalArgumentException(
+                        "Invalid average-time JMH result for " + expectedBenchmark
+                                + " in " + report);
+            }
+            return score;
+        }
+        throw new IllegalArgumentException(
+                "Missing benchmark " + expectedBenchmark + " in " + report);
+    }
+
+    private static Path reportPath(String property, String fileName) {
+        String override = System.getProperty(property);
+        if (override != null && !override.isBlank()) {
+            return Path.of(override).toAbsolutePath().normalize();
+        }
+        return repositoryRoot().resolve("tfi-examples/target/perf").resolve(fileName);
+    }
+
+    private static Path repositoryRoot() {
+        Path current = Path.of("").toAbsolutePath().normalize();
+        while (current != null && !Files.isDirectory(current.resolve("tfi-examples"))) {
+            current = current.getParent();
+        }
+        if (current == null) {
+            throw new IllegalStateException("Cannot locate TaskFlowInsight repository root");
+        }
+        return current;
+    }
+
+    private static String buildErrorMessage(
+            double routingAverage, double legacyAverage, double regressionPercent) {
+        return String.format(
+                "Routing perf regression too high: avg_ns %.2f vs %.2f (%.2f%%)",
+                routingAverage, legacyAverage, regressionPercent);
     }
 }

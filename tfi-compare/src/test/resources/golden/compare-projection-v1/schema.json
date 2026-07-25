@@ -1,0 +1,26 @@
+{
+  "schemaId": "tfi.compare.change",
+  "schemaVersion": 1,
+  "outcome": "EQUAL",
+  "completion": "COMPLETE",
+  "problems": [],
+  "limitations": [],
+  "diagnostics": {
+    "durationNanos": "0",
+    "rootAlgorithmId": "tfi:identity:v1",
+    "appliedAlgorithmIds": ["tfi:identity:v1"],
+    "effectivePolicyFingerprint": null,
+    "comparedNodes": "0",
+    "consumedElements": "0",
+    "retainedResultChars": "0",
+    "omittedPaths": "0",
+    "omittedChanges": "0",
+    "omittedProblems": "0",
+    "omittedLimitations": "0"
+  },
+  "changes": [],
+  "similarity": {
+    "algorithmId": "tfi:identity:v1",
+    "value": 1.0
+  }
+}

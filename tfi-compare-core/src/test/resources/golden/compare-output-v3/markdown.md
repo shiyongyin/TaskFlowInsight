@@ -1,0 +1,5 @@
+# Compare Projection
+
+```json
+{"schemaId":"tfi.compare.change","schemaVersion":1,"outcome":"DIFFERENT","completion":"COMPLETE","problems":[],"limitations":[],"diagnostics":{"durationNanos":"0","rootAlgorithmId":null,"appliedAlgorithmIds":[],"effectivePolicyFingerprint":null,"comparedNodes":"0","consumedElements":"0","retainedResultChars":"0","omittedPaths":"0","omittedChanges":"0","omittedProblems":"0","omittedLimitations":"0"},"changes":[{"kind":"MODIFY","before":{"path":[{"kind":"PROPERTY","name":"Account"},{"kind":"PROPERTY","name":"password"}],"value":{"representation":"EXACT","type":"masked","value":"[REDACTED]"}},"after":{"path":[{"kind":"PROPERTY","name":"Account"},{"kind":"PROPERTY","name":"password"}],"value":{"representation":"EXACT","type":"masked","value":"[REDACTED]"}}}]}
+```

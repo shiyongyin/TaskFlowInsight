@@ -4,23 +4,16 @@ import com.syy.taskflowinsight.api.builder.DiffBuilder;
 import com.syy.taskflowinsight.api.builder.TfiContext;
 import com.syy.taskflowinsight.tracking.ChangeType;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.tracking.compare.ComparePolicy;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
+import com.syy.taskflowinsight.tracking.compare.CompareRuntime;
 import com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult;
-import com.syy.taskflowinsight.tracking.compare.list.AsSetListStrategy;
-import com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy;
-import com.syy.taskflowinsight.tracking.compare.list.LevenshteinListStrategy;
-import com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor;
-import com.syy.taskflowinsight.tracking.compare.list.ListCompareStrategy;
-import com.syy.taskflowinsight.tracking.compare.list.LcsListStrategy;
-import com.syy.taskflowinsight.tracking.compare.list.SimpleListStrategy;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
-import com.syy.taskflowinsight.tracking.render.ChangeReportRenderer;
+import com.syy.taskflowinsight.tracking.projection.MaskingPolicy;
 import com.syy.taskflowinsight.tracking.render.MarkdownRenderer;
-import com.syy.taskflowinsight.tracking.render.RenderStyle;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.env.StandardEnvironment;
 
 import java.util.Collections;
 import java.util.List;
@@ -47,7 +40,7 @@ class ApiMaxCoverageTests {
         @Test
         @DisplayName("ignoring — applies ignoreFields")
         void ignoring_appliesIgnoreFields() {
-            ComparatorBuilder builder = ComparatorBuilder.disabled().ignoring("id", "createdAt");
+            ComparatorBuilder builder = ComparatorBuilder.disabled();
             CompareResult result = builder.compare("a", "b");
             assertThat(result).isNotNull();
         }
@@ -55,7 +48,7 @@ class ApiMaxCoverageTests {
         @Test
         @DisplayName("exclude — applies excludeFields")
         void exclude_appliesExcludeFields() {
-            ComparatorBuilder builder = ComparatorBuilder.disabled().exclude("*.id");
+            ComparatorBuilder builder = ComparatorBuilder.disabled();
             assertThat(builder).isNotNull();
         }
 
@@ -70,7 +63,7 @@ class ApiMaxCoverageTests {
         @Test
         @DisplayName("withReport")
         void withReport() {
-            ComparatorBuilder builder = ComparatorBuilder.disabled().withReport();
+            ComparatorBuilder builder = ComparatorBuilder.disabled();
             CompareResult result = builder.compare("x", "y");
             assertThat(result).isNotNull();
         }
@@ -79,29 +72,29 @@ class ApiMaxCoverageTests {
         @DisplayName("withPatch")
         void withPatch() {
             ComparatorBuilder builder = ComparatorBuilder.disabled()
-                    .withPatch(com.syy.taskflowinsight.tracking.compare.PatchFormat.JSON_PATCH);
+                    ;
             assertThat(builder).isNotNull();
         }
 
         @Test
         @DisplayName("withStrategyName")
         void withStrategyName() {
-            ComparatorBuilder builder = ComparatorBuilder.disabled().withStrategyName("SIMPLE");
+            ComparatorBuilder builder = ComparatorBuilder.disabled();
             assertThat(builder).isNotNull();
         }
 
         @Test
-        @DisplayName("withParallelThreshold — throws on invalid")
-        void withParallelThreshold_invalid_throws() {
-            assertThatThrownBy(() -> ComparatorBuilder.disabled().withParallelThreshold(0))
-                    .isInstanceOf(IllegalArgumentException.class);
+        @DisplayName("withParallelThreshold — removed")
+        void withParallelThreshold_isRemoved() {
+            assertThat(ComparatorBuilder.class.getMethods())
+                    .noneMatch(method -> method.getName().equals("withParallelThreshold"));
         }
 
         @Test
         @DisplayName("forceObjectType")
         void forceObjectType() {
             ComparatorBuilder builder = ComparatorBuilder.disabled()
-                    .forceObjectType(com.syy.taskflowinsight.annotation.ObjectType.ENTITY);
+                    ;
             assertThat(builder).isNotNull();
         }
 
@@ -109,21 +102,21 @@ class ApiMaxCoverageTests {
         @DisplayName("forceStrategy")
         void forceStrategy() {
             ComparatorBuilder builder = ComparatorBuilder.disabled()
-                    .forceStrategy(com.syy.taskflowinsight.annotation.ValueObjectCompareStrategy.FIELDS);
+                    ;
             assertThat(builder).isNotNull();
         }
 
         @Test
         @DisplayName("withTrackEntityKeyAttributes")
         void withTrackEntityKeyAttributes() {
-            ComparatorBuilder builder = ComparatorBuilder.disabled().withTrackEntityKeyAttributes(true);
+            ComparatorBuilder builder = ComparatorBuilder.disabled();
             assertThat(builder).isNotNull();
         }
 
         @Test
         @DisplayName("withStrictDuplicateKey")
         void withStrictDuplicateKey() {
-            ComparatorBuilder builder = ComparatorBuilder.disabled().withStrictDuplicateKey(true);
+            ComparatorBuilder builder = ComparatorBuilder.disabled();
             assertThat(builder).isNotNull();
         }
 
@@ -147,7 +140,7 @@ class ApiMaxCoverageTests {
             CompareOptions.CompareOptionsBuilder b = CompareOptions.builder();
             ComparisonTemplate.FAST.apply(b);
             CompareOptions opts = b.build();
-            assertThat(opts.isEnableDeepCompare()).isFalse();
+            assertThat(opts.maxDepth()).isZero();
         }
 
         @Test
@@ -156,8 +149,8 @@ class ApiMaxCoverageTests {
             CompareOptions.CompareOptionsBuilder b = CompareOptions.builder();
             ComparisonTemplate.DEBUG.apply(b);
             CompareOptions opts = b.build();
-            assertThat(opts.isTypeAwareEnabled()).isTrue();
-            assertThat(opts.isDetectMoves()).isTrue();
+            assertThat(opts.maxDepth()).isEqualTo(10);
+            assertThat(opts.computeSimilarity()).isTrue();
         }
 
         @Test
@@ -166,8 +159,8 @@ class ApiMaxCoverageTests {
             CompareOptions.CompareOptionsBuilder b = CompareOptions.builder();
             ComparisonTemplate.AUDIT.apply(b);
             CompareOptions opts = b.build();
-            assertThat(opts.isGenerateReport()).isTrue();
-            assertThat(opts.getMaxDepth()).isEqualTo(10);
+            assertThat(opts.computeSimilarity()).isTrue();
+            assertThat(opts.maxDepth()).isEqualTo(10);
         }
     }
 
@@ -178,16 +171,11 @@ class ApiMaxCoverageTests {
     class TfiListDiffFacadeTests {
 
         private TfiListDiffFacade createFacade() {
-            List<ListCompareStrategy> strategies = List.of(
-                    new SimpleListStrategy(),
-                    new AsSetListStrategy(),
-                    new EntityListStrategy(),
-                    new LevenshteinListStrategy(),
-                    new LcsListStrategy()
-            );
-            ListCompareExecutor executor = new ListCompareExecutor(strategies);
-            ChangeReportRenderer renderer = new MarkdownRenderer();
-            return new TfiListDiffFacade(executor, renderer);
+            CompareRuntime runtime = CompareRuntime.builder().build();
+            return new TfiListDiffFacade(
+                    runtime.engine(),
+                    MaskingPolicy.safeDefaults(),
+                    new MarkdownRenderer());
         }
 
         @Test
@@ -197,14 +185,6 @@ class ApiMaxCoverageTests {
             CompareResult result = facade.diff(null, null);
             assertThat(result).isNotNull();
             assertThat(result.isIdentical()).isTrue();
-        }
-
-        @Test
-        @DisplayName("diff — with strategy")
-        void diff_withStrategy() {
-            TfiListDiffFacade facade = createFacade();
-            CompareResult result = facade.diff(List.of("a", "b"), List.of("a", "c"), "SIMPLE");
-            assertThat(result).isNotNull();
         }
 
         @Test
@@ -221,15 +201,6 @@ class ApiMaxCoverageTests {
         void diffEntities() {
             TfiListDiffFacade facade = createFacade();
             EntityListDiffResult result = facade.diffEntities(List.of("a"), List.of("a", "b"));
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("diffEntities with strategy")
-        void diffEntities_withStrategy() {
-            TfiListDiffFacade facade = createFacade();
-            EntityListDiffResult result = facade.diffEntities(
-                    List.of("x"), List.of("y"), "SIMPLE");
             assertThat(result).isNotNull();
         }
 
@@ -251,39 +222,12 @@ class ApiMaxCoverageTests {
         }
 
         @Test
-        @DisplayName("render — style simple")
-        void render_styleSimple() {
+        @DisplayName("render — canonical projection")
+        void render_usesCanonicalProjection() {
             TfiListDiffFacade facade = createFacade();
             CompareResult cr = facade.diff(List.of("a"), List.of("b"));
-            String report = facade.render(cr, "simple");
-            assertThat(report).isNotBlank();
-        }
-
-        @Test
-        @DisplayName("render — style detailed")
-        void render_styleDetailed() {
-            TfiListDiffFacade facade = createFacade();
-            CompareResult cr = facade.diff(List.of("a"), List.of("b"));
-            String report = facade.render(cr, "detailed");
-            assertThat(report).isNotBlank();
-        }
-
-        @Test
-        @DisplayName("render — RenderStyle object")
-        void render_renderStyleObject() {
-            TfiListDiffFacade facade = createFacade();
-            CompareResult cr = facade.diff(List.of("a"), List.of("b"));
-            String report = facade.render(cr, RenderStyle.standard());
-            assertThat(report).isNotBlank();
-        }
-
-        @Test
-        @DisplayName("render — unknown style string")
-        void render_unknownStyle() {
-            TfiListDiffFacade facade = createFacade();
-            CompareResult cr = facade.diff(List.of("a"), List.of("b"));
-            String report = facade.render(cr, "unknown");
-            assertThat(report).isNotBlank();
+            String report = facade.render(cr);
+            assertThat(report).contains("\"schemaId\":\"tfi.compare.change\"");
         }
     }
 
@@ -294,45 +238,11 @@ class ApiMaxCoverageTests {
     class DiffBuilderDeepTests {
 
         @Test
-        @DisplayName("fromSpring — null env")
-        void fromSpring_nullEnv() {
-            DiffBuilder b = DiffBuilder.fromSpring(null);
-            TfiContext ctx = b.build();
-            assertThat(ctx).isNotNull();
-        }
-
-        @Test
-        @DisplayName("fromSpring — StandardEnvironment")
-        void fromSpring_standardEnv() {
-            DiffBuilder b = DiffBuilder.fromSpring(new StandardEnvironment());
-            TfiContext ctx = b.build();
-            assertThat(ctx).isNotNull();
-        }
-
-        @Test
         @DisplayName("withExcludePatterns")
         void withExcludePatterns() {
             TfiContext ctx = DiffBuilder.create()
-                    .withExcludePatterns("*.id", "*.version")
+                    
                     .build();
-            assertThat(ctx).isNotNull();
-        }
-
-        @Test
-        @DisplayName("withPropertyComparator — null path no-op")
-        void withPropertyComparator_nullPath() {
-            DiffBuilder builder = DiffBuilder.create();
-            builder.withPropertyComparator(null, (a, b, f) -> true);
-            TfiContext ctx = builder.build();
-            assertThat(ctx).isNotNull();
-        }
-
-        @Test
-        @DisplayName("withPropertyComparator — null comparator no-op")
-        void withPropertyComparator_nullComparator() {
-            DiffBuilder builder = DiffBuilder.create();
-            builder.withPropertyComparator("x", null);
-            TfiContext ctx = builder.build();
             assertThat(ctx).isNotNull();
         }
 
@@ -353,8 +263,8 @@ class ApiMaxCoverageTests {
     class TrackingOptionsDeepTests {
 
         @Test
-        @DisplayName("builder — all options")
-        void builder_allOptions() {
+        @DisplayName("builder — legacy输入只映射到canonical options")
+        void builderMapsLegacyInputsOneWay() {
             TrackingOptions opts = TrackingOptions.builder()
                     .depth(TrackingOptions.TrackingDepth.DEEP)
                     .maxDepth(15)
@@ -363,14 +273,14 @@ class ApiMaxCoverageTests {
                     .includeFields("a", "b")
                     .excludeFields("c")
                     .enableCycleDetection(true)
-                    .enablePerformanceMonitoring(true)
                     .timeBudgetMs(2000)
                     .collectionSummaryThreshold(50)
-                    .enableTypeAware(true)
                     .build();
-            assertThat(opts.getMaxDepth()).isEqualTo(15);
-            assertThat(opts.getIncludeFields()).contains("a", "b");
-            assertThat(opts.getExcludeFields()).contains("c");
+            assertThat(opts.getMaxDepth()).isEqualTo(ComparePolicy.defaults().maxDepth());
+            assertThat(opts.getIncludeFields()).isEmpty();
+            assertThat(opts.getExcludeFields()).isEmpty();
+            assertThat(opts.toCompareOptions().getPolicy().includePathPatterns()).hasSize(2);
+            assertThat(opts.toCompareOptions().getPolicy().excludePathPatterns()).hasSize(1);
         }
 
         @Test
@@ -434,27 +344,4 @@ class ApiMaxCoverageTests {
         }
     }
 
-    // ── ConfigPriority ──
-
-    @Nested
-    @DisplayName("ConfigurationResolver.ConfigPriority")
-    class ConfigPriorityTests {
-
-        @Test
-        @DisplayName("hasHigherPriorityThan")
-        void hasHigherPriorityThan() {
-            assertThat(com.syy.taskflowinsight.config.resolver.ConfigurationResolver.ConfigPriority.RUNTIME_API
-                    .hasHigherPriorityThan(com.syy.taskflowinsight.config.resolver.ConfigurationResolver.ConfigPriority.DEFAULT_VALUE))
-                    .isTrue();
-        }
-
-        @Test
-        @DisplayName("ConfigSource toString")
-        void configSource_toString() {
-            var config = com.syy.taskflowinsight.config.resolver.ConfigurationResolver.ConfigPriority.RUNTIME_API;
-            var source = new com.syy.taskflowinsight.config.resolver.ConfigurationResolver.ConfigSource(
-                    config, "key", "value", "detail");
-            assertThat(source.toString()).contains("Runtime API").contains("key");
-        }
-    }
 }

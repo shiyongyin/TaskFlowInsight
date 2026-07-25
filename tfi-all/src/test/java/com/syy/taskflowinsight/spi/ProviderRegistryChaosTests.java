@@ -2,9 +2,21 @@ package com.syy.taskflowinsight.spi;
 
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
+import com.syy.taskflowinsight.tracking.compare.ChangeKind;
+import com.syy.taskflowinsight.tracking.compare.FieldChange;
+import com.syy.taskflowinsight.tracking.compare.internal.CompareResultReducer;
 import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.tracking.path.ComparePath;
+import com.syy.taskflowinsight.tracking.path.PropertySegment;
+import com.syy.taskflowinsight.tracking.projection.CompareProjection;
+import com.syy.taskflowinsight.tracking.projection.CompareProjectionFactory;
+import com.syy.taskflowinsight.tracking.projection.MaskingPolicy;
+import com.syy.taskflowinsight.tracking.projection.ProjectionMetadata;
+import com.syy.taskflowinsight.tracking.projection.ProjectionOptions;
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
 import org.junit.jupiter.api.*;
 
 import java.net.URL;
@@ -83,10 +95,14 @@ class ProviderRegistryChaosTests {
         assertNotNull(provider, "应该返回DefaultTrackingProvider");
         assertTrue(provider instanceof DefaultTrackingProvider);
 
-        // 验证基本功能不crash
-        assertDoesNotThrow(() -> provider.track("test", new Object()));
-        assertDoesNotThrow(() -> provider.changes());
-        assertDoesNotThrow(() -> provider.clear());
+        // 验证typed scope可由唯一executor完整消费
+        int[] target = {1};
+        CompareResult result = new TrackingExecutor(provider).withTracked(
+                "test",
+                target,
+                () -> target[0] = 2,
+                CompareOptions.builder().build());
+        assertTrue(result.isDifferent());
     }
 
     @Test
@@ -118,7 +134,12 @@ class ProviderRegistryChaosTests {
 
         // 验证渲染不crash
         CompareResult testResult = CompareResult.identical();
-        assertDoesNotThrow(() -> provider.render(testResult, "standard"));
+        CompareProjection projection = new CompareProjectionFactory().create(
+                testResult,
+                ProjectionMetadata.empty(),
+                MaskingPolicy.safeDefaults(),
+                ProjectionOptions.defaults());
+        assertDoesNotThrow(() -> provider.render(projection, RenderOptions.markdown()));
     }
 
     // ==================== Chaos 2: 多实现优先级仲裁 ====================
@@ -155,12 +176,9 @@ class ProviderRegistryChaosTests {
         // When
         ComparisonProvider selected = ProviderRegistry.lookup(ComparisonProvider.class);
 
-        // Then: 应该选中第一个注册的（但由于排序是降序，实际返回的是first）
-        // 注意：相同priority时，Java sort是stable的，保持原顺序
+        // Then: Java 的稳定排序必须保留注册顺序，同优先级不能让后注册实例抢占。
         assertNotNull(selected);
-        assertEquals(5, selected.priority());
-        // 由于排序后list不可变，lookup返回第一个元素，即后注册的优先级高
-        // 但在priority相同时，应该保持注册顺序（先进先出）
+        assertSame(first, selected);
     }
 
     @Test
@@ -220,6 +238,11 @@ class ProviderRegistryChaosTests {
             }
 
             @Override
+            public CompareResult compare(Object a, Object b, CompareOptions options) {
+                throw new RuntimeException("Simulated provider failure");
+            }
+
+            @Override
             public int priority() {
                 return 100; // 高优先级，确保被选中
             }
@@ -245,6 +268,11 @@ class ProviderRegistryChaosTests {
         ComparisonProvider faultyProvider = new ComparisonProvider() {
             @Override
             public CompareResult compare(Object a, Object b) {
+                return CompareResult.identical();
+            }
+
+            @Override
+            public CompareResult compare(Object a, Object b, CompareOptions options) {
                 return CompareResult.identical();
             }
 
@@ -305,48 +333,59 @@ class ProviderRegistryChaosTests {
     }
 
     @Test
-    @DisplayName("Chaos 5.2: 并发lookup不受注册影响")
+    @DisplayName("Chaos 5.2: 启动期并发注册完成后运行期并发lookup稳定")
     void chaos05_concurrentLookupWhileRegistering() throws Exception {
-        // Given: 初始注册一个Provider
+        // freeze 以首次 lookup 为界：先完成全部启动期 mutation，再进入只读运行期。
         ProviderRegistry.register(ComparisonProvider.class, new MockComparisonProvider(50, "Initial"));
 
-        int threadCount = 20;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch startLatch = new CountDownLatch(1);
-        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+        int mutationCount = 10;
+        int lookupCount = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(mutationCount + lookupCount);
+        CountDownLatch mutationStart = new CountDownLatch(1);
+        CountDownLatch mutationDone = new CountDownLatch(mutationCount);
         AtomicInteger lookupSuccessCount = new AtomicInteger(0);
 
-        // When: 10个线程lookup，10个线程register
-        for (int i = 0; i < threadCount; i++) {
+        for (int i = 0; i < mutationCount; i++) {
             final int index = i;
             executor.submit(() -> {
                 try {
-                    startLatch.await(); // 确保同时开始
-
-                    if (index % 2 == 0) {
-                        // lookup线程
-                        ComparisonProvider provider = ProviderRegistry.lookup(ComparisonProvider.class);
-                        if (provider != null) {
-                            lookupSuccessCount.incrementAndGet();
-                        }
-                    } else {
-                        // register线程
-                        ProviderRegistry.register(ComparisonProvider.class,
-                            new MockComparisonProvider(index, "Concurrent-" + index));
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
+                    mutationStart.await();
+                    ProviderRegistry.register(ComparisonProvider.class,
+                        new MockComparisonProvider(index, "Concurrent-" + index));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
                 } finally {
-                    doneLatch.countDown();
+                    mutationDone.countDown();
                 }
             });
         }
+        mutationStart.countDown();
+        assertTrue(mutationDone.await(5, TimeUnit.SECONDS), "启动期并发注册应在5秒内完成");
 
-        startLatch.countDown(); // 开始并发操作
-        assertTrue(doneLatch.await(5, TimeUnit.SECONDS), "并发操作应该在5秒内完成");
+        CountDownLatch lookupStart = new CountDownLatch(1);
+        CountDownLatch lookupDone = new CountDownLatch(lookupCount);
+        for (int i = 0; i < lookupCount; i++) {
+            executor.submit(() -> {
+                try {
+                    lookupStart.await();
+                    ComparisonProvider provider = ProviderRegistry.lookup(ComparisonProvider.class);
+                    if (provider != null) {
+                        lookupSuccessCount.incrementAndGet();
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    lookupDone.countDown();
+                }
+            });
+        }
+        lookupStart.countDown();
+        assertTrue(lookupDone.await(5, TimeUnit.SECONDS), "运行期并发 lookup 应在5秒内完成");
 
-        // Then: 所有lookup都应该成功（返回非null）
-        assertEquals(threadCount / 2, lookupSuccessCount.get(), "所有lookup应该成功");
+        assertEquals(lookupCount, lookupSuccessCount.get(), "所有运行期 lookup 都应成功");
+        assertThrows(IllegalStateException.class,
+            () -> ProviderRegistry.register(ComparisonProvider.class,
+                new MockComparisonProvider(100, "Late")));
 
         executor.shutdown();
     }
@@ -367,12 +406,18 @@ class ProviderRegistryChaosTests {
 
         @Override
         public CompareResult compare(Object a, Object b) {
-            return CompareResult.builder()
-                .object1(a)
-                .object2(b)
-                .identical(a == b)
-                .changes(Collections.emptyList())
-                .build();
+            return a == b
+                    ? CompareResult.identical()
+                    : CompareResultReducer.complete(List.of(FieldChange.at(
+                            ChangeKind.MODIFY,
+                            ComparePath.root().append(new PropertySegment("root")),
+                            null,
+                            null)));
+        }
+
+        @Override
+        public CompareResult compare(Object a, Object b, CompareOptions options) {
+            return compare(a, b);
         }
 
         @Override

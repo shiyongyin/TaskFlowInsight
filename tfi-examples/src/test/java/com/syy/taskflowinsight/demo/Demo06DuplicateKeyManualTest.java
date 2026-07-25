@@ -2,9 +2,10 @@ package com.syy.taskflowinsight.demo;
 
 import com.syy.taskflowinsight.annotation.Entity;
 import com.syy.taskflowinsight.annotation.Key;
-import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.api.TFI;
+import com.syy.taskflowinsight.tracking.compare.CompareCompletion;
+import com.syy.taskflowinsight.tracking.compare.CompareLimitationCode;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
-import com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
@@ -81,20 +82,11 @@ class Demo06DuplicateKeyManualTest {
         System.out.println("新集合: " + set2);
         System.out.println();
 
-        // 使用 EntityListStrategy 比较
-        EntityListStrategy strategy = new EntityListStrategy();
-        CompareResult result = strategy.compare(
-            new ArrayList<>(set1),
-            new ArrayList<>(set2),
-            CompareOptions.builder().build()
-        );
+        CompareResult result = TFI.compare(set1, set2);
 
         System.out.println("比较结果:");
         System.out.println("  变更数量: " + result.getChangeCount());
-        System.out.println("  包含重复Keys: " + result.hasDuplicateKeys());
-        if (result.hasDuplicateKeys()) {
-            System.out.println("  重复Keys: " + result.getDuplicateKeys());
-        }
+        System.out.println("  完整性: " + result.getCompletion());
         System.out.println();
 
         System.out.println("详细变更:");
@@ -102,19 +94,18 @@ class Demo06DuplicateKeyManualTest {
             System.out.printf("  %s | %s | %s → %s%n",
                 change.getFieldName(),
                 change.getChangeType(),
-                change.getOldValue(),
-                change.getNewValue());
+                change.beforeValue().orElse(null),
+                change.afterValue().orElse(null));
         });
 
         // 断言
-        assertTrue(result.hasDuplicateKeys(), "应该检测到重复key");
-        assertTrue(result.getDuplicateKeys().contains("1"), "应该包含重复的key=1");
-        assertTrue(result.getChangeCount() >= 2, "应该至少有2个变更（DELETE + CREATE）");
-
-        // 验证entity[1#0]或entity[1#1]格式
-        boolean hasIndexedKey = result.getChanges().stream()
-            .anyMatch(c -> c.getFieldName().contains("#"));
-        assertTrue(hasIndexedKey, "应该包含带#idx的entity key");
+        assertEquals(CompareCompletion.PARTIAL, result.getCompletion());
+        assertTrue(result.getLimitations().stream().anyMatch(limitation ->
+                limitation.code() == CompareLimitationCode.KEY_AMBIGUOUS));
+        assertTrue(result.isDifferent(), "容器size变化仍应作为确定差异保留");
+        assertTrue(result.getChanges().stream()
+                .noneMatch(change -> change.getFieldName().contains("#")),
+                "重复identity不得生成猜测的序号路径");
 
         System.out.println("\n✅ 重复@Key场景测试通过！");
     }

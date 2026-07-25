@@ -2,7 +2,6 @@ package com.syy.taskflowinsight.aspect;
 
 import com.syy.taskflowinsight.annotation.TfiTask;
 import com.syy.taskflowinsight.api.TFI;
-import com.syy.taskflowinsight.config.resolver.ConfigurationResolver;
 import com.syy.taskflowinsight.masking.UnifiedDataMasker;
 import com.syy.taskflowinsight.spel.SafeSpELEvaluator;
 import org.junit.jupiter.api.BeforeAll;
@@ -10,9 +9,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
-
-import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -110,45 +106,4 @@ class TfiAnnotationAspectPerformanceTests {
         }
     }
 
-    private static class NoopConfigurationResolver implements ConfigurationResolver {
-        @Override
-        public <T> T resolve(String key, Class<T> type, T defaultValue) {
-            return defaultValue;
-        }
-
-        @Override
-        public <T> Optional<T> resolve(String key, Class<T> type) {
-            return Optional.empty();
-        }
-
-        @Override
-        public ConfigPriority getEffectivePriority(String key) {
-            return ConfigPriority.DEFAULT_VALUE;
-        }
-
-        @Override
-        public Map<ConfigPriority, ConfigSource> getConfigSources(String key) {
-            return Map.of();
-        }
-
-        @Override
-        public void setRuntimeConfig(String key, Object value) {
-            // no-op
-        }
-
-        @Override
-        public void clearRuntimeConfig(String key) {
-            // no-op
-        }
-
-        @Override
-        public boolean isEnvVariablesEnabled() {
-            return false;
-        }
-
-        @Override
-        public void refresh() {
-            // no-op
-        }
-    }
 }

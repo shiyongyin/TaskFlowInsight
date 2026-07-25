@@ -104,13 +104,13 @@ class ProviderRegistryExtendedTest {
     }
 
     @Test
-    @DisplayName("setAllowedProviders 清除 ServiceLoader 缓存")
+    @DisplayName("setAllowedProviders 在首次 lookup 前清除预加载缓存")
     void setAllowedClearsServiceLoaderCache() {
-        ProviderRegistry.lookup(FlowProvider.class);
+        ProviderRegistry.loadProviders(
+                Thread.currentThread().getContextClassLoader(), FlowProvider.class);
         ProviderRegistry.setAllowedProviders(List.of("com.example.*"));
-        // 缓存应被清除，下次 lookup 重新走 ServiceLoader
-        assertThatNoException().isThrownBy(() ->
-                ProviderRegistry.lookup(FlowProvider.class));
+        // 白名单变更仍处于启动期；首次 lookup 必须重新扫描并过滤旧候选。
+        assertThat(ProviderRegistry.lookup(FlowProvider.class)).isNull();
     }
 
     // ==================== 测试 Provider ====================

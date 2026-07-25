@@ -1,10 +1,14 @@
 package com.syy.taskflowinsight.model;
 
+import com.syy.taskflowinsight.context.ManagedThreadContext;
+import com.syy.taskflowinsight.context.ThreadContext;
 import com.syy.taskflowinsight.enums.SessionStatus;
+import com.syy.taskflowinsight.enums.TaskStatus;
 import org.junit.jupiter.api.*;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -110,6 +114,22 @@ class SessionTest {
     }
 
     @Test
+    @DisplayName("error(String) - 根任务已终止仍记录会话错误")
+    void errorSessionRecordsMessageWhenRootTaskAlreadyTerminated() {
+        Session session = Session.create("test");
+        session.getRootTask().complete();
+
+        session.error("会话级错误");
+
+        assertThat(session.getStatus()).isEqualTo(SessionStatus.ERROR);
+        assertThat(session.getRootTask().getStatus()).isEqualTo(TaskStatus.COMPLETED);
+        assertThat(session.getRootTask().getMessages())
+                .singleElement()
+                .extracting(Message::getContent)
+                .isEqualTo("会话级错误");
+    }
+
+    @Test
     @DisplayName("error(Throwable) - 带异常的异常终止")
     void errorSessionWithThrowable() {
         Session session = Session.create("test");
@@ -117,6 +137,63 @@ class SessionTest {
         session.error(new RuntimeException("连接超时"));
 
         assertThat(session.getStatus()).isEqualTo(SessionStatus.ERROR);
+    }
+
+    @Test
+    @DisplayName("error(Throwable) - 无消息异常使用类型名")
+    void errorThrowableWithoutMessageUsesClassName() {
+        Session session = Session.create("test");
+
+        session.error(new IllegalStateException());
+
+        assertThat(session.getRootTask().getMessages())
+                .singleElement()
+                .extracting(Message::getContent)
+                .isEqualTo("IllegalStateException");
+    }
+
+    @Test
+    @DisplayName("error(Throwable) - null 在运行态按参数错误处理")
+    void errorNullThrowableKeepsSessionRunning() {
+        Session session = Session.create("test");
+
+        assertThatThrownBy(() -> session.error((Throwable) null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Throwable cannot be null");
+
+        assertThat(session.getStatus()).isEqualTo(SessionStatus.RUNNING);
+        assertThat(session.getRootTask().getMessages()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("error(String) - 已终止会话优先报告状态错误")
+    void errorNullMessageOnTerminatedSessionReportsStateFirst() {
+        Session session = Session.create("test");
+        session.complete();
+
+        assertThatThrownBy(() -> session.error((String) null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not running");
+    }
+
+    @Test
+    @DisplayName("error(Throwable) - 已终止会话优先报告状态错误")
+    void errorNullThrowableOnTerminatedSessionReportsStateFirst() {
+        Session session = Session.create("test");
+        session.complete();
+
+        assertThatThrownBy(() -> session.error((Throwable) null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not running");
+    }
+
+    @Test
+    @DisplayName("tryError(String) - 已终止会话不再校验错误参数")
+    void tryErrorNullMessageOnTerminatedSessionReturnsFalse() {
+        Session session = Session.create("test");
+        session.complete();
+
+        assertThat(session.tryError(null)).isFalse();
     }
 
     @Test
@@ -172,6 +249,71 @@ class SessionTest {
 
         assertThatIllegalStateException()
                 .isThrownBy(session::activate);
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void currentSessionDoesNotExposeTerminalSessionBeforeExternalBridgeRelease() throws Exception {
+        CountDownLatch terminalPublished = new CountDownLatch(1);
+        CountDownLatch allowExternalBridge = new CountDownLatch(1);
+        AtomicReference<Throwable> terminalFailure = new AtomicReference<>();
+        Session session = new Session("terminal-current-filter", ignored -> {
+            terminalPublished.countDown();
+            await(allowExternalBridge);
+        });
+        session.activate();
+        ManagedThreadContext wrapper = ThreadContext.current();
+        assertThat(wrapper).isNotNull();
+
+        Thread terminal = new Thread(() -> {
+            try {
+                session.complete();
+            } catch (Throwable failure) {
+                terminalFailure.set(failure);
+            }
+        }, "session-terminal-before-bridge");
+        terminal.start();
+        assertThat(terminalPublished.await(5, TimeUnit.SECONDS)).isTrue();
+
+        try {
+            assertThat(session.isTerminated()).isTrue();
+            assertThat(ThreadContext.current()).isSameAs(wrapper);
+            assertThat(wrapper.isClosed()).isFalse();
+            assertThat(wrapper.getCurrentSession()).isSameAs(session);
+            assertThat(ThreadContext.currentSession()).isNull();
+            assertThat(Session.getCurrent()).isNull();
+        } finally {
+            allowExternalBridge.countDown();
+            terminal.join(5_000L);
+        }
+
+        assertThat(terminal.isAlive()).isFalse();
+        assertThat(terminalFailure.get()).isNull();
+        assertThat(Session.getCurrent()).isNull();
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void terminalStateErrorPrecedesCrossThreadActivationError() throws Exception {
+        Session session = Session.create("terminal-cross-thread-activation");
+        session.complete();
+        AtomicReference<Throwable> activationFailure = new AtomicReference<>();
+
+        Thread worker = new Thread(() -> {
+            try {
+                session.activate();
+            } catch (Throwable failure) {
+                activationFailure.set(failure);
+            }
+        }, "terminal-cross-thread-activator");
+
+        worker.start();
+        worker.join(5_000L);
+
+        assertThat(worker.isAlive()).isFalse();
+        assertThat(activationFailure.get())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Cannot activate session that is not running. Current status: COMPLETED");
     }
 
     // ==================== 时间戳 ====================
@@ -261,5 +403,16 @@ class SessionTest {
         assertThat(str).contains("Session");
         assertThat(str).contains(session.getSessionId());
         assertThat(str).contains("RUNNING");
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting to release external terminal bridge");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting to release external terminal bridge", interrupted);
+        }
     }
 }

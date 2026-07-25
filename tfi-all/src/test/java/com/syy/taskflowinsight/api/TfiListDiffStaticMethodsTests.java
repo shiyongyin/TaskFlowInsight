@@ -33,8 +33,6 @@ class TfiListDiffStaticMethodsTests {
         CompareResult result = TfiListDiff.diff(oldList, newList);
 
         assertDoesNotThrow(() -> TfiListDiff.render(result));
-        assertDoesNotThrow(() -> TfiListDiff.render(result, "simple"));
-        assertDoesNotThrow(() -> TfiListDiff.render(result, "detailed"));
     }
 
     @Test
@@ -46,7 +44,5 @@ class TfiListDiffStaticMethodsTests {
         assertNotNull(entityResult);
         // 可用性检查
         entityResult.isIdentical();
-        entityResult.getSimilarity();
     }
 }
-

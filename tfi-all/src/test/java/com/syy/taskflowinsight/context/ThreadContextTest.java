@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -332,37 +333,57 @@ public class ThreadContextTest {
     @Test
     @DisplayName("内存泄漏检测")
     void testLeakDetection() throws Exception {
-        // 清理当前线程的上下文
         ThreadContext.clear();
-        
-        // 获取初始状态
+
+        int workerCount = 10;
         ThreadContext.ContextStatistics initialStats = ThreadContext.getStatistics();
-        int initialActive = initialStats.activeContexts;
-        
-        // 创建多个上下文但不清理（模拟泄漏）
-        ExecutorService executor = Executors.newFixedThreadPool(10);
-        CountDownLatch latch = new CountDownLatch(10);
-        
-        for (int i = 0; i < 10; i++) {
+        ExecutorService executor = Executors.newFixedThreadPool(workerCount);
+        CountDownLatch contextsCreated = new CountDownLatch(workerCount);
+        CountDownLatch releaseWorkers = new CountDownLatch(1);
+        Set<ManagedThreadContext> leakedContexts = ConcurrentHashMap.newKeySet();
+        boolean executorTerminated = false;
+
+        for (int i = 0; i < workerCount; i++) {
             final int taskId = i;
             executor.submit(() -> {
-                ThreadContext.create("leak-task-" + taskId);
-                // 故意不清理
-                latch.countDown();
+                ManagedThreadContext context = ThreadContext.create("leak-task-" + taskId);
+                leakedContexts.add(context);
+                contextsCreated.countDown();
+                try {
+                    releaseWorkers.await();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                }
             });
         }
-        
-        latch.await(1, TimeUnit.SECONDS);
-        
-        // 应该检测到泄漏（活跃上下文增加了10个）
-        ThreadContext.ContextStatistics stats = ThreadContext.getStatistics();
-        assertThat(stats.activeContexts).isGreaterThan(initialActive + 5);
-        
-        // 如果活跃上下文数量明显增加，应该检测到潜在泄漏
-        // 但这取决于线程数，所以我们只验证上下文数量增加了
-        assertThat(stats.activeContexts - initialActive).isGreaterThanOrEqualTo(10);
-        
-        executor.shutdown();
-        executor.awaitTermination(1, TimeUnit.SECONDS);
+
+        try {
+            assertThat(contextsCreated.await(5, TimeUnit.SECONDS)).isTrue();
+
+            ThreadContext.ContextStatistics stats = ThreadContext.getStatistics();
+            assertThat(leakedContexts).hasSize(workerCount).allMatch(context -> !context.isClosed());
+            assertThat(stats.totalCreated).isGreaterThanOrEqualTo(initialStats.totalCreated + workerCount);
+            // 全局统计可能同时清除其他测试遗留项，因此只验证本次仍被 worker 持有的绝对下界。
+            assertThat(stats.activeContexts).isGreaterThanOrEqualTo(workerCount);
+        } finally {
+            releaseWorkers.countDown();
+            executor.shutdown();
+            try {
+                executorTerminated = executor.awaitTermination(5, TimeUnit.SECONDS);
+            } finally {
+                try {
+                    if (!executorTerminated) {
+                        executor.shutdownNow();
+                        executor.awaitTermination(5, TimeUnit.SECONDS);
+                    }
+                } finally {
+                    // 清理必须先于终止断言，避免失败路径把worker上下文遗留给后续测试。
+                    ThreadContext.detectPotentialLeaks();
+                }
+            }
+        }
+
+        assertThat(executorTerminated).isTrue();
+        assertThat(leakedContexts).allMatch(ManagedThreadContext::isClosed);
     }
 }

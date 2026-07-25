@@ -1,7 +1,6 @@
 package com.syy.taskflowinsight.testkit;
 
 import com.syy.taskflowinsight.api.TFI;
-import com.syy.taskflowinsight.tracking.ChangeTracker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -47,9 +46,6 @@ public abstract class TfiSpringTestBase {
     @AfterEach
     void springTfiTearDown() {
         TFI.clear();
-        try {
-            ChangeTracker.clearAllTracking();
-        } catch (Exception ignored) { }
         System.clearProperty("tfi.api.routing.enabled");
     }
 }

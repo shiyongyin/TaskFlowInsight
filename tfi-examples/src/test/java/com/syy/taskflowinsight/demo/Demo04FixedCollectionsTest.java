@@ -1,13 +1,16 @@
 package com.syy.taskflowinsight.demo;
 
 import com.syy.taskflowinsight.tracking.compare.CompareService;
+import com.syy.taskflowinsight.tracking.compare.ChangeKind;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.FieldChange;
+import com.syy.taskflowinsight.tracking.compare.ValueSnapshot;
 import com.syy.taskflowinsight.tracking.compare.list.ListCompareExecutor;
+import com.syy.taskflowinsight.tracking.compare.list.ListCompareStrategy;
 import com.syy.taskflowinsight.tracking.compare.list.SimpleListStrategy;
-import com.syy.taskflowinsight.tracking.compare.list.AsSetListStrategy;
-import com.syy.taskflowinsight.tracking.compare.list.LevenshteinListStrategy;
+import com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy;
+import com.syy.taskflowinsight.tracking.path.MapKeySegment;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -28,10 +31,9 @@ public class Demo04FixedCollectionsTest {
     @BeforeEach
     public void setUp() {
         // 初始化CompareService（模拟Demo04_Collections的初始化）
-        List<com.syy.taskflowinsight.tracking.compare.list.ListCompareStrategy> strategies = Arrays.asList(
+        List<ListCompareStrategy> strategies = Arrays.asList(
             new SimpleListStrategy(),
-            new AsSetListStrategy(),
-            new LevenshteinListStrategy()
+            new EntityListStrategy()
         );
         ListCompareExecutor listCompareExecutor = new ListCompareExecutor(strategies);
         compareService = new CompareService(listCompareExecutor);
@@ -44,8 +46,7 @@ public class Demo04FixedCollectionsTest {
         Set<Integer> set1 = new HashSet<>(Arrays.asList(1, 2, 3, 4));
         Set<Integer> set2 = new HashSet<>(Arrays.asList(2, 3, 4, 5, 6));
 
-        CompareResult result = compareService.compare(set1, set2,
-            CompareOptions.builder().generateReport(true).build());
+        CompareResult result = compareService.compare(set1, set2, CompareOptions.builder().build());
 
         logger.info("Set比较结果：");
         logger.info("  相同: {}", result.isIdentical());
@@ -54,21 +55,14 @@ public class Demo04FixedCollectionsTest {
         assertFalse(result.isIdentical(), "Sets should be different");
         assertTrue(result.getChanges().size() > 0, "Should detect changes");
 
-        // 检查集合变更详情
-        for (FieldChange change : result.getChanges()) {
-            if (change.isCollectionChange() && change.getCollectionDetail() != null) {
-                FieldChange.CollectionChangeDetail detail = change.getCollectionDetail();
-                logger.info("  集合变更详情:");
-                logger.info("    原始大小: {} → 新大小: {}", detail.getOriginalSize(), detail.getNewSize());
-                logger.info("    新增: {} 个元素", detail.getAddedCount());
-                logger.info("    删除: {} 个元素", detail.getRemovedCount());
-
-                assertEquals(4, detail.getOriginalSize(), "原始大小应为4");
-                assertEquals(5, detail.getNewSize(), "新大小应为5");
-                assertEquals(2, detail.getAddedCount(), "应新增2个元素 (5, 6)");
-                assertEquals(1, detail.getRemovedCount(), "应删除1个元素 (1)");
-            }
-        }
+        long addedChanges = result.getChanges().stream()
+                .filter(change -> change.kind() == ChangeKind.ADD)
+                .count();
+        long removedChanges = result.getChanges().stream()
+                .filter(change -> change.kind() == ChangeKind.REMOVE)
+                .count();
+        assertEquals(2, addedChanges, "应新增2个元素 (5, 6)");
+        assertEquals(1, removedChanges, "应删除1个元素 (1)");
 
         // 计算实际的新增和删除元素
         Set<Integer> added = new HashSet<>(set2);
@@ -98,8 +92,7 @@ public class Demo04FixedCollectionsTest {
         map2.put("country", "USA");   // 新增
         // city被删除
 
-        CompareResult result = compareService.compare(map1, map2,
-            CompareOptions.builder().generateReport(true).build());
+        CompareResult result = compareService.compare(map1, map2, CompareOptions.builder().build());
 
         logger.info("Map比较结果：");
         logger.info("  相同: {}", result.isIdentical());
@@ -111,10 +104,10 @@ public class Demo04FixedCollectionsTest {
         // 分析各种变更类型
         Map<String, FieldChange> changesByKey = new HashMap<>();
         for (FieldChange change : result.getChanges()) {
-            changesByKey.put(change.getFieldName(), change);
-            logger.info("  - {}: {}", change.getChangeType(), change.getFieldName());
-            logger.info("    旧值: {}", change.getOldValue());
-            logger.info("    新值: {}", change.getNewValue());
+            changesByKey.put(exactMapKey(change), change);
+            logger.info("  - {}: {}", change.getChangeType(), exactMapKey(change));
+            logger.info("    旧值: {}", change.beforeValue().orElse(null));
+            logger.info("    新值: {}", change.afterValue().orElse(null));
         }
 
         // 验证期望的变更
@@ -124,12 +117,12 @@ public class Demo04FixedCollectionsTest {
         assertFalse(changesByKey.containsKey("name"), "name未变更，不应出现在变更列表中");
 
         // 验证变更类型
-        assertEquals("30", changesByKey.get("age").getOldValue());
-        assertEquals("31", changesByKey.get("age").getNewValue());
-        assertEquals("NYC", changesByKey.get("city").getOldValue());
-        assertNull(changesByKey.get("city").getNewValue());
-        assertNull(changesByKey.get("country").getOldValue());
-        assertEquals("USA", changesByKey.get("country").getNewValue());
+        assertEquals("30", exactString(changesByKey.get("age").beforeValue().orElseThrow()));
+        assertEquals("31", exactString(changesByKey.get("age").afterValue().orElseThrow()));
+        assertEquals("NYC", exactString(changesByKey.get("city").beforeValue().orElseThrow()));
+        assertTrue(changesByKey.get("city").afterValue().isEmpty());
+        assertTrue(changesByKey.get("country").beforeValue().isEmpty());
+        assertEquals("USA", exactString(changesByKey.get("country").afterValue().orElseThrow()));
     }
 
     @Test
@@ -146,5 +139,25 @@ public class Demo04FixedCollectionsTest {
         assertEquals(0, result.getChanges().size(), "空集合比较不应有变更");
 
         logger.info("  空集合比较结果：相同 = {}", result.isIdentical());
+    }
+
+    private static String exactMapKey(FieldChange change) {
+        return change.after().or(() -> change.before())
+                .orElseThrow()
+                .path()
+                .segments()
+                .stream()
+                .filter(MapKeySegment.class::isInstance)
+                .map(MapKeySegment.class::cast)
+                .map(MapKeySegment::key)
+                .map(Demo04FixedCollectionsTest::exactString)
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static String exactString(ValueSnapshot snapshot) {
+        assertEquals(ValueSnapshot.Representation.EXACT, snapshot.representation());
+        assertEquals("string", snapshot.typeCode());
+        return snapshot.canonicalTextFacts().getFirst();
     }
 }

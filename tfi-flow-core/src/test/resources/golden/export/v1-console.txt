@@ -1,0 +1,14 @@
+==================================================
+TaskFlow Insight Report
+==================================================
+Session: <session-id>
+Thread:  <thread>
+Status:  COMPLETED
+Duration: <duration>
+
+📋 golden-root [COMPLETED] (<duration>)
+├── 🔧 first-child [COMPLETED] (<duration>)
+│   └── 💬 [业务流程] process-message
+└── 🔧 second-child [COMPLETED] (<duration>)
+    └── 💬 [⚠️异常提示] alert-message
+==================================================

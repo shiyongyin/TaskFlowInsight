@@ -50,6 +50,8 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Benchmark)
 public class P1MemoryBenchmark {
 
+    private static final CompareOptions OPTIONS = CompareOptions.builder().build();
+
     // ==================== 测试数据模型（与P1PerformanceBenchmark一致） ====================
 
     @Entity
@@ -98,7 +100,7 @@ public class P1MemoryBenchmark {
 
     @Setup(Level.Trial)
     public void setup() {
-        compareService = CompareService.createDefault(CompareOptions.typeAware());
+        compareService = CompareService.createDefault(OPTIONS);
 
         // 创建供应商池
         suppliers = new ArrayList<>();
@@ -190,7 +192,7 @@ public class P1MemoryBenchmark {
         CompareResult result = compareService.compare(
                 oldList_large,
                 newList_large,
-                CompareOptions.typeAware()
+                OPTIONS
         );
         bh.consume(result.getChanges());
     }
@@ -207,7 +209,7 @@ public class P1MemoryBenchmark {
         CompareResult result = compareService.compare(
                 oldList_large,
                 newList_large,
-                CompareOptions.typeAware()
+                OPTIONS
         );
 
         // P1新特性：EntityListDiffResult构建
@@ -218,15 +220,11 @@ public class P1MemoryBenchmark {
         List<FieldChange> containerChanges = result.getContainerChanges();
         Map<String, List<FieldChange>> groupedByObject = result.groupByObject();
 
-        // P1新特性：prettyPrint
-        String summary = result.prettyPrint();
-
         bh.consume(result);
         bh.consume(diffResult);
         bh.consume(refChanges);
         bh.consume(containerChanges);
         bh.consume(groupedByObject);
-        bh.consume(summary);
     }
 
     /**
@@ -240,15 +238,10 @@ public class P1MemoryBenchmark {
         CompareResult result = compareService.compare(
                 oldList_large,
                 newList_large,
-                CompareOptions.typeAware()
+                OPTIONS
         );
 
-        // 提取所有ContainerElementEvent
-        List<FieldChange.ContainerElementEvent> events = result.getChanges().stream()
-                .filter(FieldChange::isContainerElementChange)
-                .map(FieldChange::getElementEvent)
-                .filter(Objects::nonNull)
-                .toList();
+        List<FieldChange> events = result.getContainerChanges();
 
         bh.consume(events);
     }
@@ -264,15 +257,10 @@ public class P1MemoryBenchmark {
         CompareResult result = compareService.compare(
                 oldList_large,
                 newList_large,
-                CompareOptions.typeAware()
+                OPTIONS
         );
 
-        // 提取所有ReferenceDetail
-        List<FieldChange.ReferenceDetail> details = result.getChanges().stream()
-                .filter(FieldChange::isReferenceChange)
-                .map(FieldChange::getReferenceDetail)
-                .filter(Objects::nonNull)
-                .toList();
+        List<FieldChange> details = result.getReferenceChanges();
 
         bh.consume(details);
     }

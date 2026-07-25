@@ -102,10 +102,11 @@ class ProviderRegistryTest {
     void unregisterRemovesProvider() {
         TestFlowProvider provider = new TestFlowProvider(100);
         ProviderRegistry.register(FlowProvider.class, provider);
-        assertThat(ProviderRegistry.lookup(FlowProvider.class)).isSameAs(provider);
+        assertThat(ProviderRegistry.getAllRegistered().get(FlowProvider.class)).containsExactly(provider);
 
         boolean removed = ProviderRegistry.unregister(FlowProvider.class, provider);
         assertThat(removed).isTrue();
+        assertThat(ProviderRegistry.getAllRegistered()).doesNotContainKey(FlowProvider.class);
     }
 
     @Test

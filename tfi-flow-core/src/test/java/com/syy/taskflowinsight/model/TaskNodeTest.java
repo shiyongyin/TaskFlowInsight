@@ -1,5 +1,6 @@
 package com.syy.taskflowinsight.model;
 
+import com.syy.taskflowinsight.enums.MessageSeverity;
 import com.syy.taskflowinsight.enums.MessageType;
 import com.syy.taskflowinsight.enums.TaskStatus;
 import org.junit.jupiter.api.*;
@@ -17,6 +18,17 @@ import static org.assertj.core.api.Assertions.*;
  * @since 3.0.0
  */
 class TaskNodeTest {
+
+    @Test
+    @DisplayName("消息便捷入口保留独立 severity")
+    void messageHelpersPreserveSeverity() {
+        TaskNode node = new TaskNode("root");
+
+        assertThat(node.addInfo("info").getSeverity()).isEqualTo(MessageSeverity.INFO);
+        assertThat(node.addDebug("debug").getSeverity()).isEqualTo(MessageSeverity.DEBUG);
+        assertThat(node.addWarn("warn").getSeverity()).isEqualTo(MessageSeverity.WARN);
+        assertThat(node.addError("error").getSeverity()).isEqualTo(MessageSeverity.ERROR);
+    }
 
     // ==================== 构造和基本属性 ====================
 

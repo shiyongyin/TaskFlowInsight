@@ -38,13 +38,7 @@ class QueryProjectorTests {
         @DisplayName("toTypedView 有变更 → 结构化视图")
         void toTypedView_withChanges_shouldReturnStructured() {
             List<FieldChange> changes = List.of(
-                    FieldChange.builder()
-                            .fieldName("status")
-                            .fieldPath("order.status")
-                            .oldValue("NEW")
-                            .newValue("PAID")
-                            .changeType(ChangeType.UPDATE)
-                            .build()
+                    FieldChange.at(com.syy.taskflowinsight.tracking.compare.ChangeKind.MODIFY, com.syy.taskflowinsight.tracking.path.ComparePath.root().append(new com.syy.taskflowinsight.tracking.path.PropertySegment("order.status")), "NEW", "PAID")
             );
             var result = ChangeAdapters.toTypedView("Order", changes);
             assertThat(result).isNotNull();

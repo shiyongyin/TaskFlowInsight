@@ -10,10 +10,8 @@ class SafeContextManagerLeakToggleTests {
     void toggleLeakDetection_on_off_noExceptions() {
         SafeContextManager mgr = SafeContextManager.getInstance();
         assertThatCode(() -> {
-            mgr.setLeakDetectionEnabled(true);
-            mgr.setLeakDetectionIntervalMillis(5);
-            mgr.setLeakDetectionEnabled(false);
+            mgr.apply(new ContextManagerConfig(3_600_000L, true, 5L));
+            mgr.apply(ContextManagerConfig.defaults());
         }).doesNotThrowAnyException();
     }
 }
-

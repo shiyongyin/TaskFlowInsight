@@ -4,7 +4,12 @@ import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
 import org.junit.jupiter.api.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -44,6 +49,80 @@ class ThreadContextTest {
         assertThat(current).isSameAs(ctx);
 
         ThreadContext.clear();
+    }
+
+    @Test
+    @DisplayName("create - 发布创建线程元数据和单调耗时")
+    void createPublishesOwnerMetadataAndMonotonicElapsedTime() {
+        Thread owner = Thread.currentThread();
+        long beforeCreation = System.nanoTime();
+
+        ManagedThreadContext context = ThreadContext.create("metadata");
+
+        long afterCreation = System.nanoTime();
+        long firstElapsed = context.getElapsedNanos();
+        long secondElapsed = context.getElapsedNanos();
+        assertThat(context.getContextId()).isNotBlank();
+        assertThat(context.getThreadId()).isEqualTo(owner.threadId());
+        assertThat(context.getThreadName()).isEqualTo(owner.getName());
+        assertThat(context.getCreatedNanos()).isBetween(beforeCreation, afterCreation);
+        assertThat(firstElapsed).isGreaterThanOrEqualTo(0L);
+        assertThat(secondElapsed).isGreaterThanOrEqualTo(firstElapsed);
+    }
+
+    @Test
+    @DisplayName("attributes - 保留显式类型并区分缺失值和错误类型")
+    void attributesExposeTypedMissingAndWrongTypeContracts() {
+        ManagedThreadContext context = ThreadContext.create("typed-attributes");
+        context.setAttribute("text", "value");
+        context.setAttribute("number", 42);
+
+        assertThat(context.<String>getAttribute("text")).isEqualTo("value");
+        assertThat(context.<Object>getAttribute("missing")).isNull();
+        assertThatThrownBy(() -> {
+            String wrongType = context.getAttribute("number");
+            assertThat(wrongType).isNotNull();
+        }).isInstanceOf(ClassCastException.class);
+    }
+
+    @Test
+    @DisplayName("attributes - 固定并发写入完整保留每个键值")
+    void attributesRetainAllDeterministicConcurrentWrites() throws Exception {
+        ManagedThreadContext context = ThreadContext.create("concurrent-attributes");
+        int writerCount = 4;
+        int keysPerWriter = 25;
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(writerCount);
+        List<Future<?>> writes = new ArrayList<>();
+        try {
+            for (int writer = 0; writer < writerCount; writer++) {
+                int writerIndex = writer;
+                writes.add(executor.submit(() -> {
+                    start.await();
+                    for (int key = 0; key < keysPerWriter; key++) {
+                        context.setAttribute(attributeKey(writerIndex, key),
+                                writerIndex * keysPerWriter + key);
+                    }
+                    return null;
+                }));
+            }
+
+            start.countDown();
+            for (Future<?> write : writes) {
+                write.get(5, TimeUnit.SECONDS);
+            }
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+
+        for (int writer = 0; writer < writerCount; writer++) {
+            for (int key = 0; key < keysPerWriter; key++) {
+                assertThat(context.<Integer>getAttribute(attributeKey(writer, key)))
+                        .isEqualTo(writer * keysPerWriter + key);
+            }
+        }
     }
 
     @Test
@@ -312,5 +391,9 @@ class ThreadContextTest {
         assertThat(str).contains("active=");
         assertThat(str).contains("created=");
         assertThat(str).contains("propagations=");
+    }
+
+    private static String attributeKey(int writer, int key) {
+        return "writer-" + writer + "-key-" + key;
     }
 }

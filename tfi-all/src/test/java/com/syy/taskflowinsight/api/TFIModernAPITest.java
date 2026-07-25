@@ -642,7 +642,18 @@ class TFIModernAPITest {
             
             Map<String, Object> map = TFI.exportToMap();
             assertThat(map).isNotEmpty();
-            assertThat(map).containsKey("sessionId");
+            assertThat(map)
+                    .containsEntry("schemaVersion", 2)
+                    .containsKeys("captureEpochMillis", "session", "statistics", "rootTask", "truncated");
+
+            Map<?, ?> session = (Map<?, ?>) map.get("session");
+            Map<?, ?> rootTask = (Map<?, ?>) map.get("rootTask");
+            assertThat(rootTask.get("name")).isEqualTo(session.get("name"));
+            List<String> exportedTaskNames = new ArrayList<>();
+            Object childrenValue = rootTask.get("children");
+            assertThat(childrenValue).isInstanceOf(List.class);
+            ((List<?>) childrenValue).forEach(child -> collectTaskNames(child, exportedTaskNames));
+            assertThat(exportedTaskNames).contains("Task 1", "Task 2");
             
             // 控制台导出不应该抛出异常
             assertThatCode(() -> {
@@ -719,6 +730,16 @@ class TFIModernAPITest {
             // 验证导出不会因特殊字符而失败
             String json = TFI.exportToJson();
             assertThat(json).isNotNull();
+        }
+    }
+
+    private static void collectTaskNames(Object value, List<String> names) {
+        if (!(value instanceof Map<?, ?> task)) {
+            return;
+        }
+        names.add(String.valueOf(task.get("name")));
+        if (task.get("children") instanceof List<?> children) {
+            children.forEach(child -> collectTaskNames(child, names));
         }
     }
 }

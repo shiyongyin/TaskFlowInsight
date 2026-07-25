@@ -24,17 +24,18 @@ import static org.junit.jupiter.api.Assertions.*;
 public class ContextManagementIntegrationTest {
     
     private static SafeContextManager contextManager;
-    private static ZeroLeakThreadLocalManager leakManager;
     
     @BeforeAll
     static void setupClass() {
         contextManager = SafeContextManager.getInstance();
-        leakManager = ZeroLeakThreadLocalManager.getInstance();
         
-        // 性能测试期间暂时关闭泄漏检测，避免干扰
-        contextManager.setLeakDetectionEnabled(false);
-        contextManager.setContextTimeoutMillis(30000); // 30秒超时
-        contextManager.setLeakDetectionIntervalMillis(10000); // 10秒检测间隔
+        // 性能测试期间暂时关闭泄漏检测，完整发布配置以免留下 setter 中间态。
+        contextManager.apply(new ContextManagerConfig(30_000L, false, 10_000L));
+    }
+
+    @AfterAll
+    static void cleanupClass() {
+        contextManager.apply(ContextManagerConfig.defaults());
     }
     
     @BeforeEach
@@ -262,7 +263,7 @@ public class ContextManagementIntegrationTest {
     @Disabled("监控功能已移出MVP范围 - 可作为可选增强功能")
     void testLeakDetectionUnclosedContext() throws Exception {
         // 临时启用泄漏检测
-        contextManager.setLeakDetectionEnabled(true);
+        contextManager.apply(new ContextManagerConfig(30_000L, true, 10_000L));
         try {
             int initialActive = contextManager.getActiveContextCount();
             
@@ -276,7 +277,7 @@ public class ContextManagementIntegrationTest {
                 assertTrue(contextManager.getActiveContextCount() <= initialActive)
             );
         } finally {
-            contextManager.setLeakDetectionEnabled(false);
+            contextManager.apply(new ContextManagerConfig(30_000L, false, 10_000L));
         }
     }
     
@@ -286,7 +287,7 @@ public class ContextManagementIntegrationTest {
     @Disabled("监控功能已移出MVP范围 - 可作为可选增强功能")
     void testDeadThreadCleanup() throws Exception {
         // 临时启用泄漏检测
-        contextManager.setLeakDetectionEnabled(true);
+        contextManager.apply(new ContextManagerConfig(30_000L, true, 10_000L));
         AtomicInteger cleanedCount = new AtomicInteger();
         
         // 注册泄漏监听器
@@ -309,7 +310,7 @@ public class ContextManagementIntegrationTest {
             
         } finally {
             contextManager.unregisterLeakListener(listener);
-            contextManager.setLeakDetectionEnabled(false);
+            contextManager.apply(new ContextManagerConfig(30_000L, false, 10_000L));
         }
     }
     
@@ -415,34 +416,21 @@ public class ContextManagementIntegrationTest {
     
     @Test
     @Order(40)
-    @DisplayName("诊断模式测试")
-    void testDiagnosticMode() {
-        // 启用诊断模式
-        leakManager.enableDiagnosticMode(false); // 不启用反射
-        
-        try {
-            // 创建一些上下文
-            for (int i = 0; i < 5; i++) {
-                try (ManagedThreadContext context = ManagedThreadContext.create("diagnostic-" + i)) {
-                    context.startTask("task-" + i);
-                    context.endTask();
-                }
+    @DisplayName("诊断快照反映真实 Context 生命周期")
+    void testMetricsSnapshot() {
+        ContextMetrics before = contextManager.metrics();
+
+        for (int i = 0; i < 5; i++) {
+            try (ManagedThreadContext context = ManagedThreadContext.create("diagnostic-" + i)) {
+                context.startTask("task-" + i);
+                context.endTask();
             }
-            
-            // 获取诊断信息
-            var diagnostics = leakManager.getDiagnostics();
-            assertNotNull(diagnostics);
-            assertTrue((Boolean) diagnostics.get("diagnostic.mode"));
-            assertFalse((Boolean) diagnostics.get("reflection.enabled"));
-            
-            // 获取健康状态
-            var health = leakManager.getHealthStatus();
-            assertNotNull(health);
-            System.out.println("Health status: " + health);
-            
-        } finally {
-            leakManager.disableDiagnosticMode();
         }
+
+        ContextMetrics after = contextManager.metrics();
+        assertEquals(5L, after.createdContexts() - before.createdContexts());
+        assertEquals(5L, after.closedContexts() - before.closedContexts());
+        assertEquals(before.activeContexts(), after.activeContexts());
     }
     
     // ==================== 错误处理测试 ====================

@@ -1,0 +1,42 @@
+{
+  "schemaId": "tfi.compare.change",
+  "schemaVersion": 1,
+  "outcome": "DIFFERENT",
+  "completion": "COMPLETE",
+  "problems": [],
+  "limitations": [],
+  "diagnostics": {
+    "durationNanos": "0",
+    "rootAlgorithmId": null,
+    "appliedAlgorithmIds": [],
+    "effectivePolicyFingerprint": null,
+    "comparedNodes": "0",
+    "consumedElements": "0",
+    "retainedResultChars": "0",
+    "omittedPaths": "0",
+    "omittedChanges": "0",
+    "omittedProblems": "0",
+    "omittedLimitations": "0"
+  },
+  "changes": [
+    {
+      "kind": "MODIFY",
+      "before": {
+        "path": [{"kind": "PROPERTY", "name": "amount"}],
+        "value": {
+          "representation": "EXACT",
+          "type": "big-decimal",
+          "value": {"unscaled": "100", "scale": 2}
+        }
+      },
+      "after": {
+        "path": [{"kind": "PROPERTY", "name": "amount"}],
+        "value": {
+          "representation": "EXACT",
+          "type": "big-decimal",
+          "value": {"unscaled": "20", "scale": 1}
+        }
+      }
+    }
+  ]
+}

@@ -8,6 +8,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.*;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
@@ -43,7 +46,6 @@ class TFIArchitectureTest {
             .that().areInterfaces()
             .and().haveSimpleNameEndingWith("Provider")
             .and().resideInAPackage("com.syy.taskflowinsight..")
-            .and().haveSimpleNameNotEndingWith("SnapshotProvider")  // 内部抽象，非公共 SPI
             .should().resideInAPackage("com.syy.taskflowinsight.spi")
             .because("公共 Provider 接口应统一定义在 SPI 包中，遵循服务提供者接口规范");
 
@@ -90,5 +92,18 @@ class TFIArchitectureTest {
             .because("TFI 是静态工具类，应该使用私有构造器防止实例化");
 
         rule.check(classes);
+    }
+
+    @Test
+    @DisplayName("TFI 不应持有 selected Provider 状态")
+    void tfi_should_not_own_provider_selection() {
+        assertThat(TFI.class.getDeclaredFields())
+            .extracting(Field::getName)
+            .doesNotContain(
+                "cachedComparisonProvider",
+                "cachedTrackingProvider",
+                "cachedFlowProvider",
+                "cachedRenderProvider",
+                "cachedExportProvider");
     }
 }

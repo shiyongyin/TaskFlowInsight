@@ -1,0 +1,4 @@
+type=MESSAGE
+code=KCOMPARE_SUMMARY_V1
+text=null
+data=appliedAlgorithmCount,availableChangeCount,comparedNodes,completion,configuredDetailLimit,consumedElements,detailState,durationNanos,limitationCodeCounts,omittedChanges,omittedLimitations,omittedPaths,omittedProblems,operation,outcome,plannedDetailCount,problemCodeCounts,retainedResultChars,schemaVersion

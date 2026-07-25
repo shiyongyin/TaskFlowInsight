@@ -1,486 +1,150 @@
 package com.syy.taskflowinsight.exporter.json;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.syy.taskflowinsight.model.Session;
 import com.syy.taskflowinsight.model.TaskNode;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.io.StringWriter;
+import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
-/**
- * JsonExporter 单元测试 - JSON导出功能完整性验证
- * 
- * <h2>测试设计思路：</h2>
- * <ul>
- *   <li>采用分层测试策略，从基础JSON格式到复杂业务场景逐步验证</li>
- *   <li>使用@Order注解确保测试执行顺序，便于问题定位和调试</li>
- *   <li>通过多种输出模式测试验证COMPAT和ENHANCED模式的差异性</li>
- *   <li>结合性能测试确保大数据量场景下的可用性</li>
- *   <li>使用边界值测试验证极端条件下的稳定性</li>
- * </ul>
- * 
- * <h2>覆盖范围：</h2>
- * <ul>
- *   <li><strong>JSON格式验证：</strong>有效JSON结构、null会话处理、基础格式校验</li>
- *   <li><strong>数据完整性：</strong>Session所有字段序列化、TaskNode树递归、Message列表处理</li>
- *   <li><strong>特殊字符处理：</strong>引号转义、反斜杠转义、换行符/制表符处理、Unicode字符支持</li>
- *   <li><strong>导出模式：</strong>COMPAT模式（毫秒精度）vs ENHANCED模式（纳秒精度+统计信息）</li>
- *   <li><strong>流式输出：</strong>Writer接口支持、大数据流式处理、内存效率验证</li>
- *   <li><strong>性能基准：</strong>1000节点<20ms、5000节点流式输出、序列化效率</li>
- *   <li><strong>边界条件：</strong>100层深度嵌套、null字段处理、极端数据量</li>
- * </ul>
- * 
- * <h2>测试场景：</h2>
- * <ul>
- *   <li><strong>基础格式：</strong>JSON结构完整性、null输入安全处理</li>
- *   <li><strong>数据序列化：</strong>Session+TaskNode+Message完整序列化</li>
- *   <li><strong>字符转义：</strong>特殊字符、控制字符、Unicode字符处理</li>
- *   <li><strong>模式切换：</strong>COMPAT模式 vs ENHANCED模式功能差异</li>
- *   <li><strong>性能验证：</strong>1000节点序列化性能、流式输出效率</li>
- *   <li><strong>极限测试：</strong>深度嵌套、大数据量、异常边界</li>
- * </ul>
- * 
- * <h2>期望结果：</h2>
- * <ul>
- *   <li><strong>格式正确：</strong>生成有效JSON，符合标准JSON语法规范</li>
- *   <li><strong>数据完整：</strong>所有业务数据都正确序列化到JSON中</li>
- *   <li><strong>字符安全：</strong>特殊字符正确转义，不破坏JSON结构</li>
- *   <li><strong>模式准确：</strong>两种模式输出内容符合各自设计目标</li>
- *   <li><strong>性能达标：</strong>1000节点<20ms，5000节点流式输出稳定</li>
- *   <li><strong>边界稳定：</strong>极端条件下不抛异常，输出仍然有效</li>
- * </ul>
- * 
- * @author TaskFlow Insight Team
- * @version 1.0.0
- * @since 2025-01-06
- */
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+/** All-in-One 消费者对 Core canonical V2 JSON 公共入口的集成契约。 */
 class JsonExporterTest {
-    
-    private JsonExporter compatExporter;
-    private JsonExporter enhancedExporter;
-    
-    @BeforeEach
-    void setUp() {
-        compatExporter = new JsonExporter(JsonExporter.ExportMode.COMPAT);
-        enhancedExporter = new JsonExporter(JsonExporter.ExportMode.ENHANCED);
-    }
-    
-    // ========== JSON格式测试 ==========
-    
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String NULL_SESSION_JSON =
+            "{\"error\":\"No session data available\"}";
+    private final JsonExporter exporter = new JsonExporter();
+
     @Test
-    @Order(1)
-    @DisplayName("应该生成有效的JSON格式")
-    void shouldGenerateValidJson() {
-        // Given
-        Session session = createSimpleSession();
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertNotNull(json);
-        assertTrue(json.startsWith("{"));
-        assertTrue(json.endsWith("}"));
-        assertTrue(isValidJson(json));
+    @DisplayName("无参 exporter 发布 exact canonical V2 顶层")
+    void shouldPublishCanonicalV2() throws Exception {
+        Session session = Session.create("consumer-root");
+        session.getRootTask().addInfo("message");
+
+        JsonNode document = MAPPER.readTree(exporter.export(session));
+
+        assertThat(fieldNames(document)).containsExactly(
+                "schemaVersion", "captureEpochMillis", "session",
+                "statistics", "rootTask", "truncated");
+        assertThat(document.path("schemaVersion").intValue()).isEqualTo(2);
+        assertThat(document.path("session").path("id").textValue())
+                .isEqualTo(session.getSessionId());
+        assertThat(document.path("session").path("threadId").textValue())
+                .isEqualTo(session.getThreadId());
+        assertThat(document.path("rootTask").path("name").textValue())
+                .isEqualTo("consumer-root");
+        assertThat(document.path("statistics").path("totalMessages").intValue())
+                .isEqualTo(1);
     }
-    
+
     @Test
-    @Order(2)
-    @DisplayName("应该正确处理null会话")
-    void shouldHandleNullSession() {
-        // When
-        String json = compatExporter.export(null);
-        
-        // Then
-        assertEquals("{\"error\":\"No session data available\"}", json);
-        assertTrue(isValidJson(json));
+    @DisplayName("Message 使用 canonical display label、severity 与 nullable key")
+    void shouldPublishCanonicalMessages() throws Exception {
+        Session session = Session.create("message-root");
+        TaskNode root = session.getRootTask();
+        root.addInfo("Info message");
+        root.addError("Error message");
+
+        JsonNode messages = MAPPER.readTree(exporter.export(session))
+                .path("rootTask").path("messages");
+
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(0).path("type").textValue()).isEqualTo("业务流程");
+        assertThat(messages.get(0).path("severity").textValue()).isEqualTo("INFO");
+        assertThat(messages.get(0).path("customLabel").isNull()).isTrue();
+        assertThat(messages.get(1).path("displayLabel").textValue()).contains("异常提示");
+        assertThat(messages.get(1).path("severity").textValue()).isEqualTo("ERROR");
     }
-    
+
     @Test
-    @Order(3)
-    @DisplayName("应该处理空任务树")
-    void shouldHandleEmptyTaskTree() {
-        // Session必须有rootTask，无法测试空任务树
-        // 跳过此测试
-    }
-    
-    // ========== 数据完整性测试 ==========
-    
-    @Test
-    @Order(10)
-    @DisplayName("应该序列化所有Session字段")
-    void shouldSerializeAllSessionFields() {
-        // Given
-        Session session = createCompleteSession();
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertTrue(json.contains("\"sessionId\":"));
-        assertTrue(json.contains("\"threadId\":"));
-        assertTrue(json.contains("\"status\":"));
-        assertTrue(json.contains("\"createdAt\":"));
-        assertTrue(json.contains("\"endedAt\":"));
-        assertTrue(json.contains("\"durationMs\":"));
-        assertTrue(json.contains("\"root\":"));
-    }
-    
-    @Test
-    @Order(11)
-    @DisplayName("应该递归序列化TaskNode树")
-    void shouldSerializeTaskNodeTree() {
-        // Given
-        Session session = createNestedSession(3, 2);
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertTrue(json.contains("\"nodeId\":"));
-        assertTrue(json.contains("\"name\":"));
-        assertTrue(json.contains("\"children\":["));
-        assertTrue(json.contains("\"messages\":"));
-        
-        // 验证嵌套结构
-        int childrenCount = countOccurrences(json, "\"children\":");
-        assertTrue(childrenCount > 1);
-    }
-    
-    @Test
-    @Order(12)
-    @DisplayName("应该正确序列化Message列表")
-    void shouldSerializeMessages() {
-        // Given
-        Session session = Session.create("task");
-        TaskNode node = session.getRootTask();
-        node.addInfo("Info message");
-        node.addError("Error message");
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertTrue(json.contains("\"type\":\"PROCESS\""));
-        assertTrue(json.contains("\"content\":\"Info message\""));
-        assertTrue(json.contains("\"type\":\"ALERT\""));
-        assertTrue(json.contains("\"content\":\"Error message\""));
-    }
-    
-    // ========== 特殊字符测试 ==========
-    
-    @Test
-    @Order(20)
-    @DisplayName("应该正确转义特殊字符")
+    @DisplayName("特殊字符与 Unicode 通过真实 parser")
     void shouldEscapeSpecialCharacters() {
-        // Given
-        Session session = Session.create("Task with \"quotes\" and \\backslash\\");
-        TaskNode node = session.getRootTask();
-        node.addInfo("Line1\nLine2\tTabbed");
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertTrue(json.contains("\\\"quotes\\\""));
-        assertTrue(json.contains("\\\\backslash\\\\"));
-        assertTrue(json.contains("Line1\\nLine2\\tTabbed"));
+        Session session = Session.create("任务 \"root\" \\ 😀");
+        session.getRootTask().addInfo("line1\nline2\tmiddle\bback\fnext");
+
+        String json = exporter.export(session);
+
+        assertThatCode(() -> MAPPER.readTree(json)).doesNotThrowAnyException();
+        assertThat(json)
+                .contains("\\\"root\\\"")
+                .contains("line1\\nline2\\tmiddle\\bback\\fnext")
+                .contains("任务");
     }
-    
+
     @Test
-    @Order(21)
-    @DisplayName("应该处理Unicode字符")
-    void shouldHandleUnicodeCharacters() {
-        // Given
-        Session session = Session.create("任务名称 😀 ñ");
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertTrue(isValidJson(json));
-        // Unicode字符应该正确保留
-        assertTrue(json.contains("任务名称"));
-    }
-    
-    @Test
-    @Order(22)
-    @DisplayName("应该转义控制字符")
-    void shouldEscapeControlCharacters() {
-        // Given
-        Session session = Session.create("test");
-        TaskNode node = session.getRootTask();
-        node.addInfo("Text with \b backspace \f formfeed");
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertTrue(json.contains("\\b"));
-        assertTrue(json.contains("\\f"));
-    }
-    
-    // ========== 模式测试 ==========
-    
-    @Test
-    @Order(30)
-    @DisplayName("COMPAT模式应该使用毫秒时间戳")
-    void compatModeShouldUseMilliseconds() {
-        // Given
-        Session session = createSimpleSession();
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertTrue(json.contains("\"createdAt\":"));
-        assertTrue(json.contains("\"endedAt\":"));
-        assertTrue(json.contains("\"durationMs\":"));
-        assertFalse(json.contains("\"createdAtNanos\":"));
-        assertFalse(json.contains("\"statistics\":"));
-    }
-    
-    @Test
-    @Order(31)
-    @DisplayName("ENHANCED模式应该包含纳秒精度和统计信息")
-    void enhancedModeShouldIncludeExtendedInfo() {
-        // Given
-        Session session = createSimpleSession();
-        
-        // When
-        String json = enhancedExporter.export(session);
-        
-        // Then
-        assertTrue(json.contains("\"createdAtNanos\":"));
-        assertTrue(json.contains("\"endedAtNanos\":"));
-        assertTrue(json.contains("\"durationNanos\":"));
-        assertTrue(json.contains("\"statistics\":"));
-        assertTrue(json.contains("\"totalTasks\":"));
-        assertTrue(json.contains("\"maxDepth\":"));
-    }
-    
-    // ========== 流式输出测试 ==========
-    
-    @Test
-    @Order(35)
-    @DisplayName("Writer输出应该与String输出一致")
-    void writerOutputShouldMatchStringOutput() throws IOException {
-        // Given
-        Session session = createCompleteSession();
-        
-        // When
-        String stringOutput = compatExporter.export(session);
-        
+    @DisplayName("String 与 Writer 对同一完成态 Session 发布同一 canonical tree")
+    void shouldKeepStringAndWriterTreesEquivalent() throws Exception {
+        Session session = completedSession();
+        String stringJson = exporter.export(session);
         StringWriter writer = new StringWriter();
-        compatExporter.export(session, writer);
-        String writerOutput = writer.toString();
-        
-        // Then
-        assertEquals(stringOutput, writerOutput);
+
+        exporter.export(session, writer);
+
+        ObjectNode stringTree = (ObjectNode) MAPPER.readTree(stringJson);
+        ObjectNode writerTree = (ObjectNode) MAPPER.readTree(writer.toString());
+        stringTree.remove("captureEpochMillis");
+        writerTree.remove("captureEpochMillis");
+        assertThat(writerTree).isEqualTo(stringTree);
     }
-    
+
     @Test
-    @Order(36)
-    @DisplayName("应该支持流式输出null会话")
-    void shouldSupportStreamingNullSession() throws IOException {
-        // Given
+    @DisplayName("null Session 的 String 与 Writer fallback 完全一致")
+    void shouldPreserveNullSessionFallback() throws Exception {
         StringWriter writer = new StringWriter();
-        
-        // When
-        compatExporter.export(null, writer);
-        String result = writer.toString();
-        
-        // Then
-        assertEquals("{\"error\":\"No session data available\"}", result);
+
+        exporter.export(null, writer);
+
+        assertThat(exporter.export(null)).isEqualTo(NULL_SESSION_JSON);
+        assertThat(writer.toString()).isEqualTo(NULL_SESSION_JSON);
     }
-    
-    // ========== 性能测试 ==========
-    
+
     @Test
-    @Order(40)
-    @DisplayName("应该在20ms内序列化1000个节点")
-    void shouldSerialize1000NodesWithinTimeLimit() {
-        // Given
-        Session session = createLargeSession(1000);
-        
-        // When
-        long startTime = System.nanoTime();
-        String json = compatExporter.export(session);
-        long duration = (System.nanoTime() - startTime) / 1_000_000; // 毫秒
-        
-        // Then
-        assertNotNull(json);
-        assertTrue(isValidJson(json));
-        assertTrue(duration < 100, "序列化1000个节点耗时: " + duration + "ms，应该小于100ms");
-        System.out.println("JsonExporter序列化1000个节点耗时: " + duration + "ms");
+    @DisplayName("运行态 nullable 与 empty keys 不省略")
+    void shouldKeepNullableAndEmptyKeys() throws Exception {
+        JsonNode document = MAPPER.readTree(exporter.export(Session.create("running-root")));
+
+        assertThat(document.path("session").path("endEpochMillis").isNull()).isTrue();
+        assertThat(document.path("session").path("durationNanos").isNull()).isTrue();
+        JsonNode root = document.path("rootTask");
+        assertThat(root.path("endEpochMillis").isNull()).isTrue();
+        assertThat(root.path("durationNanos").isNull()).isTrue();
+        assertThat(root.path("messages").isEmpty()).isTrue();
+        assertThat(root.path("attributes").isEmpty()).isTrue();
+        assertThat(root.path("tags").isEmpty()).isTrue();
+        assertThat(root.path("children").isEmpty()).isTrue();
     }
-    
+
     @Test
-    @Order(41)
-    @DisplayName("流式输出应该支持大数据量")
-    void shouldSupportStreamingLargeData() throws IOException {
-        // Given
-        Session session = createLargeSession(5000);
-        StringWriter writer = new StringWriter();
-        
-        // When
-        long startTime = System.nanoTime();
-        compatExporter.export(session, writer);
-        long duration = (System.nanoTime() - startTime) / 1_000_000;
-        
-        // Then
-        String json = writer.toString();
-        assertTrue(json.length() > 0);
-        assertTrue(isValidJson(json));
-        System.out.println("流式输出5000个节点耗时: " + duration + "ms");
-    }
-    
-    // ========== 边界条件测试 ==========
-    
-    @Test
-    @Order(50)
-    @DisplayName("应该处理深度嵌套（100层）")
-    void shouldHandleDeepNesting() {
-        // Given
-        Session session = createDeepSession(100);
-        
-        // When/Then
-        assertDoesNotThrow(() -> {
-            String json = compatExporter.export(session);
-            assertTrue(isValidJson(json));
-        });
-    }
-    
-    @Test
-    @Order(51)
-    @DisplayName("应该处理所有字段为null的节点")
-    void shouldHandleNullFields() {
-        // Given
-        Session session = Session.create("test");
-        // 不调用complete()，时间字段为null
-        
-        // When
-        String json = compatExporter.export(session);
-        
-        // Then
-        assertTrue(json.contains("\"endMillis\":null") || json.contains("\"endedAt\":null"));
-        assertTrue(json.contains("\"durationMs\":null"));
-        assertTrue(isValidJson(json));
-    }
-    
-    // ========== 辅助方法 ==========
-    
-    private boolean isValidJson(String json) {
-        if (json == null || json.trim().isEmpty()) {
-            return false;
+    @DisplayName("1000 节点 consumer 输出保持可解析")
+    void shouldSerializeOneThousandNodes() {
+        Session session = Session.create("wide-root");
+        for (int index = 1; index < 1000; index++) {
+            session.getRootTask().createChild("node-" + index);
         }
-        
-        // 简单的JSON验证
-        json = json.trim();
-        if (!((json.startsWith("{") && json.endsWith("}")) || 
-              (json.startsWith("[") && json.endsWith("]")))) {
-            return false;
-        }
-        
-        // 检查引号是否成对
-        int quoteCount = 0;
-        boolean inString = false;
-        boolean escaped = false;
-        
-        for (char c : json.toCharArray()) {
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (c == '\\') {
-                escaped = true;
-                continue;
-            }
-            if (c == '"') {
-                inString = !inString;
-                quoteCount++;
-            }
-        }
-        
-        return quoteCount % 2 == 0 && !inString;
+
+        assertThatCode(() -> MAPPER.readTree(exporter.export(session)))
+                .doesNotThrowAnyException();
     }
-    
-    private int countOccurrences(String str, String substr) {
-        int count = 0;
-        int index = 0;
-        while ((index = str.indexOf(substr, index)) != -1) {
-            count++;
-            index += substr.length();
-        }
-        return count;
-    }
-    
-    private Session createSimpleSession() {
-        Session session = Session.create("Main Task");
-        // 不调用complete()，保持RUNNING状态
+
+    private static Session completedSession() {
+        Session session = Session.create("completed-root");
+        TaskNode child = session.getRootTask().createChild("child");
+        child.addInfo("done");
+        child.complete();
+        session.getRootTask().complete();
+        session.activate();
+        session.complete();
         return session;
     }
-    
-    private Session createCompleteSession() {
-        Session session = createSimpleSession();
-        
-        TaskNode root = session.getRootTask();
-        root.addInfo("Task started");
-        
-        TaskNode child1 = root.createChild("Child 1");
-        child1.addInfo("Processing");
-        
-        TaskNode child2 = root.createChild("Child 2");
-        
-        return session;
-    }
-    
-    private Session createNestedSession(int depth, int width) {
-        Session session = Session.create("root");
-        createTaskTree(session.getRootTask(), depth, width);
-        return session;
-    }
-    
-    private void createTaskTree(TaskNode parent, int depth, int width) {
-        if (depth > 0) {
-            for (int i = 0; i < width; i++) {
-                TaskNode child = parent.createChild(parent.getTaskName() + "-child" + i);
-                createTaskTree(child, depth - 1, width);
-            }
-        }
-    }
-    
-    private Session createLargeSession(int nodeCount) {
-        Session session = Session.create("root");
-        TaskNode root = session.getRootTask();
-        TaskNode current = root;
-        
-        for (int i = 1; i < nodeCount; i++) {
-            TaskNode child = current.createChild("node-" + i);
-            
-            if (i % 10 == 0) {
-                current = root;
-            }
-            if (i % 3 == 0) {
-                current = child;
-            }
-        }
-        
-        return session;
-    }
-    
-    private Session createDeepSession(int depth) {
-        Session session = Session.create("root");
-        TaskNode current = session.getRootTask();
-        
-        for (int i = 0; i < depth; i++) {
-            TaskNode child = current.createChild("level-" + i);
-            current = child;
-        }
-        
-        return session;
+
+    private static List<String> fieldNames(JsonNode node) {
+        return node.properties().stream().map(entry -> entry.getKey()).toList();
     }
 }

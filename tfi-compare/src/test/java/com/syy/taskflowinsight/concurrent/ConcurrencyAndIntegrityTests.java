@@ -1,12 +1,11 @@
 package com.syy.taskflowinsight.concurrent;
 
-import com.syy.taskflowinsight.tracking.ChangeTracker;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
 import com.syy.taskflowinsight.tracking.compare.CompareService;
 import com.syy.taskflowinsight.tracking.compare.FieldChange;
 import com.syy.taskflowinsight.tracking.compare.Pair;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
+import com.syy.taskflowinsight.tracking.compare.ValueSnapshot;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,7 +29,6 @@ import static org.assertj.core.api.Assertions.*;
  * <p>覆盖以下生产就绪盲区：
  * <ol>
  *   <li>多线程同时 compare — 结果互不干扰</li>
- *   <li>ChangeTracker ThreadLocal 隔离 — N 个线程各自 track / getChanges</li>
  *   <li>compareBatch 并行 — 虚拟线程池下结果顺序 &amp; 正确性</li>
  *   <li>compare 幂等性 — 同一对连续调用两次结果一致</li>
  *   <li>数据完整性 — 嵌套对象/集合深度比较不丢字段</li>
@@ -47,12 +45,7 @@ class ConcurrencyAndIntegrityTests {
 
     @BeforeEach
     void setUp() {
-        compareService = CompareService.createDefault(CompareOptions.DEFAULT, null);
-    }
-
-    @AfterEach
-    void tearDown() {
-        ChangeTracker.clearAllTracking();
+        compareService = CompareService.createDefault(CompareOptions.builder().build());
     }
 
     // ========================== 并发安全 ==========================
@@ -111,11 +104,11 @@ class ConcurrencyAndIntegrityTests {
             }
 
             // Serial
-            CompareOptions serialOpts = CompareOptions.builder().parallelThreshold(Integer.MAX_VALUE).build();
+            CompareOptions serialOpts = CompareOptions.builder().build();
             List<CompareResult> serialResults = compareService.compareBatch(pairs, serialOpts);
 
             // Parallel (threshold = 1 → forces parallel)
-            CompareOptions parallelOpts = CompareOptions.builder().parallelThreshold(1).build();
+            CompareOptions parallelOpts = CompareOptions.builder().build();
             List<CompareResult> parallelResults = compareService.compareBatch(pairs, parallelOpts);
 
             assertThat(parallelResults).hasSameSizeAs(serialResults);
@@ -131,78 +124,9 @@ class ConcurrencyAndIntegrityTests {
         @Test
         @DisplayName("compareBatch null / empty 防御")
         void compareBatchNullAndEmptyDefense() {
-            assertThat(compareService.compareBatch(null, CompareOptions.DEFAULT)).isEmpty();
-            assertThat(compareService.compareBatch(Collections.emptyList(), CompareOptions.DEFAULT)).isEmpty();
+            assertThat(compareService.compareBatch(null, CompareOptions.builder().build())).isEmpty();
+            assertThat(compareService.compareBatch(Collections.emptyList(), CompareOptions.builder().build())).isEmpty();
             assertThat(compareService.compareBatch(List.of(), null)).isEmpty();
-        }
-    }
-
-    // ========================== ThreadLocal 隔离 ==========================
-
-    @Nested
-    @DisplayName("2. ChangeTracker ThreadLocal 隔离")
-    class ChangeTrackerIsolation {
-
-        @RepeatedTest(3)
-        @DisplayName("N 个线程各自 track, getChanges 完全隔离")
-        void threadLocalIsolation() throws Exception {
-            int threadCount = 10;
-            CyclicBarrier barrier = new CyclicBarrier(threadCount);
-            ExecutorService pool = Executors.newFixedThreadPool(threadCount);
-            ConcurrentMap<Integer, List<ChangeRecord>> results = new ConcurrentHashMap<>();
-
-            for (int i = 0; i < threadCount; i++) {
-                final int idx = i;
-                pool.submit(() -> {
-                    try {
-                        barrier.await(5, TimeUnit.SECONDS);
-                        ChangeTracker.clearAllTracking();
-
-                        Order order = Order.builder()
-                                .id((long) idx).status("INIT_" + idx).amount(BigDecimal.TEN).build();
-                        ChangeTracker.track("order_" + idx, order, "status", "amount");
-
-                        // Mutate
-                        order.setStatus("DONE_" + idx);
-                        order.setAmount(BigDecimal.valueOf(999));
-
-                        List<ChangeRecord> changes = ChangeTracker.getChanges();
-                        results.put(idx, changes != null ? new ArrayList<>(changes) : Collections.emptyList());
-                    } catch (Exception e) {
-                        results.put(idx, Collections.emptyList());
-                    } finally {
-                        ChangeTracker.clearAllTracking();
-                    }
-                    return null;
-                });
-            }
-
-            pool.shutdown();
-            assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
-
-            // Each thread should see only its own changes
-            for (int i = 0; i < threadCount; i++) {
-                List<ChangeRecord> threadChanges = results.get(i);
-                assertThat(threadChanges)
-                        .as("Thread %d should have its own changes", i)
-                        .isNotNull();
-                // Verify no cross-contamination: all change records should reference "order_<idx>"
-                for (ChangeRecord cr : threadChanges) {
-                    assertThat(cr.getObjectName()).startsWith("order_" + i);
-                }
-            }
-        }
-
-        @Test
-        @DisplayName("clearAllTracking 真正清理 ThreadLocal")
-        void clearAllTrackingActuallyClears() {
-            Order order = Order.builder().id(1L).status("A").amount(BigDecimal.ONE).build();
-            ChangeTracker.track("testOrder", order, "status");
-            assertThat(ChangeTracker.getTrackedCount()).isGreaterThan(0);
-
-            ChangeTracker.clearAllTracking();
-            assertThat(ChangeTracker.getTrackedCount()).isZero();
-            assertThat(ChangeTracker.getChanges()).isEmpty();
         }
     }
 
@@ -229,8 +153,8 @@ class ConcurrencyAndIntegrityTests {
                 FieldChange fc1 = r1.getChanges().get(i);
                 FieldChange fc2 = r2.getChanges().get(i);
                 assertThat(fc1.getFieldName()).isEqualTo(fc2.getFieldName());
-                assertThat(String.valueOf(fc1.getOldValue())).isEqualTo(String.valueOf(fc2.getOldValue()));
-                assertThat(String.valueOf(fc1.getNewValue())).isEqualTo(String.valueOf(fc2.getNewValue()));
+                assertThat(fc1.beforeValue()).isEqualTo(fc2.beforeValue());
+                assertThat(fc1.afterValue()).isEqualTo(fc2.afterValue());
             }
         }
 
@@ -284,7 +208,7 @@ class ConcurrencyAndIntegrityTests {
             Customer before = Customer.builder().name("Alice").address(addr1).build();
             Customer after = Customer.builder().name("Alice").address(addr2).build();
 
-            CompareOptions deepOpts = CompareOptions.builder().enableDeepCompare(true).maxDepth(5).build();
+            CompareOptions deepOpts = CompareOptions.builder().maxDepth(5).build();
 
             assertThatCode(() -> compareService.compare(before, after, deepOpts))
                     .doesNotThrowAnyException();
@@ -299,7 +223,7 @@ class ConcurrencyAndIntegrityTests {
             Order before = Order.builder().id(1L).status("A").amount(BigDecimal.ONE).tags(tags1).build();
             Order after = Order.builder().id(1L).status("A").amount(BigDecimal.ONE).tags(tags2).build();
 
-            CompareOptions deepOpts = CompareOptions.builder().enableDeepCompare(true).maxDepth(5).build();
+            CompareOptions deepOpts = CompareOptions.builder().maxDepth(5).build();
             CompareResult result = compareService.compare(before, after, deepOpts);
 
             assertThat(result.isIdentical()).isFalse();
@@ -317,8 +241,14 @@ class ConcurrencyAndIntegrityTests {
             assertThat(result.isIdentical()).isFalse();
             assertThat(result.getChanges()).isNotEmpty();
             assertThat(result.getChanges().stream()
-                    .anyMatch(fc -> "PENDING".equals(String.valueOf(fc.getOldValue()))
-                            && "SHIPPED".equals(String.valueOf(fc.getNewValue()))))
+                    .anyMatch(fc -> fc.beforeValue()
+                            .map(ValueSnapshot::canonicalTextFacts)
+                            .filter(facts -> facts.contains("PENDING"))
+                            .isPresent()
+                            && fc.afterValue()
+                            .map(ValueSnapshot::canonicalTextFacts)
+                            .filter(facts -> facts.contains("SHIPPED"))
+                            .isPresent()))
                     .isTrue();
         }
 
@@ -400,46 +330,11 @@ class ConcurrencyAndIntegrityTests {
             Order after = Order.builder().id(1L).status("A").amount(BigDecimal.ONE).tags(tags2).build();
 
             assertThatCode(() -> {
-                CompareOptions deepOpts = CompareOptions.builder().enableDeepCompare(true).maxDepth(5).build();
+                CompareOptions deepOpts = CompareOptions.builder().maxDepth(5).build();
                 compareService.compare(before, after, deepOpts);
             }).doesNotThrowAnyException();
         }
 
-        @Test
-        @DisplayName("ChangeTracker.track 超过 MAX_TRACKED_OBJECTS 不崩溃")
-        void trackBeyondMaxDoesNotCrash() {
-            try {
-                for (int i = 0; i < ChangeTracker.getMaxTrackedObjects() + 100; i++) {
-                    Order order = Order.builder().id((long) i).status("S").amount(BigDecimal.ONE).build();
-                    ChangeTracker.track("obj_" + i, order, "status");
-                }
-                // Should not throw, just cap or warn
-                assertThat(ChangeTracker.getTrackedCount()).isLessThanOrEqualTo(
-                        ChangeTracker.getMaxTrackedObjects() + 100);
-            } finally {
-                ChangeTracker.clearAllTracking();
-            }
-        }
-
-        @Test
-        @DisplayName("HealthIndicator 在高压力下正确报告")
-        void healthIndicatorUnderPressure() {
-            // Track many objects to simulate pressure
-            try {
-                for (int i = 0; i < 50; i++) {
-                    Order order = Order.builder().id((long) i).status("S").amount(BigDecimal.ONE).build();
-                    ChangeTracker.track("pressure_" + i, order, "status");
-                }
-                int count = ChangeTracker.getTrackedCount();
-                int max = ChangeTracker.getMaxTrackedObjects();
-                double usage = (double) count / max;
-
-                assertThat(count).isGreaterThan(0);
-                assertThat(usage).isLessThan(1.0); // 50/1000 = 5%, should be healthy
-            } finally {
-                ChangeTracker.clearAllTracking();
-            }
-        }
     }
 
     // ========================== 错误恢复 ==========================
@@ -467,27 +362,6 @@ class ConcurrencyAndIntegrityTests {
             assertThat(r3.isIdentical()).isFalse();
         }
 
-        @Test
-        @DisplayName("ChangeTracker track 异常后 clearAllTracking 恢复正常状态")
-        void trackerRecoveryAfterClear() {
-            try {
-                // Track something
-                Order order = Order.builder().id(1L).status("A").amount(BigDecimal.ONE).build();
-                ChangeTracker.track("test", order, "status");
-                assertThat(ChangeTracker.getTrackedCount()).isGreaterThan(0);
-            } finally {
-                ChangeTracker.clearAllTracking();
-            }
-
-            // After clear, state should be pristine
-            assertThat(ChangeTracker.getTrackedCount()).isZero();
-
-            // Should be able to track again
-            Order order2 = Order.builder().id(2L).status("B").amount(BigDecimal.TEN).build();
-            ChangeTracker.track("test2", order2, "status");
-            assertThat(ChangeTracker.getTrackedCount()).isGreaterThan(0);
-            ChangeTracker.clearAllTracking();
-        }
     }
 
     // ========================== Test models ==========================

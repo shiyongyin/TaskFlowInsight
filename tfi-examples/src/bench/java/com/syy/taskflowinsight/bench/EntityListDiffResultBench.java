@@ -1,10 +1,12 @@
 package com.syy.taskflowinsight.bench;
 
-import com.syy.taskflowinsight.tracking.ChangeType;
+import com.syy.taskflowinsight.tracking.compare.ChangeKind;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
-import com.syy.taskflowinsight.tracking.compare.ContainerEvents;
 import com.syy.taskflowinsight.tracking.compare.FieldChange;
 import com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult;
+import com.syy.taskflowinsight.tracking.compare.internal.CompareResultReducer;
+import com.syy.taskflowinsight.tracking.path.ComparePath;
+import com.syy.taskflowinsight.tracking.path.PropertySegment;
 import org.openjdk.jmh.annotations.*;
 
 import java.util.ArrayList;
@@ -24,6 +26,7 @@ public class EntityListDiffResultBench {
 
     @State(Scope.Thread)
     public static class Data {
+        /** 当前基准轮次构造的实体字段变更数量。 */
         @Param({"100", "1000"})
         public int size;
 
@@ -37,23 +40,12 @@ public class EntityListDiffResultBench {
             for (int i = 0; i < size; i++) {
                 String key = "entity[id=" + i + "]";
                 // with events
-                a.add(FieldChange.builder()
-                    .fieldPath(key + ".name")
-                    .changeType(ChangeType.UPDATE)
-                    .oldValue("n" + i)
-                    .newValue("n'" + i)
-                    .elementEvent(ContainerEvents.listModify(i, key, "name"))
-                    .build());
+                a.add(FieldChange.at(ChangeKind.MODIFY, ComparePath.root().append(new PropertySegment(key + ".name")), "n" + i, "n'" + i));
                 // without events (forces degrade)
-                b.add(FieldChange.builder()
-                    .fieldPath(key + ".name")
-                    .changeType(ChangeType.UPDATE)
-                    .oldValue("n" + i)
-                    .newValue("n'" + i)
-                    .build());
+                b.add(FieldChange.at(ChangeKind.MODIFY, ComparePath.root().append(new PropertySegment(key + ".name")), "n" + i, "n'" + i));
             }
-            withEvents = CompareResult.builder().changes(a).build();
-            withoutEvents = CompareResult.builder().changes(b).build();
+            withEvents = CompareResultReducer.complete(a);
+            withoutEvents = CompareResultReducer.complete(b);
         }
     }
 
@@ -67,4 +59,3 @@ public class EntityListDiffResultBench {
         return EntityListDiffResult.from(d.withoutEvents);
     }
 }
-

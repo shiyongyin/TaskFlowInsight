@@ -2,9 +2,8 @@ package com.syy.taskflowinsight.demo;
 
 import com.syy.taskflowinsight.annotation.Entity;
 import com.syy.taskflowinsight.annotation.Key;
-import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.api.TFI;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
-import com.syy.taskflowinsight.tracking.compare.list.EntityListStrategy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 联合主键 Entity 集合比对的快速验证测试。
  *
- * <p>验证 {@link EntityListStrategy} 在使用 {@code @Key} 联合主键时
+ * <p>验证生产Facade在使用{@code @Key}联合主键时
  * 能正确识别新增、删除和修改。</p>
  *
  * @since 3.0.0
@@ -57,7 +56,7 @@ class Demo06QuickTest {
     }
 
     @Test
-    @DisplayName("EntityListStrategy 应检测到联合主键 Entity 的新增/删除/修改")
+    @DisplayName("Set Entity 应检测到联合主键的新增/删除/修改")
     void testCompositeKeyEntityComparison() {
         Set<Warehouse> set1 = new HashSet<>();
         set1.add(new Warehouse(1001L, "US", "California", 1000));
@@ -69,12 +68,7 @@ class Demo06QuickTest {
         set2.add(new Warehouse(2001L, "EU", "Berlin", 500));     // 不变
         set2.add(new Warehouse(4001L, "AP", "Tokyo", 600));      // 新增 (3001/CN 删除)
 
-        EntityListStrategy strategy = new EntityListStrategy();
-        CompareResult result = strategy.compare(
-                new ArrayList<>(set1),
-                new ArrayList<>(set2),
-                CompareOptions.builder().strategyName("ENTITY").build()
-        );
+        CompareResult result = TFI.compare(set1, set2);
 
         assertThat(result).isNotNull();
         assertThat(result.getChanges()).isNotEmpty();

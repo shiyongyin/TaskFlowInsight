@@ -1,19 +1,21 @@
 package com.syy.taskflowinsight.spi;
 
-import com.syy.taskflowinsight.api.TrackingOptions;
-import com.syy.taskflowinsight.tracking.ChangeType;
+import com.syy.taskflowinsight.tracking.TrackingBatchScope;
+import com.syy.taskflowinsight.tracking.TrackingExecutor;
 import com.syy.taskflowinsight.tracking.compare.CompareOptions;
+import com.syy.taskflowinsight.tracking.compare.CompareInputException;
 import com.syy.taskflowinsight.tracking.compare.CompareResult;
-import com.syy.taskflowinsight.tracking.compare.entity.EntityListDiffResult;
-import com.syy.taskflowinsight.tracking.model.ChangeRecord;
-import com.syy.taskflowinsight.tracking.render.RenderStyle;
+import com.syy.taskflowinsight.tracking.projection.CompareProjection;
+import com.syy.taskflowinsight.tracking.projection.CompareProjectionFactory;
+import com.syy.taskflowinsight.tracking.projection.MaskingPolicy;
+import com.syy.taskflowinsight.tracking.projection.ProjectionMetadata;
+import com.syy.taskflowinsight.tracking.projection.ProjectionOptions;
+import com.syy.taskflowinsight.tracking.render.RenderOptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.*;
@@ -31,64 +33,25 @@ import static org.assertj.core.api.Assertions.*;
 class SpiBranchCoverageTests {
 
     // ══════════════════════════════════════════════════════════════
-    // ComparisonProvider interface default methods
+    // ComparisonProvider interface contracts
     // ══════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("ComparisonProvider — default 方法分支覆盖")
+    @DisplayName("ComparisonProvider — typed合同与公共默认能力")
     class ComparisonProviderDefaultMethodTests {
 
-        /** 最小化实现，仅实现必需的 compare(Object, Object) */
+        /** 最小实现必须显式处理无options与typed options两个入口。 */
         private final ComparisonProvider minimalProvider = new ComparisonProvider() {
             @Override
             public CompareResult compare(Object before, Object after) {
                 return CompareResult.identical();
             }
+
+            @Override
+            public CompareResult compare(Object before, Object after, CompareOptions options) {
+                return CompareResult.identical();
+            }
         };
-
-        @Test
-        @DisplayName("similarity: 两个 null → 1.0")
-        void similarity_bothNull_returnsOne() {
-            assertThat(minimalProvider.similarity(null, null)).isEqualTo(1.0);
-        }
-
-        @Test
-        @DisplayName("similarity: 左 null → 0.0")
-        void similarity_leftNull_returnsZero() {
-            assertThat(minimalProvider.similarity(null, "world")).isEqualTo(0.0);
-        }
-
-        @Test
-        @DisplayName("similarity: 右 null → 0.0")
-        void similarity_rightNull_returnsZero() {
-            assertThat(minimalProvider.similarity("hello", null)).isEqualTo(0.0);
-        }
-
-        @Test
-        @DisplayName("similarity: 相等对象 → 1.0")
-        void similarity_equalObjects_returnsOne() {
-            assertThat(minimalProvider.similarity("same", "same")).isEqualTo(1.0);
-        }
-
-        @Test
-        @DisplayName("similarity: 不等对象 → 0.0")
-        void similarity_differentObjects_returnsZero() {
-            assertThat(minimalProvider.similarity("hello", "world")).isEqualTo(0.0);
-        }
-
-        @Test
-        @DisplayName("threeWayMerge: 默认 → UnsupportedOperationException")
-        void threeWayMerge_defaultThrows() {
-            assertThatThrownBy(() -> minimalProvider.threeWayMerge("a", "b", "c"))
-                    .isInstanceOf(UnsupportedOperationException.class);
-        }
-
-        @Test
-        @DisplayName("compare(options): 默认回退到 compare(before, after)")
-        void compareWithOptions_delegatesToSimple() {
-            CompareResult result = minimalProvider.compare("a", "b", CompareOptions.DEFAULT);
-            assertThat(result).isNotNull();
-        }
 
         @Test
         @DisplayName("priority: 默认 → 0")
@@ -146,39 +109,17 @@ class SpiBranchCoverageTests {
         }
 
         @Test
-        @DisplayName("compare(options): null options → 使用 DEFAULT")
-        void compareWithOptions_nullOptions_usesDefault() {
-            CompareResult result = provider.compare("a", "b", null);
-            assertThat(result).isNotNull();
+        @DisplayName("compare(options): null options → typed input exception")
+        void compareWithOptions_nullOptionsRejected() {
+            assertThatThrownBy(() -> provider.compare("a", "b", null))
+                    .isInstanceOf(CompareInputException.class);
         }
 
         @Test
         @DisplayName("compare(options): 有效 options → 使用提供的 options")
         void compareWithOptions_validOptions_usesProvided() {
-            CompareResult result = provider.compare("a", "b", CompareOptions.DEFAULT);
+            CompareResult result = provider.compare("a", "b", CompareOptions.builder().build());
             assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("similarity: identical 结果 → 1.0")
-        void similarity_identicalResult_returnsOne() {
-            double sim = provider.similarity("hello", "hello");
-            assertThat(sim).isEqualTo(1.0);
-        }
-
-        @Test
-        @DisplayName("similarity: 不同对象 → 0 < sim < 1")
-        void similarity_differentObjects_returnsFraction() {
-            // 使用简单的不同类型触发 changes > 0
-            double sim = provider.similarity("hello", "world");
-            assertThat(sim).isBetween(0.0, 1.0);
-        }
-
-        @Test
-        @DisplayName("similarity: null 对象 → 返回值在 [0, 1]")
-        void similarity_nullObject_handledGracefully() {
-            double sim = provider.similarity(null, "test");
-            assertThat(sim).isBetween(0.0, 1.0);
         }
 
         @Test
@@ -195,143 +136,65 @@ class SpiBranchCoverageTests {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // TrackingProvider interface default methods
+    // TrackingProvider typed scope contract
     // ══════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("TrackingProvider — default 方法分支覆盖")
-    class TrackingProviderDefaultMethodTests {
+    @DisplayName("TrackingProvider — typed scope分支覆盖")
+    class TrackingProviderTypedScopeTests {
 
-        /** 记录调用的 stub 实现 */
-        private final AtomicBoolean trackCalled = new AtomicBoolean(false);
-        private final AtomicBoolean clearCalled = new AtomicBoolean(false);
+        /** 用于证明executor只把校验后的完整batch交给provider。 */
+        private final AtomicBoolean beginCalled = new AtomicBoolean();
 
-        private final TrackingProvider stubProvider = new TrackingProvider() {
-            @Override
-            public void track(String name, Object target, String... fields) {
-                trackCalled.set(true);
-            }
+        private final TrackingProvider provider = (targets, options) -> {
+            beginCalled.set(true);
+            return new TrackingBatchScope() {
+                @Override
+                public List<TrackingExecutor.Item> capture() {
+                    return targets.stream()
+                            .map(target -> new TrackingExecutor.Item(
+                                    target.name(), CompareResult.identical()))
+                            .toList();
+                }
 
-            @Override
-            public List<ChangeRecord> changes() {
-                return Collections.emptyList();
-            }
-
-            @Override
-            public void clear() {
-                clearCalled.set(true);
-            }
+                @Override
+                public void close() {
+                }
+            };
         };
 
         @Test
-        @DisplayName("trackAll: null → NPE")
-        void trackAll_null_throwsNPE() {
-            assertThatThrownBy(() -> stubProvider.trackAll(null))
-                    .isInstanceOf(NullPointerException.class);
+        @DisplayName("execute: 合法batch只调用一次typed begin")
+        void execute_validBatch_callsTypedBeginOnce() {
+            AtomicBoolean actionRan = new AtomicBoolean();
+            new TrackingExecutor(provider).execute(
+                    List.of(new TrackingExecutor.Target("test", new Object())),
+                    CompareOptions.builder().build(),
+                    () -> {
+                        actionRan.set(true);
+                        return null;
+                    });
+            assertThat(beginCalled).isTrue();
+            assertThat(actionRan).isTrue();
         }
 
         @Test
-        @DisplayName("trackAll: 正常 map → 调用 track")
-        void trackAll_normalMap_callsTrack() {
-            trackCalled.set(false);
-            stubProvider.trackAll(Map.of("obj1", "value1"));
-            assertThat(trackCalled.get()).isTrue();
-        }
-
-        @Test
-        @DisplayName("trackAll: 空 map → 不调用 track")
-        void trackAll_emptyMap_noTrackCall() {
-            trackCalled.set(false);
-            stubProvider.trackAll(Collections.emptyMap());
-            assertThat(trackCalled.get()).isFalse();
-        }
-
-        @Test
-        @DisplayName("trackDeep(name, obj): 回退到 trackDeep(name, obj, null)")
-        void trackDeep_twoArgs_delegatesToThreeArgs() {
-            trackCalled.set(false);
-            stubProvider.trackDeep("test", "obj");
-            assertThat(trackCalled.get()).isTrue();
-        }
-
-        @Test
-        @DisplayName("trackDeep(name, obj, options): 默认回退到 track")
-        void trackDeep_threeArgs_fallbackToTrack() {
-            trackCalled.set(false);
-            stubProvider.trackDeep("test", "obj", TrackingOptions.builder().build());
-            assertThat(trackCalled.get()).isTrue();
-        }
-
-        @Test
-        @DisplayName("trackDeep(name, obj, null options): 默认回退到 track")
-        void trackDeep_nullOptions_fallbackToTrack() {
-            trackCalled.set(false);
-            stubProvider.trackDeep("test", "obj", null);
-            assertThat(trackCalled.get()).isTrue();
-        }
-
-        @Test
-        @DisplayName("getAllChanges: 默认回退到 changes()")
-        void getAllChanges_delegatesToChanges() {
-            List<ChangeRecord> result = stubProvider.getAllChanges();
-            assertThat(result).isEmpty();
-        }
-
-        @Test
-        @DisplayName("startTracking: 默认无操作")
-        void startTracking_noOp() {
-            assertThatCode(() -> stubProvider.startTracking("session1"))
-                    .doesNotThrowAnyException();
-        }
-
-        @Test
-        @DisplayName("recordChange: 默认无操作")
-        void recordChange_noOp() {
-            assertThatCode(() -> stubProvider.recordChange(
-                    "obj", "field", "old", "new", ChangeType.UPDATE))
-                    .doesNotThrowAnyException();
-        }
-
-        @Test
-        @DisplayName("clearTracking: 默认回退到 clear()")
-        void clearTracking_delegatesToClear() {
-            clearCalled.set(false);
-            stubProvider.clearTracking("session1");
-            assertThat(clearCalled.get()).isTrue();
-        }
-
-        @Test
-        @DisplayName("withTracked: 正常 action → 执行 track + action")
-        void withTracked_normalAction_tracksAndRuns() {
-            trackCalled.set(false);
-            AtomicBoolean actionRan = new AtomicBoolean(false);
-            stubProvider.withTracked("test", "obj", () -> actionRan.set(true), "field1");
-            assertThat(trackCalled.get()).isTrue();
-            assertThat(actionRan.get()).isTrue();
-        }
-
-        @Test
-        @DisplayName("withTracked: null action → 仅 track，不抛异常")
-        void withTracked_nullAction_onlyTracks() {
-            trackCalled.set(false);
-            assertThatCode(() -> stubProvider.withTracked("test", "obj", null, "field1"))
-                    .doesNotThrowAnyException();
-            assertThat(trackCalled.get()).isTrue();
-        }
-
-        @Test
-        @DisplayName("withTracked: action 抛异常 → 异常传播")
-        void withTracked_actionThrows_propagates() {
-            assertThatThrownBy(() -> stubProvider.withTracked("test", "obj",
-                    () -> { throw new RuntimeException("boom"); }, "field1"))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("boom");
+        @DisplayName("execute: 重复name在begin前拒绝")
+        void execute_duplicateName_rejectedBeforeBegin() {
+            assertThatThrownBy(() -> new TrackingExecutor(provider).execute(
+                    List.of(
+                            new TrackingExecutor.Target("test", new Object()),
+                            new TrackingExecutor.Target(" test ", new Object())),
+                    CompareOptions.builder().build(),
+                    () -> null))
+                    .isInstanceOf(CompareInputException.class);
+            assertThat(beginCalled).isFalse();
         }
 
         @Test
         @DisplayName("priority: 默认 → 0")
         void priority_default_returnsZero() {
-            assertThat(stubProvider.priority()).isEqualTo(0);
+            assertThat(provider.priority()).isEqualTo(0);
         }
     }
 
@@ -340,57 +203,28 @@ class SpiBranchCoverageTests {
     // ══════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("DefaultTrackingProvider — 全分支覆盖")
+    @DisplayName("DefaultTrackingProvider — typed batch覆盖")
     class DefaultTrackingProviderBranchTests {
 
         @Test
-        @DisplayName("track: 正常调用 → 不抛异常")
-        void track_normal_noException() {
+        @DisplayName("begin: 返回可消费且幂等关闭的scope")
+        void begin_returnsConsumableIdempotentScope() {
             DefaultTrackingProvider provider = new DefaultTrackingProvider();
-            try {
-                assertThatCode(() -> provider.track("test", "object", "field1"))
-                        .doesNotThrowAnyException();
-            } finally {
-                provider.clear();
-            }
-        }
-
-        @Test
-        @DisplayName("track: null name → 内部处理不抛异常")
-        void track_nullName_handled() {
-            DefaultTrackingProvider provider = new DefaultTrackingProvider();
-            try {
-                assertThatCode(() -> provider.track(null, "object"))
-                        .doesNotThrowAnyException();
-            } finally {
-                provider.clear();
-            }
-        }
-
-        @Test
-        @DisplayName("changes: 无追踪数据 → 空列表")
-        void changes_noData_emptyList() {
-            DefaultTrackingProvider provider = new DefaultTrackingProvider();
-            try {
-                List<ChangeRecord> result = provider.changes();
-                assertThat(result).isNotNull();
-            } finally {
-                provider.clear();
-            }
-        }
-
-        @Test
-        @DisplayName("clear: 调用不抛异常")
-        void clear_noException() {
-            DefaultTrackingProvider provider = new DefaultTrackingProvider();
-            assertThatCode(provider::clear).doesNotThrowAnyException();
+            TrackingBatchScope scope = provider.begin(
+                    List.of(new TrackingExecutor.Target("test", new Object())),
+                    CompareOptions.builder().build());
+            assertThat(scope.capture()).singleElement();
+            assertThatCode(scope::close).doesNotThrowAnyException();
+            assertThatCode(scope::close).doesNotThrowAnyException();
         }
 
         @Test
         @DisplayName("toString 返回描述性字符串")
         void toString_returnsDescription() {
             DefaultTrackingProvider provider = new DefaultTrackingProvider();
-            assertThat(provider.toString()).contains("DefaultTrackingProvider");
+            assertThat(provider.toString())
+                    .contains("DefaultTrackingProvider", "type=default")
+                    .doesNotContain("target", "result");
         }
 
         @Test
@@ -412,110 +246,23 @@ class SpiBranchCoverageTests {
         private final DefaultRenderProvider provider = new DefaultRenderProvider();
 
         @Test
-        @DisplayName("render: null result → [null]")
-        void render_nullResult_returnsNullMarker() {
-            String result = provider.render(null, "standard");
-            assertThat(result).isEqualTo("[null]");
+        @DisplayName("render: typed projection支持两种闭集布局")
+        void render_typedProjection_supportsBothLayouts() {
+            CompareProjection projection = projection();
+
+            assertThat(provider.render(projection, RenderOptions.markdown()))
+                    .contains("# Compare Projection");
+            assertThat(provider.render(projection, RenderOptions.console()))
+                    .contains("=== Compare Projection ===");
         }
 
         @Test
-        @DisplayName("render: 非 EntityListDiffResult → type 降级文本")
-        void render_nonEntityResult_fallbackText() {
-            String result = provider.render("just a string", "standard");
-            assertThat(result).contains("rendering not supported");
-            assertThat(result).contains("String");
-        }
-
-        @Test
-        @DisplayName("render: CompareResult (非 EntityListDiffResult) → 降级")
-        void render_compareResult_fallbackText() {
-            CompareResult cr = CompareResult.identical();
-            String result = provider.render(cr, "standard");
-            assertThat(result).contains("rendering not supported");
-        }
-
-        @Test
-        @DisplayName("render: EntityListDiffResult → Markdown 输出")
-        void render_entityListDiffResult_markdown() {
-            EntityListDiffResult diffResult = EntityListDiffResult.builder()
-                    .groups(Collections.emptyList())
-                    .build();
-            String result = provider.render(diffResult, "standard");
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("render: EntityListDiffResult + simple style → Markdown")
-        void render_entityDiffSimpleStyle_markdown() {
-            EntityListDiffResult diffResult = EntityListDiffResult.builder()
-                    .groups(Collections.emptyList())
-                    .build();
-            String result = provider.render(diffResult, "simple");
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("render: EntityListDiffResult + detailed style → Markdown")
-        void render_entityDiffDetailedStyle_markdown() {
-            EntityListDiffResult diffResult = EntityListDiffResult.builder()
-                    .groups(Collections.emptyList())
-                    .build();
-            String result = provider.render(diffResult, "detailed");
-            assertThat(result).isNotNull();
-        }
-
-        // ── parseStyle 分支覆盖 ──
-
-        @Test
-        @DisplayName("parseStyle: null → standard")
-        void render_nullStyle_usesStandard() {
-            String result = provider.render("test", null);
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("parseStyle: RenderStyle 对象 → 直接使用")
-        void render_renderStyleObject_usesDirectly() {
-            EntityListDiffResult diffResult = EntityListDiffResult.builder()
-                    .groups(Collections.emptyList())
-                    .build();
-            String result = provider.render(diffResult, RenderStyle.standard());
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("parseStyle: \"simple\" → simple style")
-        void render_simpleString_usesSimple() {
-            String result = provider.render("test", "simple");
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("parseStyle: \"DETAILED\" (大写) → detailed style")
-        void render_detailedUpperCase_usesDetailed() {
-            String result = provider.render("test", "DETAILED");
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("parseStyle: \"Standard\" → standard style")
-        void render_standardMixedCase_usesStandard() {
-            String result = provider.render("test", "Standard");
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("parseStyle: 未知字符串 → standard (default)")
-        void render_unknownString_usesStandard() {
-            String result = provider.render("test", "fancy");
-            assertThat(result).isNotNull();
-        }
-
-        @Test
-        @DisplayName("parseStyle: 非 String/RenderStyle 类型 → standard (default)")
-        void render_unknownType_usesStandard() {
-            String result = provider.render("test", 42);
-            assertThat(result).isNotNull();
+        @DisplayName("render: null输入不做隐式fallback")
+        void render_nullInput_isRejected() {
+            assertThatThrownBy(() -> provider.render(null, RenderOptions.defaults()))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(() -> provider.render(projection(), null))
+                    .isInstanceOf(NullPointerException.class);
         }
 
         @Test
@@ -529,6 +276,14 @@ class SpiBranchCoverageTests {
         void priority_isZero() {
             assertThat(provider.priority()).isEqualTo(0);
         }
+
+        private CompareProjection projection() {
+            return new CompareProjectionFactory().create(
+                    CompareResult.identical(),
+                    ProjectionMetadata.empty(),
+                    MaskingPolicy.safeDefaults(),
+                    ProjectionOptions.defaults());
+        }
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -539,7 +294,7 @@ class SpiBranchCoverageTests {
     @DisplayName("RenderProvider — default 方法分支覆盖")
     class RenderProviderDefaultMethodTests {
 
-        private final RenderProvider minimalProvider = (result, style) -> "rendered";
+        private final RenderProvider minimalProvider = (projection, options) -> "rendered";
 
         @Test
         @DisplayName("priority: 默认 → 0")
@@ -550,7 +305,7 @@ class SpiBranchCoverageTests {
         @Test
         @DisplayName("render: 正常调用 → 返回渲染字符串")
         void render_normal_returnsString() {
-            assertThat(minimalProvider.render("test", "style")).isEqualTo("rendered");
+            assertThat(minimalProvider.render(null, RenderOptions.defaults())).isEqualTo("rendered");
         }
     }
 }

@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "baselineVersion": "3.0.0",
+  "policy": "CURRENT_FACT_WITH_EXPLICIT_TARGET_TASK",
+  "runtimeResources": [
+    {
+      "path": "META-INF/services/com.syy.taskflowinsight.spi.ComparisonProvider",
+      "kind": "SERVICE_LOADER",
+      "sha256": "96763cbb99a7c0a7a4df2ade418d58b31393c9cec0975a2470fe4e68209625ab",
+      "entries": ["com.syy.taskflowinsight.spi.DefaultComparisonProvider"],
+      "targetTask": "CMP-SPR-01"
+    },
+    {
+      "path": "META-INF/services/com.syy.taskflowinsight.spi.RenderProvider",
+      "kind": "SERVICE_LOADER",
+      "sha256": "2be9c95e4eeb553b75d49c25d0a24a7e844b4ad441b3e50e8981f738f04c668f",
+      "entries": ["com.syy.taskflowinsight.spi.DefaultRenderProvider"],
+      "targetTask": "CMP-OUT-02"
+    },
+    {
+      "path": "META-INF/services/com.syy.taskflowinsight.spi.TrackingProvider",
+      "kind": "SERVICE_LOADER",
+      "sha256": "a5a292ce4c8f8b91b5453310d50dda43cbacb1aceaee8cc2d667323f66ebefb8",
+      "entries": ["com.syy.taskflowinsight.spi.DefaultTrackingProvider"],
+      "targetTask": "CMP-TRK-01"
+    },
+    {
+      "path": "owasp-suppressions.xml",
+      "kind": "STATIC_ANALYSIS_CONFIG",
+      "sha256": "472e1a91eddfa8508ee62209b5580780827c23434e2028679d461089ed087410",
+      "entries": [],
+      "targetTask": "CMP-QLT-01"
+    }
+  ],
+  "configurationBinders": [],
+  "characterizations": [
+    {
+      "id": "C-05",
+      "targetTask": "CMP-OUT-01",
+      "targetWave": "W5",
+      "forbiddenLongTerm": "Formats must not disagree on masking or close a caller-owned stream.",
+      "testMethod": "com.syy.taskflowinsight.compatibility.CompareOutputCharacterizationTests#formatsFreezeProjectionAndTargetOutputs"
+    },
+    {
+      "id": "C-06",
+      "targetTask": "CMP-TRK-01",
+      "targetWave": "W4",
+      "forbiddenLongTerm": "A business action must never execute more than once.",
+      "testMethod": "com.syy.taskflowinsight.compatibility.CompareBehaviorCharacterizationTests#failingActionIsExecutedOnceAndPropagated"
+    }
+  ],
+  "metadataKeys": [
+    "tfi.compare.deadline",
+    "tfi.compare.enabled",
+    "tfi.compare.max-change-details",
+    "tfi.compare.max-depth",
+    "tfi.compare.max-elements",
+    "tfi.compare.max-result-value-chars",
+    "tfi.compare.numeric-absolute-tolerance",
+    "tfi.compare.numeric-relative-tolerance",
+    "tfi.compare.temporal-tolerance"
+  ],
+  "workflowAssets": [
+    {
+      "path": ".github/workflows/perf-gate.yml",
+      "sha256": "bac84949c627645c806d43f36f364c24bbf68048e403e3ff99bd016f1916a249",
+      "role": "STRICT_ROUTING_LT_5_PERCENT",
+      "targetTask": "CMP-POL-01"
+    },
+    {
+      "path": ".github/workflows/tfi-compare-ci.yml",
+      "sha256": "44e3ee8966fefa1368bc6283bb7040e58570ab758dcaee5968d2fa56a130bb0d",
+      "role": "COMPARE_RELEASE_EVIDENCE_AND_QUALITY",
+      "targetTask": "CMP-HRD-05"
+    }
+  ],
+  "releaseEvidenceAssets": [
+    {
+      "path": "scripts/prepare_tfi_compare_release_evidence.sh",
+      "sha256": "9f2709244c79a82bc64a479bf9ed66b8ae58fd01845d21e253c0e6d65e43005d",
+      "role": "RELEASE_EVIDENCE_PIPELINE",
+      "targetTask": "CMP-HRD-05"
+    },
+    {
+      "path": "scripts/release-evidence/ReleaseEvidenceVerifier.java",
+      "sha256": "bb4602c96828a52f7fe756fefa6ecdadfe69a784789f2d512b57fd6c1a28fbaf",
+      "role": "RELEASE_EVIDENCE_VERIFIER",
+      "targetTask": "CMP-HRD-05"
+    },
+    {
+      "path": "scripts/release-evidence/expected-commands.tsv",
+      "sha256": "5072a70eee14e449f9e8e6374a8bd6444b7c53e2deb5abf3ca75fdcf1ab209d3",
+      "role": "EXPECTED_COMMAND_AUTHORITY",
+      "targetTask": "CMP-HRD-05"
+    },
+    {
+      "path": "scripts/release-evidence/expected-reports.tsv",
+      "sha256": "95c92f578bc9b6992ae62a7bb7fd53556619c8274a262108afd36ae608ef97df",
+      "role": "EXPECTED_REPORT_AUTHORITY",
+      "targetTask": "CMP-HRD-05"
+    },
+    {
+      "path": "scripts/verify_tfi_compare_artifact_consumers.sh",
+      "sha256": "c08e8bf57ef88d96e97cb727270d3accf13933e02a5b19422fab3fb7aab139ba",
+      "role": "RETAINED_ARTIFACT_CONSUMERS",
+      "targetTask": "CMP-HRD-05"
+    }
+  ],
+  "staticAnalysisAssets": [
+    {
+      "path": ".mvn/static-analysis-baseline.json",
+      "sha256": "9e04782aea9684def0f8695aac83e8698567effacad706d0e7ec45ebb7575fde",
+      "targetTask": "CMP-HRD-03"
+    },
+    {
+      "path": "scripts/enforce_static_analysis_baseline.py",
+      "sha256": "ce472890cb9b22803a7f132b611eff612e6298d4374086192fa5579a2951d4ea",
+      "targetTask": "CMP-HRD-07"
+    }
+  ],
+  "valueReads": []
+}
