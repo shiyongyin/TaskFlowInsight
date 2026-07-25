@@ -7,15 +7,239 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml)
 
-Business flow recording and object comparison for Java 21
+Explain business execution and object changes inside Java 21 applications
 
 [中文](README.zh-CN.md)
 
 </div>
 
-TaskFlowInsight records structured business execution flows and compares object state. The repository provides a complete, compatibility-oriented product line and a separate Kernel RC line.
+TaskFlowInsight helps Java teams understand what happened inside a business operation, where it failed or slowed down, and what changed in its data. Developers, testers, and operators can work from the same recorded facts.
 
-The two lines solve related problems, but they target different adopters and product boundaries. Choose a product line from the use case first, then choose Maven modules.
+It is embedded as application components, so local recording and export do not require a separately deployed TFI service. Production persistence, query, and alerting still rely on application infrastructure or an external platform.
+
+The complete TFI line is the default for business applications. Kernel is a separate release-candidate (RC) line whose APIs can still change.
+
+[What it is](#what-this-project-is) · [Problems](#problems-it-solves) · [Scenarios](#application-scenarios) · [Examples](#usage-examples)
+
+[Choosing](#choose-complete-tfi-or-kernel-rc) · [Contents](#what-is-included) · [Maintenance](#maintenance-cost) · [Quick start](#quick-start)
+
+## What this project is
+
+TaskFlowInsight is an open-source component suite embedded in Java 21 applications. It records business execution and explains changes between two object states. It is not a separately deployed service or a standalone operations UI.
+
+Business code marks relevant processes through APIs or annotations and invokes comparison explicitly.
+
+TFI produces separate flow records and object-comparison results: captured steps, status and timing, changed data, and whether a comparison result is complete.
+
+Its purpose is to add business meaning that logs, traces, and APM tools do not express or reconstruct reliably by default. It complements those systems rather than replacing them, and it does not schedule or execute workflows.
+
+The current source version is `4.0.0-SNAPSHOT` and has not been published. New projects should start with the complete TFI line. Kernel is only for a controlled RC pilot with a specific goal, named owners, and a rollback plan.
+
+## Problems it solves
+
+| What the user needs to know | Common difficulty today | What TaskFlowInsight provides |
+|---|---|---|
+| Which steps did one business request execute? | Logs are scattered across methods and threads and must be reconstructed manually | One record organized by the business steps that were captured |
+| Where did work fail or become slow? | An exception or total duration lacks business-stage context | Status, timing, and business messages for each step |
+| What changed between two states? | Handwritten field logs miss details and do not explain complex collections | Path-based differences plus completeness and incomplete reasons |
+| Did a regression follow the expected branch? | Tests often assert only the final return value | An execution path and structured result that tests can inspect |
+| How can development, QA, and operations share one account? | Each role uses a different log vocabulary | Human-readable and machine-readable views of the same facts |
+
+## Application scenarios
+
+| Business scenario | Question to answer | Recommended choice |
+|---|---|---|
+| Order creation and fulfillment | Did validation, inventory, pricing, payment, and persistence succeed, and where was time spent? | Complete TFI line |
+| Approval and rule decisions | Which nodes ran, which branch reasons were recorded, and where was the request rejected? | Complete TFI line |
+| Billing, settlement, and reconciliation | Which calculation steps were captured, and which bill or fee items changed? | Complete-line Flow + Compare |
+| Inventory and state transitions | Were reserve, release, and recovery captured, and what changed in state? | Complete-line Flow + Compare |
+| Configuration and price changes | Which fields or collection items changed, and was the comparison complete? | Selected complete-line Compare |
+| Automated regression tests | Does the captured internal path match the test assertions when the final result is correct? | Selected complete-line Flow |
+| Shared platform or SDK capture | Only a small fact set is needed, with hard limits on each record's count and size | Controlled Kernel RC pilot |
+
+In Kernel, "bounded" means that each session and individual fact has hard limits on stage count, attribute count, and output size to protect host resources.
+
+Content that exceeds a limit is rejected. Exhausting the session byte budget stops later additions, and the result is marked incomplete. This does not mean that the business flow itself is simpler.
+
+## Usage examples
+
+### Example 1: diagnose an order-submission failure
+
+The team marks validation, inventory, pricing, payment, and persistence as business steps.
+
+If business code marks failures and records their reasons correctly, a failed order leaves a record of the executed steps, failed stage, stage timings, and relevant business messages.
+
+Developers do not have to reconstruct the entire log chain first. QA can check the failure path, and operations can use the captured status, timing, and reason to investigate.
+
+TFI does not classify business rejections automatically or define what counts as slow.
+
+### Example 2: review a price-configuration release
+
+Before publication, compare the old and new price configurations. The result lists changed fields, list entries, and rules, and states whether the comparison completed.
+
+The publisher confirms the actual change while the reviewer decides whether more inspection is needed.
+
+TFI reports observed changes. It does not prove that those changes committed, and it does not make a release or approval decision for the business system.
+
+### Example 3: pilot Kernel in a platform component
+
+A platform already owns ingestion, access control, storage, and retention, and only wants services to submit fixed, size-bounded facts.
+
+The platform team defines record conventions, sinks, masking, monitoring, and rollback before piloting Kernel in a few services.
+
+Without those platform capabilities, the pilot owner must build and maintain the missing pieces.
+
+For a normal business application, the complete line reduces custom work for flow recording, comparison, and export, but it still does not provide hosted persistence, query, or alerting.
+
+## Choose complete TFI or Kernel RC
+
+Choose the complete TFI line for a normal business application.
+
+Evaluate Kernel RC when a platform already owns the downstream loop, or when one real service has a bounded question that existing tools cannot answer and accepts ownership of the missing capabilities.
+
+In this README, "complete TFI" means the complete product line, not a requirement to use the full aggregate. New applications should still select modules first and use the aggregate only when they need most capabilities.
+
+| Decision | Complete TFI line | Kernel RC line |
+|---|---|---|
+| Product role | Direct flow explanation and object-change capabilities for business applications | A bounded fact-recording foundation for platforms, SDKs, or infrastructure components |
+| Primary users | Application developers, QA, operations, and existing TFI users | Platform, infrastructure, or controlled service teams with a bounded pilot question |
+| Included value | Flow recording, object comparison, plain Java, and optional Spring and Ops | A bounded recording runtime; Compare and Spring composition remain internal previews, not current pilot entry points |
+| Adopter still owns | Data boundaries, sensitive-data policy, and external persistence, query, alerting, authorization, and retention | Sinks, fact conventions, masking, transport, storage, query, monitoring, retention, and rollback |
+| Current maturity | Recommended line, but 4.0 is still an unpublished source snapshot | RC; API is unfrozen and real-service value remains unproven |
+| Adoption guidance | Default for new applications; select modules first, aggregate only when most capabilities are needed | Controlled pilots only; not the default entry for a business application |
+
+### When the complete line fits
+
+- You need to explain order, approval, billing, inventory, or another business flow directly.
+- You need object comparison, Spring annotations, or operational integration without building the recording and comparison foundations yourself.
+- You want to start with selected modules and retain a path to add capabilities later.
+- Existing code already uses `TFI`, `TfiFlow`, or complete-line Compare.
+
+### When the RC line fits
+
+- A platform or SDK already owns ingestion, storage, access control, monitoring, and retention, or one service has a bounded question that existing tools cannot answer.
+- You need only a small, predefined fact set and accept that the result can be incomplete when count or size limits are reached.
+- The pilot question, owners, data boundary, disablement switch, and rollback evidence are explicit.
+- The team accepts that RC APIs and schemas may still change.
+
+Kernel is neither a lightweight edition of the complete TFI line nor a reduced aggregate tier. If the only goal is fewer dependencies, select complete-line modules instead; narrower responsibility does not imply a lower total cost of use.
+
+## What is included
+
+| Content | What it provides | Current guidance |
+|---|---|---|
+| Complete TFI line | Business-flow recording, object comparison, plain-Java APIs, optional Spring integration, and optional Ops implementations | Recommended entry for business applications |
+| Full aggregate | Every complete-line capability and the unified `TFI` facade through one coordinate | Existing users or applications that need most capabilities |
+| Selected complete-line modules | Only the Flow, Compare, Spring, or Ops capabilities actually used | Default recommendation for new applications |
+| Kernel Core | Count- and size-limited stages and facts; the host owns the downstream data loop | Controlled platform or bounded-service pilot |
+| Kernel + Compare | Maps independent comparison results into bounded records | Internal preview considered only after choosing Kernel |
+| Examples, documentation, and quality gates | Runnable examples, module design references, tests, and CI evidence | Learning and maintenance support; not application dependencies |
+
+## Maintenance cost
+
+Maintenance cost is more than dependency count. It includes configuration, testing, security, data governance, upgrades, and cross-team coordination.
+
+Responsibilities outside the Kernel boundary remain with the adopter; they do not disappear.
+
+The ratings below are a qualitative, relative assessment of responsibility among these repository choices. They are not estimates of engineering time, budget, or runtime performance.
+
+Kernel has no completed real-service pilot yet, so its actual total cost remains unproven.
+
+| Choice | Initial adoption | Ongoing maintenance | What the team continues to own |
+|---|---|---|---|
+| Selected complete-line modules | Medium | Low to medium | Selected capabilities, instrumentation, upgrade regression, and data boundaries |
+| Full aggregate | Low | Medium | A wider dependency and auto-configuration surface plus combination regression |
+| Kernel Core | High | High; a shared platform can amortize it | Sinks, conventions, security, monitoring, retention, and rollback |
+| Kernel + Compare | High | Highest | Kernel ownership plus two models, masking, composition tests, and version risk |
+
+Cognitive cost differs as well. With selected complete-line modules, initial learning centers on the business APIs. Adding Spring, Ops, output, and security still requires understanding those parts of the chain.
+
+Kernel has fewer local concepts but requires a broader understanding of external systems, failure boundaries, and ownership.
+
+A platform team can centralize Kernel conventions and share that cost across services. A single-service pilot carries the full burden locally. Real-service evidence is still required to show that Kernel lowers total organizational cost.
+
+## Quick start
+
+The current version is the unpublished `4.0.0-SNAPSHOT`. Install it from source into the local Maven repository first:
+
+```bash
+git clone https://github.com/shiyongyin/TaskFlowInsight.git
+cd TaskFlowInsight
+./mvnw clean install
+```
+
+New applications should select only the capabilities they need. This pure-Java `tfi-flow-core` example creates the smallest useful flow-recording loop:
+
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-flow-core</artifactId>
+    <version>4.0.0-SNAPSHOT</version>
+</dependency>
+```
+
+```java
+import com.syy.taskflowinsight.api.TaskContext;
+import com.syy.taskflowinsight.api.TfiFlow;
+
+public final class FlowQuickStart {
+    public static void main(String[] args) {
+        TfiFlow.startSession("order.submit");
+        try {
+            try (TaskContext stage = TfiFlow.stage("order.validate")) {
+                stage.attribute("requestId", "req-1001")
+                        .message("validation completed")
+                        .success();
+            }
+
+            System.out.println(TfiFlow.exportToJson());
+        } finally {
+            TfiFlow.endSession();
+        }
+    }
+}
+```
+
+Export the flow before `endSession()`. A production integration must also define capture boundaries, sensitive-data rules, and the output destination.
+
+The output has this shape after dynamic IDs, timestamps, and durations are omitted:
+
+```json
+{
+  "schemaVersion": 2,
+  "session": {
+    "name": "order.submit",
+    "status": "RUNNING"
+  },
+  "rootTask": {
+    "name": "order.submit",
+    "children": [
+      {
+        "name": "order.validate",
+        "status": "COMPLETED",
+        "attributes": {"requestId": "req-1001"}
+      }
+    ]
+  },
+  "truncated": false
+}
+```
+
+Export occurs before the session ends, so the session is still `RUNNING` while the closed business stage is `COMPLETED`.
+
+To run the Spring Boot example directly:
+
+```bash
+./mvnw -pl tfi-examples spring-boot:run
+```
+
+After startup, call this endpoint from another terminal:
+
+```bash
+curl http://localhost:19090/api/demo/hello/TFI
+```
+
+Continue with the [full aggregate](#full-tfi-through-the-aggregate), [Spring Flow](#spring-flow), [object comparison](#compare-only), or the [Kernel RC line](#kernel-rc-line).
 
 ## Project status
 
@@ -27,7 +251,10 @@ The two lines solve related problems, but they target different adopters and pro
 
 No benchmark number, compatibility baseline, or successful module build should be read as proof of a public release. The repository currently has CI and release-candidate gates, but no automated deploy or release workflow.
 
-## Choose from the product perspective
+<details>
+<summary><strong>View the complete selection, usage-cost, and cognitive-cost analysis</strong></summary>
+
+## Detailed selection and cost analysis
 
 ### The shortest answer
 
@@ -163,6 +390,11 @@ Neither line is a workflow engine or a cross-service distributed-tracing backend
 Flow records and object differences are not compliance evidence by themselves. An audit use case still needs transaction-commit correlation, masking, tamper resistance, persistence, access control, and retention.
 
 For turnkey storage, search, alerting, or an operations UI, evaluate a dedicated logging, tracing, APM, audit, or workflow product first. Then decide whether TFI business facts should feed that system.
+
+</details>
+
+<details>
+<summary><strong>View module relationships and the complete technical integration reference</strong></summary>
 
 ## Names and technical relationship
 
@@ -803,13 +1035,14 @@ Configuration cannot replace boundary design. Set finite comparison and sink bud
 
 Performance depends on object shape, path rules, sampling, sinks, JDK, and hardware. Re-run the repository workloads on the target environment instead of copying a benchmark number into a service SLO.
 
+</details>
+
 ## Example application
 
 `tfi-examples` is the runnable Spring Boot module. Start it from the repository root:
 
 ```bash
-JAVA_TOOL_OPTIONS="-Dspring.profiles.active=local" \
-  ./mvnw -pl tfi-examples spring-boot:run
+./mvnw -pl tfi-examples spring-boot:run
 ```
 
 The example application listens on port `19090` by default. It is a consumer of the library modules and must not be added as an application dependency.
