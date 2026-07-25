@@ -2,754 +2,560 @@
 
 <div align="center">
 
-[![Java](https://img.shields.io/badge/Java-21+-orange.svg)](https://www.oracle.com/java/)
+[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://www.oracle.com/java/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.5-green.svg)](https://spring.io/projects/spring-boot)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![tfi-all CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml)
-[![tfi-compare CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-compare-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-compare-ci.yml)
-[![tfi-flow-core CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-flow-core-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-flow-core-ci.yml)
+[![CI](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml/badge.svg)](https://github.com/shiyongyin/TaskFlowInsight/actions/workflows/tfi-all-ci.yml)
 
-**Business-First Observability for Java**
-Process Visualization + Change Tracking in One Lightweight Library
+Business flow recording and object comparison for Java 21
 
-**[中文](README.zh-CN.md)** | [Quick Start](#-quick-start) | [Modules](#-module-structure) | [Features](#-core-features) | [Docs](#-documentation)
+[中文](README.zh-CN.md)
 
 </div>
 
----
+TaskFlowInsight records structured business execution flows and compares object state. The repository provides a complete, compatibility-oriented product line and a separate slim Kernel/Compare composition line.
 
-## What is TaskFlowInsight?
+The two lines solve related problems but are not dependency tiers of one runtime. Choose one line for an application; do not place both Compare implementations on the same classpath.
 
-TaskFlowInsight (TFI) is a lightweight Java library that brings **X-ray vision** to your business logic. It automatically visualizes execution flows and intelligently tracks object changes — **zero configuration required**.
+## Project status
 
-Think of it as **APM for business developers**: while traditional APM tools monitor infrastructure (CPU, memory, network), TFI focuses on what matters most — **understanding business logic execution**.
+- **Source version:** `4.0.0-SNAPSHOT`. Version 4.0 has not been published from this repository.
+- **Runtime baseline:** Java 21. Spring integrations use Spring Boot 3.5.5.
+- **Recommended line:** use the complete product line, either as the aggregate or as selected modules, for current integration work.
+- **Preview line:** `tfi-kernel` is RC; the Kernel + Compare composition remains an internal technical preview until its release gates are complete.
+- **Distribution:** build and install the snapshot from source before using it in another local project.
 
-```java
-@TfiTask("Process Order")
-public void processOrder(Order order) {
-    validateOrder(order);        // ← Automatically tracked
-    TFI.track("order", order);   // ← Automatically detect changes
-    processPayment(order);
-}
+No benchmark number, compatibility baseline, or successful module build should be read as proof of a public release. The repository currently has CI and release-candidate gates, but no automated deploy or release workflow.
+
+## Choose a setup
+
+| Requirement | Recommended choice | Reason |
+|---|---|---|
+| All current Flow, Compare, Spring, and Ops capabilities | `com.syy:TaskFlowInsight` | One dependency and the unified `TFI` facade |
+| Flow recording only, without Spring | `tfi-flow-core` | Complete Session/Task model and exporters with a smaller dependency graph |
+| Object comparison only | `tfi-compare` | Current complete Compare API, compatibility facade, SPI, query, and rendering support |
+| Spring `@TfiTask` flow recording | `tfi-flow-spring-starter` | Flow auto-configuration and AOP without Compare or Ops |
+| Spring-managed comparison | `tfi-compare-spring-starter` | One Compare runtime per Spring ApplicationContext; Flow tracking is optional and explicit |
+| Actuator, metrics, health, REST, or in-memory storage | Add `tfi-ops-spring` and wire the required components | Operational implementations stay outside the core modules |
+| Minimal explicit flow recording for a source pilot | `tfi-kernel` | Small `Session -> Stage -> Record` model and deterministic JSON; RC only |
+| Slim Kernel + Compare composition | Internal preview modules | Useful for evaluation, not a production dependency recommendation yet |
+
+Start with the smallest current module that owns the capability you need. Use the aggregate when dependency convenience and the unified facade matter more than a narrow classpath.
+
+## Module map
+
+The root Maven reactor contains 11 reactor modules. The root project has `pom` packaging and is not a runnable Spring Boot application.
+
+Each indented child below is a module that its parent depends on. Optional dependencies are marked and are not propagated as ordinary transitive dependencies.
+
+### Complete product line
+
+```text
+TaskFlowInsight  (artifactId; source directory: tfi-all)
+├── tfi-flow-core
+├── tfi-flow-spring-starter
+│   └── tfi-flow-core
+├── tfi-compare
+│   └── tfi-flow-core
+├── tfi-compare-spring-starter
+│   ├── tfi-compare
+│   └── tfi-flow-spring-starter          optional
+└── tfi-ops-spring
+    ├── tfi-flow-core
+    └── tfi-compare                      optional
+
+tfi-examples
+├── TaskFlowInsight
+├── tfi-flow-spring-starter
+├── tfi-compare
+└── tfi-ops-spring
 ```
 
-**Output:**
-```
-[Order-12345] Process Order ━━━━━━━━━━━━━━━━ 234ms ✓
-├─ Validate Order ...................... 45ms ✓
-│  └─ order.status: PENDING → VALIDATED
-└─ Process Payment .................... 189ms ✓
-   └─ order.payment: null → PAID
-```
+The aggregate includes the five complete-line modules shown above. It does not include `tfi-kernel`, `tfi-compare-core`, or either Kernel/Compare integration module.
 
----
+### Slim composition line
 
-## 📦 Module Structure
-
-TFI uses a Maven multi-module architecture, split by responsibility into 8 reactor modules:
-
-```
-TaskFlowInsight (parent)
-├── tfi-kernel              Minimal plain-Java flow recording kernel (RC)
-├── tfi-flow-core           Core flow engine (Session/Task/Stage/Message)
-├── tfi-flow-spring-starter Spring Boot auto-config + AOP annotation support
-├── tfi-compare             Smart comparison engine (deep diff + change tracking)
-├── tfi-compare-spring-starter Spring Boot integration for comparison
-├── tfi-ops-spring          Ops & monitoring (Actuator/Metrics/Store/Performance)
-├── tfi-examples            Examples & demos (Demo/Benchmark)
-└── tfi-all                 All-in-one aggregate module
+```text
+tfi-kernel-compare-spring-starter
+└── tfi-kernel-compare
+    ├── tfi-kernel
+    └── tfi-compare-core
 ```
 
-**Module dependencies:**
-```
-tfi-kernel (standalone; no dependency on the legacy TFI modules)
+The slim Spring starter also uses Spring Boot and has optional AOP support. It deliberately rejects the complete Flow, Compare, Starter, Ops, and aggregate artifacts at build or startup boundaries.
 
-tfi-flow-core  ←─  tfi-flow-spring-starter  ←─┐
-      ↑                                        │
-tfi-compare  ←──  tfi-ops-spring  ←────────────┤
-                                               │
-                  tfi-all (aggregates all)  ────┘
-                  tfi-examples (depends on all)
-```
+### Relationship rules
 
-**Choose by need:**
+1. `tfi-compare` and `tfi-compare-core` are parallel artifacts with overlapping class names. They are mutually exclusive runtime choices.
+2. `TaskFlowInsight` is the Maven artifactId of the `tfi-all` directory. The capital letters are significant.
+3. `tfi-examples` is a runnable consumer and test fixture, not a library dependency for applications.
+4. Do not run Kernel and Flow Core as two independent recorders unless your application defines ownership, export, sampling, and shutdown semantics for both.
 
-| Need | Module |
-|------|--------|
-| Minimal explicit flow recording in plain Java, typed actions, deterministic JSON | `tfi-kernel` |
-| Spring AOP, automatic comparison, Actuator, metrics, or storage | Existing TFI modules / `tfi-all` |
-| Object comparison without flow recording | `tfi-compare` |
+## Module responsibilities
 
-`tfi-kernel` ships on the TaskFlowInsight 4.0 RC train, while its own first stable API baseline is 1.0. That baseline is not frozen, and the module remains independent from `tfi-flow-core`, until the real-service pilot and release decision are complete.
+| Reactor module | Line | Responsibility and boundary | Status |
+|---|---|---|---|
+| `tfi-kernel` | Slim | Minimal plain-Java flow recorder with explicit stages, calls, records, synchronous sinks, and deterministic `tfi-flow/1` JSON | RC |
+| `tfi-flow-core` | Complete | Session, Task, Message, Context, Provider, async context propagation, and Console/Map/JSON export | Current complete line |
+| `tfi-compare-core` | Slim | Comparison truth, resource bounds, typed paths, canonical projection, and render models without Flow or Spring | Technical preview |
+| `tfi-kernel-compare` | Slim | Maps an existing `CompareResult` into a Kernel summary and optional masked detail records; owns no business action or sink | Internal candidate |
+| `tfi-kernel-compare-spring-starter` | Slim | Builds one Spring context for Kernel, Compare Core, and the bridge; programmatic use is primary and AOP is optional | Internal candidate |
+| `tfi-compare` | Complete | Complete Compare runtime plus compatibility facade, SPI, list APIs, tracking, merge, query, summary, and rendering support | Current complete line |
+| `tfi-flow-spring-starter` | Complete | Flow auto-configuration, `@TfiTask` AOP, SpEL evaluation, masking, and context configuration | Current complete line |
+| `tfi-compare-spring-starter` | Complete | One Compare policy, runtime, engine, and masking graph per Spring ApplicationContext, with optional Flow tracking | Current complete line |
+| `tfi-ops-spring` | Complete | Provides Actuator, REST, Micrometer, health, performance, and Caffeine store implementations; Compare is optional | Current complete line |
+| `tfi-examples` | Consumer | Runnable Spring Boot and command-line examples plus benchmark fixtures | Development only |
+| `tfi-all` | Complete | Builds artifact `TaskFlowInsight`, re-exports the complete line, and owns the unified `TFI` facade | Current aggregate |
 
----
+`tfi-kernel` belongs to the TaskFlowInsight 4.0 RC train. It targets 1.0 as its first stable API baseline, but that API is not frozen until the real-service pilot and release decision are complete.
 
-## Why TFI?
+`tfi-compare-core` has implemented and verified core behavior, but its baseline and final composition release gates are incomplete. The bridge and slim Spring starter must not be treated as published or production-ready artifacts.
 
-### The Problem
-Modern business applications have **complex workflows** that are hard to debug:
-- ❓ Which steps executed? How long did each take?
-- ❓ What changed in objects during processing?
-- ❓ Why did the workflow fail?
-
-**Traditional solutions fall short:**
-- **Manual logging**: Tedious, scattered, unstructured
-- **APM tools**: Expensive, infrastructure-focused, complex setup
-- **JaVers**: Audit-only, no flow visualization, requires configuration
-
-### The Solution
-TFI provides **dual-core capabilities** in one lightweight package:
-
-| Capability | What You Get |
-|------------|-------------|
-| **🎯 Flow Visualization** | Auto-generated hierarchical process trees with precise timing |
-| **🔍 Change Tracking** | Smart deep object comparison and diff detection |
-| **📊 Real-time Monitoring** | Spring Boot Actuator + Prometheus metrics |
-| **🚀 Zero Config** | Just add `@TfiTask` and go |
-| **⚡ Verifiable Delivery** | Module CI gates, static-analysis ratchets, and reproducible JMH workflows |
-
----
-
-## How is TFI Different?
-
-| Feature | TaskFlowInsight | JaVers | APM Tools | Manual Logging |
-|---------|----------------|--------|-----------|----------------|
-| **Setup Time** | < 2 min | ~1 hour | Hours/Days | N/A |
-| **Flow Visualization** | ✅ Tree view | ❌ | ⚠️ Traces only | ❌ Scattered |
-| **Change Tracking** | ✅ Deep diff | ✅ Basic audit | ❌ | ❌ |
-| **Config Complexity** | **Zero config** | Medium | Complex | None |
-| **Spring Integration** | ✅ Deep | ⚠️ Basic | ✅ | N/A |
-| **Business Context** | ✅ Built-in | ⚠️ Limited | ❌ Custom needed | ❌ |
-| **Cost** | **Free & Open** | Free & Open | $$$$ | Free |
-
-**TFI's position**: one library combines flow visualization and change tracking; performance must be
-measured with the included JMH workloads on the target JDK and hardware.
-
----
-
-## ⚡ Quick Start
+## Version and source build
 
 ### Prerequisites
-- Java 21+
-- Maven 3.9+ (or use the included wrapper)
-- Spring Boot 3.x (optional but recommended)
 
-### 1. Add Dependency
+- JDK 21
+- Maven 3.9+, or the included Maven Wrapper 3.9.11
+- Spring Boot only when a Spring module is selected
 
-**Pure Java comparison:**
-```xml
-<dependency>
-    <groupId>com.syy</groupId>
-    <artifactId>tfi-compare</artifactId>
-    <version>4.0.0</version>
-</dependency>
-```
-
-**Spring Boot comparison:**
-```xml
-<dependency>
-    <groupId>com.syy</groupId>
-    <artifactId>tfi-compare-spring-starter</artifactId>
-    <version>4.0.0</version>
-</dependency>
-```
-
-### 2. Use Spring Boot Auto-configuration
-
-```java
-@SpringBootApplication
-public class YourApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(YourApplication.class, args);
-    }
-}
-```
-
-### 3. Start Tracking
-
-**Option A: Annotation-driven (recommended)**
-```java
-@Service
-public class OrderService {
-
-    @TfiTask("Process Order")
-    public OrderResult processOrder(String orderId) {
-        Order order = fetchOrder(orderId);
-        TFI.track("order", order);
-
-        validateOrder(order);
-        processPayment(order);
-
-        return OrderResult.success(order);
-    }
-
-    @TfiTask("Validate Order")
-    private void validateOrder(Order order) {
-        // Validation logic - automatically tracked
-    }
-}
-```
-
-**Option B: Programmatic API**
-```java
-public void processOrder() {
-    TFI.start("Process Order");
-    try {
-        try (var stage = TFI.stage("Validate")) {
-            // business logic
-        }
-
-        try (var stage = TFI.stage("Check Inventory")) {
-            // business logic
-        }
-
-        TFI.exportToConsole();
-    } finally {
-        TFI.stop();
-    }
-}
-```
-
-### 4. Build from Source
+Install the current snapshot into the local Maven repository:
 
 ```bash
 git clone https://github.com/shiyongyin/TaskFlowInsight.git
 cd TaskFlowInsight
-
-# Build all modules
 ./mvnw clean install
-
-# Run tests for a specific module
-./mvnw test -pl tfi-all
-./mvnw test -pl tfi-compare
-
-# Tests + coverage report
-./mvnw clean verify jacoco:report -pl tfi-all
-# Report: tfi-all/target/site/jacoco/index.html
-
-# Run demos
-./mvnw spring-boot:run -pl tfi-examples
 ```
 
----
+The first build may download Maven plugins and dependencies. In another local project, define the version once:
 
-## 🎯 Core Features
+```xml
+<properties>
+    <tfi.version>4.0.0-SNAPSHOT</tfi.version>
+</properties>
+```
 
-### 1. Flow Visualization
-Automatic hierarchical execution tracking:
-- **Nested task tree**: Session → Task → Stage → Message
-- **Precise timing**: Microsecond-level measurement
-- **Exception capture**: Full context and stack traces
-- **Async support**: ThreadLocal context propagation
+All dependency snippets below use `${tfi.version}`. Replace it only with a version that is actually available in your configured repository.
+
+## Full version
+
+The full version is the broadest complete-line option. It includes Flow Core, both complete-line Spring starters, Compare, and Ops, while preserving the unified `TFI` facade.
+
+Choose it for an existing TFI application, a migration that depends on the facade, or an application that genuinely uses most capabilities. The trade-off is a wider dependency and auto-configuration surface.
+
+### Add the aggregate
+
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>TaskFlowInsight</artifactId>
+    <version>${tfi.version}</version>
+</dependency>
+```
+
+The artifactId is case-sensitive. `tfi-all` is only the repository directory name.
+
+### Use the unified API
 
 ```java
-@TfiTask("Create Order")
-public OrderResult createOrder(CreateOrderRequest request) {
-    validateInventory(request.getProducts());  // Sub-task 1
-    calculatePrice(request);                   // Sub-task 2
-    processPayment(request.getPayment());      // Sub-task 3
-    initiateShipment(request);                 // Sub-task 4
-
-    return OrderResult.success();
-}
-```
-
-### 2. Smart Change Tracking
-Deep object comparison with intelligent diff detection:
-- **Snapshot strategies**: Shallow (scalars) + Deep (nested objects)
-- **Type-aware**: Primitives, collections, dates, BigDecimal, custom objects
-- **Entity vs ValueObject**: Type-system-based smart list comparison
-- **Path deduplication**: Eliminates redundant change paths
-- **Configurable precision**: Control numeric/date comparison precision
-
-```java
-TFI.track("order", orderObject);       // Shallow tracking
-TFI.trackDeep("user", userObject);     // Deep tracking
-
-List<ChangeRecord> changes = TFI.getChanges();
-// Output: order.status: PENDING → PAID
-//         order.amount: 1000.00 → 850.00
-```
-
-### 3. Advanced Compare API
-Flexible comparison with built-in templates:
-
-```java
-// Simple one-liner
-CompareResult result = TFI.compare(before, after);
-
-// Template-based comparison
-CompareResult auditResult = TFI.comparator()
-    .useTemplate(ComparisonTemplate.AUDIT)  // AUDIT/DEBUG/FAST/PERFORMANCE
-    .withMaxDepth(5)
-    .compare(oldObj, newObj);
-
-// Render as Markdown
-String report = TFI.render(result, "standard"); // simple/standard/detailed
-```
-
-### 4. Type System Annotations
-Fine-grained control over comparison behavior:
-
-```java
-@Entity  // Object with unique identity
-public class Order {
-    @Key  // Used for list matching
-    private String orderId;
-
-    @NumericPrecision(scale = 2)  // Decimal precision control
-    private BigDecimal amount;
-
-    @DateFormat("yyyy-MM-dd HH:mm:ss")  // Date formatting
-    private Date createdAt;
-
-    @DiffIgnore  // Exclude from comparison
-    private String internalNotes;
-}
-
-@ValueObject  // Value-based comparison (no identity)
-public class Money {
-    private BigDecimal amount;
-    private String currency;
-}
-```
-
-### 5. Enterprise Monitoring
-Production-ready observability:
-- **Spring Boot Actuator**: `/actuator/taskflow` endpoint
-- **Prometheus metrics**: Custom TFI metrics export
-- **Health indicators**: System health checks
-- **Performance degradation**: Auto-detect and adapt (optional)
-- **Data masking**: Automatic PII protection
-
-```bash
-curl http://localhost:19090/actuator/health
-curl http://localhost:19090/actuator/taskflow
-curl http://localhost:19090/actuator/prometheus | grep tfi
-```
-
-### 6. Thread Safety & Lifecycle Cleanup
-Built for concurrent production environments:
-- **ThreadLocal isolation**: Independent context per thread
-- **AutoCloseable pattern**: `try-with-resources` auto-cleanup
-- **Weak references**: Prevent memory retention
-- **Leak observability**: `SafeContextManager.metrics()` publishes typed `ContextMetrics`
-- **Async propagation**: `ContextSnapshot` and `ContextPropagatingExecutor`
-
----
-
-## 🔬 Change Comparison Engine
-
-TFI's **change tracking** combines a type system, path deduplication, and multiple diff strategies.
-
-### Three Pain Points → TFI Solutions
-
-<details>
-<summary>Pain Point 1: Manual field-by-field comparison is tedious 😫</summary>
-
-**Traditional (painful):**
-```java
-// Write this for 50+ fields...
-if (!Objects.equals(old.getStatus(), new.getStatus())) {
-    log.info("status changed: {} -> {}", old.getStatus(), new.getStatus());
-}
-// ... repeat 47 more times ...
-```
-
-**TFI (elegant):**
-```java
-TFI.track("order", order);
-// ✅ Auto-detect all changes, one line!
-// Output: order.status: PENDING → VALIDATED
-//         order.amount: 1000.00 → 850.00
-```
-</details>
-
-<details>
-<summary>Pain Point 2: Collection comparison is hard 🤯</summary>
-
-```java
-@Entity
-public class Item {
-    @Key  // Match list elements by this field
-    private String itemId;
-    private int quantity;
-    private BigDecimal price;
-}
-
-// TFI handles automatically:
-// ✅ Element matching (via @Key)
-// ✅ Add/Remove detection
-// ✅ Field change detection
-// ✅ Position move detection (LCS algorithm)
-```
-</details>
-
-<details>
-<summary>Pain Point 3: Float/Date precision issues 🐛</summary>
-
-```java
-@Entity
-public class Transaction {
-    @NumericPrecision(scale = 2)  // Control to 2 decimal places
-    private BigDecimal amount;
-
-    @NumericPrecision(scale = 4)  // Different precision per field
-    private BigDecimal exchangeRate;
-
-    @DateFormat("yyyy-MM-dd")  // Compare date part only
-    private Date transactionDate;
-
-    @DateFormat("yyyy-MM-dd HH:mm:ss")  // Precise to seconds
-    private Date createdAt;
-}
-```
-</details>
-
----
-
-### Technical Deep Dive
-
-#### 1. LCS Algorithm for List Move Detection 🧠
-
-TFI uses the **Longest Common Subsequence (LCS) algorithm** to intelligently detect list element moves, not just simple add/remove.
-
-```java
-List<Task> oldTasks = [A, B, C, D, E];
-List<Task> newTasks = [A, C, B, E, D];
-
-// TFI LCS output (correct):
-// ✅ tasks[1] MOVED from index 1 to index 2  (B)
-// ✅ tasks[2] MOVED from index 2 to index 1  (C)
-```
-
-#### 2. Path Deduplication System 🎯
-
-TFI's **PathDeduplicator** automatically eliminates redundant change paths, keeping only the most precise leaf-node changes.
-
-```java
-// Raw changes (redundant):
-order.items[0].product.price: 100 → 120
-order.items[0].product: Product{...} → Product{...}
-order.items[0]: Item{...} → Item{...}
-
-// After PathDeduplicator (clean):
-✅ order.items[0].product.price: 100 → 120
-```
-
-#### 3. Type-Aware Comparison 🏷️
-
-```java
-@Entity  // Identity-based: match by @Key in lists
-public class User {
-    @Key
-    private String userId;
-    private String name;
-}
-
-@ValueObject  // Content-based: full value comparison
-public class Money {
-    private BigDecimal amount;
-    private String currency;
-}
-```
-
----
-
-### TFI vs JaVers Deep Comparison
-
-| Dimension | **TaskFlowInsight** | JaVers |
-|-----------|-------------------|--------|
-| **Core Purpose** | 🐛 Debug tool (real-time) | 📋 Audit system (persistent) |
-| **Config Complexity** | ⚡ Zero config (`@TfiTask`) | ⚙️ Medium (Repository + Entity mapping) |
-| **Flow Visualization** | ✅ Built-in tree | ❌ None |
-| **Type System** | `@Entity`/`@ValueObject`/`@Key` | `@Entity` (JPA only) |
-| **Path Deduplication** | ✅ PathDeduplicator | ❌ Raw paths |
-| **LCS Algorithm** | ✅ Move detection | ❌ Add/Remove only |
-| **Precision Control** | `@NumericPrecision`/`@DateFormat` | Limited |
-| **Data Persistence** | ❌ In-memory (session cleanup) | ✅ Database |
-| **Target Users** | 👨‍💻 Developers/QA | 🏢 Compliance/Audit teams |
-
----
-
-### Real Debug Scenario: E-commerce Payment Failure
-
-**TFI auto-output:**
-```
-[Order-12345] Process Order ━━━━━━━━━━━━━ 234ms ✗
-├─ Fetch Order ...................... 12ms ✓
-│  └─ order.status: null → PENDING
-│  └─ order.payment: null
-├─ Validate Order .................. 45ms ✓
-│  └─ order.status: PENDING → VALIDATED
-│  └─ order.payment: null (unchanged)  ← ⚠️ Found it
-├─ Process Payment ................ 177ms ✗
-│  └─ 🔴 NullPointerException: order.payment is null
-└─ ❌ Root cause: payment object not initialized
-
-🎯 Root cause: payment field still null after validateOrder
-💡 Fix: add initializePayment() between validateOrder and processPayment
-```
-
-**Value:**
-- ✅ **Flow visualization**: See exactly which steps ran and how long
-- ✅ **Change tracking**: Auto-detect order.payment stayed null
-- ⏰ **Diagnosis time**: From 30-60 minutes down to **30 seconds**
-
----
-
-## 💡 Real-World Examples
-
-### E-commerce Order Processing
-```java
-@RestController
-@RequestMapping("/orders")
-public class OrderController {
-
-    @TfiTask("Create Order")
-    @PostMapping
-    public ResponseEntity<OrderResult> createOrder(@RequestBody CreateOrderRequest request) {
-        User user = validateUser(request.getUserId());
-        List<Product> products = validateProducts(request.getProductIds());
-
-        InventoryResult inventory = checkInventory(products);
-        TFI.track("inventory", inventory);
-
-        PriceResult price = calculatePrice(products, user.getVipLevel());
-        TFI.track("pricing", price);
-
-        Order order = createOrder(user, products, price);
-        PaymentResult payment = processPayment(order, request.getPaymentInfo());
-
-        if (payment.isSuccess()) {
-            updateInventory(inventory);
-            return ResponseEntity.ok(OrderResult.success(order, payment));
-        } else {
-            TFI.error("Payment failed", new PaymentException(payment.getErrorMessage()));
-            return ResponseEntity.badRequest().body(OrderResult.failure("Payment failed"));
-        }
-    }
-}
-```
-
-### Approval Workflow
-```java
-@Service
-public class ApprovalService {
-
-    @TfiTask("Approval Chain")
-    public ApprovalResult processApproval(LeaveRequest request) {
-        TFI.trackDeep("request", request);
-
-        for (Approver approver : getApprovalChain()) {
-            ApprovalDecision decision = approver.review(request);
-            TFI.track("decision", decision);
-
-            if (decision.isRejected()) {
-                return ApprovalResult.rejected(decision.getReason());
-            }
-        }
-
-        return ApprovalResult.approved();
-    }
-}
-```
-
-### Data Sync (ETL)
-```java
-@TfiTask("ETL Sync")
-public SyncResult syncData(DataSource source, DataTarget target) {
-    List<Record> records = source.fetchRecords();
-    int successCount = 0;
-
-    for (Record record : records) {
-        try (var stage = TFI.stage("Transform " + record.getId())) {
-            Record transformed = transformRecord(record);
-            TFI.track("record-" + record.getId(), transformed);
-            target.save(transformed);
-            successCount++;
-        } catch (Exception e) {
-            TFI.error("Transform failed: " + record.getId(), e);
-        }
+import com.syy.taskflowinsight.api.TFI;
+import com.syy.taskflowinsight.api.TaskContext;
+import com.syy.taskflowinsight.tracking.compare.CompareResult;
+
+TFI.startSession("order.submit");
+try {
+    try (TaskContext stage = TFI.stage("order.validate")) {
+        stage.attribute("requestId", "req-1001")
+                .message("validation completed")
+                .success();
     }
 
-    return SyncResult.completed(successCount, records.size());
+    CompareResult difference = TFI.compare(before, after);
+    String report = TFI.render(difference);
+    String flowJson = TFI.exportToJson();
+} finally {
+    TFI.endSession();
 }
 ```
 
-**📚 See [EXAMPLES.md](EXAMPLES.md) for 11 complete real-world scenarios**
+Export the flow before `endSession()`. Comparison truth comes from `CompareResult`; rendering is a presentation step and does not change the result.
 
----
+## Selective complete-line modules
 
-## 🏗️ Architecture
+Selective use keeps the current complete-line semantics while avoiding capabilities that the application does not need. This is the recommended “minimal” choice for current integrations.
 
-```
-┌──────────────────────────────────────────────────────┐
-│                    tfi-all (aggregate)                 │
-├──────────────────────────────────────────────────────┤
-│  tfi-flow-spring-starter  │  tfi-ops-spring          │
-│  • @TfiTask AOP aspect    │  • Actuator endpoints    │
-│  • Spring auto-config     │  • Prometheus metrics     │
-│  • SpEL support           │  • Caffeine Store        │
-│                           │  • Performance monitor    │
-├───────────────────────────┼──────────────────────────┤
-│  tfi-flow-core            │  tfi-compare             │
-│  • Session/Task/Stage     │  • CompareRuntime/Engine │
-│  • SafeContextManager     │  • Request-local kernel  │
-│  • ContextMetrics         │  • Typed ComparePath     │
-│  • TFI API facade         │  • Entity/List/Set/Map   │
-│  • Exporters (Console/JSON)│ • Typed result evidence │
-└───────────────────────────┴──────────────────────────┘
+### Flow Core only
+
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-flow-core</artifactId>
+    <version>${tfi.version}</version>
+</dependency>
 ```
 
-### Design Principles
-1. **Explicit lifecycle**: Contexts use try-with-resources or explicit cleanup, with typed leak metrics
-2. **Graceful degradation**: Disabled TFI uses documented no-op paths and fast guards
-3. **Exception boundaries**: Framework failures degrade per API contract; business and JVM-fatal failures propagate
-4. **Performance first**: Fast-path checks, lazy init, aggressive caching
-5. **Thread-safe**: All public APIs are concurrent-safe
+```java
+import com.syy.taskflowinsight.api.TaskContext;
+import com.syy.taskflowinsight.api.TfiFlow;
 
-### Tech Stack
-- **Java 21**: Modern language features (records, pattern matching, virtual-thread ready)
-- **Spring Boot 3.5.5**: Latest enterprise framework
-- **Spring AOP**: Annotation processing (`@TfiTask`, `@TfiTrack`)
-- **Caffeine 3.1.8**: High-performance caching
-- **Micrometer + Prometheus**: Vendor-neutral metrics facade
-
----
-
-## 🚀 Performance
-
-Performance results are environment- and workload-specific. Run the forked JMH harness on the target
-JDK and hardware; compare only reports generated with the same JVM options and sampling plan.
-
-```bash
-# Generate routing and legacy reports under tfi-examples/target/perf/
-./mvnw -pl tfi-examples -Pbench -DskipTests compile \
-  org.codehaus.mojo:exec-maven-plugin:3.5.0:exec \
-  -Dexec.executable=java -Dexec.classpathScope=runtime \
-  '-Dexec.args=-cp %classpath com.syy.taskflowinsight.benchmark.TfiRoutingBenchmarkRunner'
+TfiFlow.startSession("order.submit");
+try {
+    try (TaskContext stage = TfiFlow.stage("order.validate")) {
+        stage.attribute("requestId", "req-1001")
+                .message("validation completed")
+                .success();
+    }
+    String json = TfiFlow.exportToJson();
+} finally {
+    TfiFlow.endSession();
+}
 ```
 
----
+`TfiFlow` is pure Java. In pooled-thread code, keep session cleanup in `finally`; `TfiFlow.clear()` is available for defensive cleanup at an integration boundary.
 
-## 🔧 Configuration
+### Spring Flow
 
-TFI **works out of the box** with sensible defaults. Customize via `application.yml`:
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-flow-spring-starter</artifactId>
+    <version>${tfi.version}</version>
+</dependency>
+```
+
+Annotation interception is disabled by default. Enable it explicitly:
 
 ```yaml
 tfi:
   annotation:
-    enabled: true  # @TfiTask/@TfiTrack support
-  compare:
     enabled: true
-    max-depth: 10
-    max-elements: 1000
-    max-result-value-chars: 4096
+```
+
+```java
+import com.syy.taskflowinsight.annotation.TfiTask;
+
+@TfiTask(value = "order.submit", logArgs = false, logResult = false)
+public OrderResult submit(OrderCommand command) {
+    return orderService.submit(command);
+}
+```
+
+Place `@TfiTask` on a public method reached through a Spring proxy. Keep argument and result capture disabled unless the data classification and masking policy permit it.
+
+### Compare only
+
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-compare</artifactId>
+    <version>${tfi.version}</version>
+</dependency>
+```
+
+```java
+import com.syy.taskflowinsight.api.CompareOperations;
+import com.syy.taskflowinsight.tracking.compare.CompareResult;
+import com.syy.taskflowinsight.tracking.compare.CompareRuntime;
+
+CompareOperations compare = CompareRuntime.defaults().engine();
+CompareResult result = compare.compare(before, after);
+
+var outcome = result.getOutcome();
+var completion = result.getCompletion();
+```
+
+Always read both `outcome` and `completion`. An empty change list does not prove equality when execution is partial, failed, disabled, or otherwise indeterminate.
+
+`CompareService.defaults().compare(before, after)` remains a compatibility entry point. New direct integrations should depend on the narrower `CompareOperations` contract.
+
+### Spring Compare
+
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-compare-spring-starter</artifactId>
+    <version>${tfi.version}</version>
+</dependency>
+```
+
+The starter publishes one `CompareEngine` per Spring ApplicationContext. The engine implements `CompareOperations`:
+
+```java
+import com.syy.taskflowinsight.api.CompareOperations;
+import com.syy.taskflowinsight.tracking.compare.CompareResult;
+
+public final class OrderDiffService {
+    private final CompareOperations compare;
+
+    public OrderDiffService(CompareOperations compare) {
+        this.compare = compare;
+    }
+
+    public CompareResult compare(Order before, Order after) {
+        return compare.compare(before, after);
+    }
+}
+```
+
+Plain comparison is enabled by the default policy. Deep tracking also requires Flow Starter, the Flow annotation aspect, an explicit Compare opt-in, and `deepTracking = true` on the method:
+
+```yaml
+tfi:
+  annotation:
+    enabled: true
+  compare:
     tracking:
       enabled: true
-    masking:
-      additional-rules:
-        - "PROPERTY:customerSecret"
 ```
 
-Default port: **19090**
+```java
+import com.syy.taskflowinsight.annotation.TfiTask;
 
----
+@TfiTask(
+        value = "order.submit",
+        deepTracking = true,
+        logArgs = false,
+        logResult = false)
+public OrderResult submit(OrderCommand command) {
+    return orderService.submit(command);
+}
+```
 
-## 🧪 CI/CD
+### Ops
 
-Each module has its own GitHub Actions CI workflow:
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-ops-spring</artifactId>
+    <version>${tfi.version}</version>
+</dependency>
+```
 
-| Workflow | Module | Scope |
-|----------|--------|-------|
-| tfi-kernel CI | tfi-kernel | Verify + JaCoCo + Static Analysis + Sample Compile |
-| tfi-kernel Strict Perf Gate | tfi-kernel | Fixed-runner JMH + exact Failsafe execution check |
-| tfi-flow-core CI | tfi-flow-core | Test + JaCoCo + Static Analysis |
-| tfi-flow-spring-starter CI | tfi-flow-spring-starter | Test + JaCoCo + Static Analysis |
-| tfi-compare CI | tfi-compare | Test + JaCoCo + Static Analysis + OWASP |
-| tfi-ops-spring CI | tfi-ops-spring | Test + JaCoCo + Static Analysis |
-| tfi-examples CI | tfi-examples | Compile + Test |
-| tfi-all CI | tfi-all | Test + JaCoCo + Static Analysis + API Compat |
-| TFI Routing Perf Gate | tfi-examples + tfi-all | JMH Benchmark + Perf Gate |
+Ops depends on Flow Core and treats Compare as optional. For auto-configured Compare observation, also use `tfi-compare-spring-starter`, or provide one local Compare runtime and engine graph yourself.
 
----
+The current snapshot auto-registers only the Compare version guard, observation decorator, and health composition. Plain `tfi-compare` does not create the Spring beans required by that composition.
 
-## 📚 Documentation
+Other endpoint, store, and performance classes require explicit application wiring. Adding the dependency alone does not expose those endpoints or create a store.
 
-### User Guides
-- [📖 Quick Start Guide](QUICKSTART.md) - Get started in 3 minutes
-- [📘 Getting Started](GETTING-STARTED.md) - Comprehensive tutorial
-- [💡 11 Real-World Examples](EXAMPLES.md) - E-commerce, workflow, finance, gaming
+Actuator exposure and endpoint access still require Spring management settings and application security. Review both before exposing an endpoint outside a trusted network.
 
-### Reference
-- [🔧 v3→v4 Migration Guide](docs/MIGRATION_GUIDE_v3_to_v4.md)
-- [🏛️ Architecture Overview](CLAUDE.md) - System design & principles
-- [tfi-kernel Design](tfi-kernel/docs/design-doc.md) - RC boundaries, lifecycle, output, and release gates
-- [tfi-flow/1 Schema](tfi-kernel/docs/schema.md) - Canonical JSON field semantics
+## Slim composition preview
 
-### Support
-- [❓ FAQ](FAQ.md) - Common questions
-- [🩺 Troubleshooting](TROUBLESHOOTING.md) - Diagnostic procedures
-- [🐛 GitHub Issues](https://github.com/shiyongyin/TaskFlowInsight/issues) - Bug reports & feature requests
+The slim line is a new runtime model, not a drop-in replacement for the complete line. It does not carry the complete line's compatibility facades, global provider lookup, default background facilities, or Ops surface.
 
----
+Before the Kernel and slim-composition release gates close, use this line only for source pilots. API changes and migration work are still possible.
 
-## 🗺️ Roadmap
+### Kernel only
 
-### ✅ v3.0.0 (Current Stable)
-- **Unified architecture**: DiffFacade + SnapshotProvider (Spring/non-Spring auto-switch)
-- **Full type system**: `@Entity`, `@Key`, `@NumericPrecision`, `@DateFormat`, `@CustomComparator`
-- **Advanced comparison**: EntityListStrategy (move detection), LCS algorithm, precision control
-- **Path system**: PathDeduplicator for clean diff output
-- **Monitoring**: DegradationManager (adaptive load), Prometheus metrics
-- **Testing**: JUnit 5 suites with JaCoCo and module-specific CI gates
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-kernel</artifactId>
+    <version>${tfi.version}</version>
+</dependency>
+```
 
-### 🔨 v4.0.0 (In Development)
-- One canonical Compare execution graph; no public standalone snapshot or reflective path navigator API
-- `tfi-kernel` RC pilot and evidence-gated 1.0 API decision
-- Provider routing mechanism (`tfi.api.routing`)
-- Multi-module Maven architecture
-- Per-module CI/CD pipelines
-- Reference semantic enhancements
+```java
+import com.syy.tfi.kernel.KernelConfig;
+import com.syy.tfi.kernel.KernelRuntime;
+import com.syy.tfi.kernel.Stage;
 
----
+try (KernelRuntime runtime = KernelRuntime.create(KernelConfig.defaults());
+     Stage flow = runtime.begin("order.submit")) {
+    flow.attr("requestId", "req-1001");
+    String state = runtime.call("inventory.reserve", () -> "RESERVED");
+    flow.change("order.status", "CREATED", state);
 
-## 🤝 Contributing
+    String activeSnapshot = runtime.currentToJson();
+}
+```
+
+Resources close in reverse declaration order, so the stage closes before the runtime. The default configuration has no `FlowSink`; it does not emit logs, write files, publish to queues, or make network requests.
+
+Use a configured synchronous `FlowSink` to receive a frozen completed session. The host application owns masking, timeout, retry, persistence, and data-egress policy.
+
+### Compare Core only
+
+After installing this checkout locally, use the preview artifact only in an isolated source pilot:
+
+```xml
+<dependency>
+    <groupId>com.syy</groupId>
+    <artifactId>tfi-compare-core</artifactId>
+    <version>${tfi.version}</version>
+</dependency>
+```
+
+Use `CompareRuntime.defaults().engine()` and keep business code typed to `CompareOperations`, as shown above.
+
+Do not include `tfi-compare-core` with `tfi-compare`. Core intentionally omits the complete module's Flow dependency, compatibility facade, SPI integration, tracking adapters, query helpers, and other peripheral APIs.
+
+### Kernel + Compare bridge
+
+`tfi-kernel-compare` accepts a host-selected `CompareOperations` and records a bounded summary plus optional masked detail into the current Kernel `Stage`.
+
+The bridge is for observability. Business decisions must use the returned `CompareResult` directly and must not depend on whether a record fit within the Kernel budget.
+
+The slim Spring starter assembles `KernelRuntime`, Compare Core, and `KernelCompareRecorder`. Business code can inject the runtime, `CompareOperations`, and recorder:
+
+```java
+import com.syy.taskflowinsight.api.CompareOperations;
+import com.syy.taskflowinsight.tracking.compare.CompareResult;
+import com.syy.tfi.kernel.KernelRuntime;
+import com.syy.tfi.kernel.Stage;
+import com.syy.tfi.kernel.compare.KernelCompareRecorder;
+
+try (Stage flow = kernelRuntime.begin("order.update")) {
+    CompareResult result = compare.compare(before, after);
+    recorder.record(flow, "order.update", result);
+
+    var outcome = result.getOutcome();
+    var completion = result.getCompletion();
+}
+```
+
+This starter is an internal release candidate. Build it only inside this reactor for evaluation.
+
+Do not add it to a production dependency set until the [KCS-10 release gate](docs/task/tfi-kernel-compare-integration/TASK-KCS-10-consumer-release-and-reactor-gates.md) and owner decision are complete.
+
+Optional AOP additionally requires `spring-boot-starter-aop` and is disabled by default:
+
+```yaml
+tfi:
+  kernel-compare:
+    aop:
+      enabled: true
+```
+
+```java
+import com.syy.tfi.kernel.compare.spring.annotation.TfiTrackTarget;
+import com.syy.tfi.kernel.compare.spring.annotation.TfiTracked;
+
+@TfiTracked(operation = "order.update")
+public void update(@TfiTrackTarget("order") Order order) {
+    order.markPaid();
+}
+```
+
+The target must be non-null. The default record policy writes summaries only, and an AOP record is an in-memory observation, not proof that an enclosing transaction committed.
+
+## Scope and trade-offs
+
+| Dimension | Full aggregate | Selective complete line | Slim composition preview |
+|---|---|---|---|
+| Included scope | Flow, Compare, both Spring starters, Ops, unified facade | Only selected complete-line capabilities | Kernel, Compare Core, bridge, optional Spring composition |
+| Flow model | Session, Task, Message, Provider, Context, async propagation | Same model when Flow is selected | Session, Stage, Record, explicit calls, synchronous sink |
+| Compare scope | Complete Compare APIs and integrations | Same Compare module when selected | Core truth, bounds, typed paths, and canonical projection |
+| Spring model | Broad auto-configuration surface | Only selected starters | One composition per Spring ApplicationContext; AOP optional and off by default |
+| Operational capabilities | Ops module and implementation types included | Add and wire Ops only when needed | Not provided |
+| API compatibility | Unified `TFI` facade and compatibility entry points | Current module APIs | New APIs; not an in-place replacement |
+| Dependency cost | Widest | Narrower and controllable | Smallest intended runtime boundary |
+| Migration cost | Lowest for existing TFI users | Low to moderate | High; application integration must be redesigned |
+| Current maturity | Source snapshot, current complete feature line | Source snapshot, current recommended modular use | RC / internal technical preview |
+
+The full aggregate optimizes integration convenience. Selective modules make dependency ownership explicit without changing the current model.
+
+The slim line optimizes explicit boundaries and bounded behavior, at the cost of compatibility and maturity.
+
+## Recommendations
+
+1. **Existing TFI application:** stay on the complete line. Move from the aggregate to selected modules only when the dependency reduction is worth testing the new composition.
+2. **New Spring application:** start with the specific Flow or Compare starter. Add Ops only for a concrete operational requirement.
+3. **Pure Java flow recording:** use `tfi-flow-core` for the current complete model. Evaluate `tfi-kernel` only when its smaller explicit model is the actual requirement and RC change is acceptable.
+4. **Pure object comparison:** use `tfi-compare` today. Evaluate `tfi-compare-core` only from source and only on a classpath that excludes `tfi-compare`.
+5. **Need every complete-line capability:** use `TaskFlowInsight`; its convenience is valuable when most of the aggregate is used.
+6. **Need slim Flow + Compare:** run a controlled source pilot. Do not present the bridge or slim starter as a released production option before the final gates pass.
+
+When uncertain, select a module by ownership rather than by artifact count: Flow owns execution structure, Compare owns object truth, Spring starters own container wiring, and Ops owns exposure and storage.
+
+## Configuration and operational boundaries
+
+| Prefix or switch | Owner | Important behavior |
+|---|---|---|
+| `tfi.annotation.enabled` | Flow Spring Starter | Enables `@TfiTask` AOP; default is off |
+| `tfi.context.*` | Flow Spring Starter | Context lifecycle and propagation settings |
+| `tfi.security.*` | Flow Spring Starter | Flow-side masking and security settings |
+| `tfi.compare.*` | Compare Spring Starter or slim starter | Immutable comparison policy and resource limits |
+| `tfi.compare.tracking.enabled` | Compare Spring Starter | Connects Compare to Flow tracking; default is off and Flow Starter is required |
+| `tfi.kernel.*` | Slim Spring starter | Kernel enablement and four resource budgets; SPI implementations and sinks are local beans |
+| `tfi.kernel-compare.*` | Slim Spring starter | Bridge and optional AOP settings; AOP is off by default |
+| `tfi.store.*`, `tfi.actuator.*`, `tfi.endpoint.*` | Ops | Settings for explicitly wired stores and endpoints; review each component's own default |
+
+Configuration cannot replace boundary design. Set finite comparison and sink budgets, keep sensitive values out of labels, and expose operational endpoints only through the application's authentication and network controls.
+
+Performance depends on object shape, path rules, sampling, sinks, JDK, and hardware. Re-run the repository workloads on the target environment instead of copying a benchmark number into a service SLO.
+
+## Example application
+
+`tfi-examples` is the runnable Spring Boot module. Start it from the repository root:
 
 ```bash
-git clone https://github.com/shiyongyin/TaskFlowInsight.git
-cd TaskFlowInsight
-./mvnw clean install           # Build all modules
-./mvnw test -pl tfi-compare    # Run specific module tests
+JAVA_TOOL_OPTIONS="-Dspring.profiles.active=local" \
+  ./mvnw -pl tfi-examples spring-boot:run
 ```
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+The example application listens on port `19090` by default. It is a consumer of the library modules and must not be added as an application dependency.
 
----
+## Build, tests, and CI/CD
 
-## 📄 License
+### Local commands
 
-TaskFlowInsight is open-source software released under the [Apache 2.0 License](LICENSE).
+```bash
+# Fast unit and slice-test loop
+./mvnw test
 
----
+# One module plus required upstream modules
+./mvnw -pl tfi-flow-core -am test
 
-## 🙏 Acknowledgments
+# Full reactor tests, module quality gates, and packaging
+./mvnw clean verify
 
-Built with best-in-class technologies:
-- [Spring Boot](https://spring.io/projects/spring-boot) - Enterprise application framework
-- [Caffeine](https://github.com/ben-manes/caffeine) - High-performance caching library
-- [Micrometer](https://micrometer.io/) - Vendor-neutral metrics facade
-- Inspired by [JaVers](https://javers.org/) - Object audit and diff framework
+# Build module artifacts without cleaning
+./mvnw package
+```
 
----
+Each module owns its Maven quality configuration. In particular, `tfi-flow-core` has module-specific JaCoCo, SpotBugs, and Checkstyle gates.
 
-<div align="center">
+PMD and reports from other modules must be interpreted against their owning POMs.
 
-**TaskFlowInsight** — Business-First Observability for Java
+API compatibility checks use the owning module's `api-compat` profile and are run explicitly by the relevant CI workflows; they are not implied by the base command above.
 
-*If TFI helps you, please give us a ⭐ on GitHub*
+### CI and release gates
 
-[Docs](GETTING-STARTED.md) | [Examples](EXAMPLES.md) | [GitHub](https://github.com/shiyongyin/TaskFlowInsight) | [Issues](https://github.com/shiyongyin/TaskFlowInsight/issues)
+| Workflow | Scope |
+|---|---|
+| [`tfi-kernel-ci.yml`](.github/workflows/tfi-kernel-ci.yml) | Kernel verification, reactor regression, example, benchmark report, and candidate artifact |
+| [`tfi-kernel-perf-gate.yml`](.github/workflows/tfi-kernel-perf-gate.yml) | Manual `tfi-kernel Strict Perf Gate` on a fixed self-hosted runner |
+| [`tfi-flow-core-ci.yml`](.github/workflows/tfi-flow-core-ci.yml) | Flow Core tests, coverage, consumers, compatibility, and static analysis |
+| [`tfi-compare-ci.yml`](.github/workflows/tfi-compare-ci.yml) | Compare verification, dependency audit, compatibility, consumers, and release evidence |
+| [`tfi-compare-allocation-gate.yml`](.github/workflows/tfi-compare-allocation-gate.yml) | Compare shared-source and slim-composition allocation budgets |
+| [`tfi-flow-spring-starter-ci.yml`](.github/workflows/tfi-flow-spring-starter-ci.yml) | Flow Spring Starter checks |
+| [`tfi-ops-spring-ci.yml`](.github/workflows/tfi-ops-spring-ci.yml) | Ops checks |
+| [`tfi-all-ci.yml`](.github/workflows/tfi-all-ci.yml) | Aggregate tests, compatibility, and analysis |
+| [`tfi-examples-ci.yml`](.github/workflows/tfi-examples-ci.yml) | Example compilation and tests |
+| [`perf-gate.yml`](.github/workflows/perf-gate.yml) | Strict routing and legacy JMH regression gates |
 
-</div>
+Not every reactor module has a separate workflow. Some internal and Spring modules are covered through composition, consumer, allocation, or aggregate gates.
+
+There is currently no CD workflow that deploys Maven artifacts, creates tags, or publishes releases. A successful `package` or CI run produces evidence and candidate artifacts only.
+
+## Documentation
+
+Use current module-owned documents as the source of truth. Files under `docs/product/architecture/` are historical background and must not drive implementation.
+
+| Area | Current entry points |
+|---|---|
+| Flow Core | [Documentation index](tfi-flow-core/docs/index.md), [architecture SSOT](tfi-flow-core/docs/design-doc.md) |
+| Complete Compare | [Documentation index](tfi-compare/docs/index.md), [architecture SSOT](tfi-compare/docs/design-doc.md) |
+| Kernel | [Design](tfi-kernel/docs/design-doc.md), [JSON schema](tfi-kernel/docs/schema.md), [API inventory](tfi-kernel/docs/api-inventory.md) |
+| Compare Core | [Design boundary](tfi-compare-core/docs/design-doc.md) |
+| Kernel/Compare bridge | [Internal status and navigation](tfi-kernel-compare/docs/index.md) |
+| Slim Spring composition | [Internal status](tfi-kernel-compare-spring-starter/docs/index.md), [migration boundary](tfi-kernel-compare-spring-starter/docs/migration.md) |
+
+## Contributing and license
+
+Keep changes focused and update matching tests and the owning architecture document when behavior changes. Run `./mvnw test` before submitting a pull request.
+
+Include the exact verification command and result in the pull request description.
+
+TaskFlowInsight is licensed under the [Apache License 2.0](LICENSE).

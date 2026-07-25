@@ -200,14 +200,14 @@ class KernelBuildContractTest {
                 .contains("FlowSink.accept(FlowSession)");
         assertThat(example).isRegularFile();
         assertThat(Files.readString(root.resolve("README.md")))
-                .contains("8 reactor modules")
+                .contains("11 reactor modules")
                 .contains("TaskFlowInsight 4.0 RC train")
-                .contains("first stable API baseline is 1.0")
+                .contains("targets 1.0 as its first stable API baseline")
                 .contains("tfi-kernel Strict Perf Gate");
         assertThat(Files.readString(root.resolve("README.zh-CN.md")))
-                .contains("8 个 reactor 模块")
+                .contains("11 个 reactor 模块")
                 .contains("TaskFlowInsight 4.0 版本列车进入 RC")
-                .contains("首个稳定 API 基线是 1.0")
+                .contains("首个稳定 API 基线目标为 1.0")
                 .contains("tfi-kernel Strict Perf Gate");
         assertThat(workflow).isRegularFile();
         assertThat(Files.readString(workflow))
