@@ -91,7 +91,7 @@ starter/CI回滚不得删除manifest证据或静默降级strict gate。发布后
 - [ADR-011](ADR-011-Compare-Compatibility-And-Result-Truth.md)
 - [ADR-012](ADR-012-Compare-Kernel-And-Collection-Semantics.md)
 - [ADR-013](ADR-013-Compare-Tracking-Provider-And-Spring-Composition.md)
-- [第二轮红队报告](../../tfi-compare/docs/convergence-review/second-red-team-review.md)
+- [Compare 收敛完成审核](../../tfi-compare/docs/convergence-review/completion-review.md)
 
 ## Implementation Evidence
 

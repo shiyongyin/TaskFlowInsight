@@ -209,12 +209,14 @@ class CompareBuildConfigurationContractTests {
         Path trackingTests = root.resolve(
                 "tfi-all/src/test/java/com/syy/taskflowinsight/tracking");
 
-        List<Path> residualTests;
-        try (var paths = Files.walk(trackingTests)) {
-            residualTests = paths
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(".java"))
-                    .toList();
+        List<Path> residualTests = List.of();
+        if (Files.isDirectory(trackingTests)) {
+            try (var paths = Files.walk(trackingTests)) {
+                residualTests = paths
+                        .filter(Files::isRegularFile)
+                        .filter(path -> path.getFileName().toString().endsWith(".java"))
+                        .toList();
+            }
         }
         assertThat(residualTests)
                 .as("Compare实现测试必须由tfi-compare拥有，tfi-all只保留公开facade消费者合同")

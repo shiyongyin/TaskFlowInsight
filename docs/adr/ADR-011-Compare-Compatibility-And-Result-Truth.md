@@ -83,7 +83,7 @@ changes是否为空或japicmp都无法表达全部行为破坏。
 ## Links
 
 - [Compare 当前架构 SSOT](../../tfi-compare/docs/design-doc.md)
-- [第二轮红队报告](../../tfi-compare/docs/convergence-review/second-red-team-review.md)
+- [Compare 收敛完成审核](../../tfi-compare/docs/convergence-review/completion-review.md)
 - [ADR-012](ADR-012-Compare-Kernel-And-Collection-Semantics.md)
 - [ADR-013](ADR-013-Compare-Tracking-Provider-And-Spring-Composition.md)
 - [ADR-014](ADR-014-Compare-Projection-Config-And-Quality.md)

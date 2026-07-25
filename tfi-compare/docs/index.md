@@ -24,9 +24,7 @@ ADR 保存决策原因与 accepted token；当前实现事实以[当前架构 SS
 - [`breaking-changes-v4.json`](../src/test/resources/compatibility/breaking-changes-v4.json)：API、resource、config、schema 与 behavior 变更清单。
 - [实施任务索引](ssot-convergence-task/INDEX.md)：Wave、owner、消费者矩阵、任务状态与历史验证证据。
 - [发布加固任务索引](release-hardening-task/INDEX.md)：XRT-01..04 remediation、依赖顺序与 fresh release-readiness 复验入口。
-- [红队复核](convergence-review/red-team-review.md)：设计期反证记录。
-- [二次红队复核](convergence-review/second-red-team-review.md)：设计收敛复核记录。
-- [抽取实现与发布就绪红队审查](convergence-review/extraction-red-team-review-2026-07-16.md)：当前制品、真实 Boot 组合与发布阻断记录。
+- [收敛完成审核](convergence-review/completion-review.md)：实现、消费者、质量门禁与发布边界的终态复核。
 
 ## 机器合同入口
 
